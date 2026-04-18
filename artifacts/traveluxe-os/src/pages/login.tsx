@@ -27,7 +27,7 @@ export default function Login() {
       });
 
       if (authError || !authData.session) {
-        setError("Invalid email or password");
+        setError(authError?.message ?? "Invalid email or password");
         return;
       }
 
@@ -41,19 +41,18 @@ export default function Login() {
         .single();
 
       if (userError || !userData) {
-        setError("Account not found. Please contact your administrator.");
-        return;
-      }
-
-      if (!userData.role) {
-        setError("Your account has not been set up properly. Please contact your administrator.");
+        setError("Account not found in the system. Please contact your administrator.");
         return;
       }
 
       login({ id: userData.id, name: userData.name, email: userData.email, role: userData.role });
       setLocation("/");
-    } catch {
-      setError("Unable to connect. Please try again.");
+    } catch (err: any) {
+      if (err?.message?.includes("VITE_SUPABASE_URL") || err?.message?.includes("VITE_SUPABASE_ANON_KEY")) {
+        setError("Supabase is not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in Secrets.");
+      } else {
+        setError("Unable to connect. Please check your credentials and try again.");
+      }
     } finally {
       setLoading(false);
     }
