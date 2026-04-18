@@ -5,12 +5,27 @@ let _client: SupabaseClient | null = null;
 function getClient(): SupabaseClient {
   if (_client) return _client;
 
-  const supabaseUrl = process.env.VITE_SUPABASE_URL;
-  const supabaseAnonKey = process.env.VITE_SUPABASE_ANON_KEY;
+  const supabaseUrl = (
+    process.env.SUPABASE_URL ||
+    process.env.VITE_SUPABASE_URL ||
+    ""
+  ).trim();
 
-  if (!supabaseUrl || !supabaseAnonKey) {
+  const supabaseAnonKey = (
+    process.env.SUPABASE_ANON_KEY ||
+    process.env.VITE_SUPABASE_ANON_KEY ||
+    ""
+  ).trim();
+
+  if (!supabaseUrl || !supabaseUrl.startsWith("http")) {
     throw new Error(
-      "Missing Supabase environment variables: VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY must be set."
+      "Missing or invalid SUPABASE_URL environment variable. Must be a valid https:// URL."
+    );
+  }
+
+  if (!supabaseAnonKey) {
+    throw new Error(
+      "Missing SUPABASE_ANON_KEY environment variable."
     );
   }
 

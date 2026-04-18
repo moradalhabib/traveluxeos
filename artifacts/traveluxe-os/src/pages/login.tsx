@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -20,22 +21,36 @@ export default function Login() {
     setLoading(true);
 
     try {
-      const base = import.meta.env.BASE_URL.replace(/\/$/, "");
-      const res = await fetch(`${base}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email,
+        password,
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        setError(data.error ?? "Invalid email or password");
+      if (authError || !authData.session) {
+        setError("Invalid email or password");
         return;
       }
 
-      const data = await res.json();
-      localStorage.setItem("traveluxe_token", data.token);
-      login({ id: data.user.id, name: data.user.name, email: data.user.email, role: data.user.role });
+      const token = authData.session.access_token;
+      localStorage.setItem("traveluxe_token", token);
+
+      const { data: userData, error: userError } = await supabase
+        .from("users")
+        .select("id, name, email, role")
+        .eq("id", authData.user.id)
+        .single();
+
+      if (userError || !userData) {
+        setError("Account not found. Please contact your administrator.");
+        return;
+      }
+
+      if (!userData.role) {
+        setError("Your account has not been set up properly. Please contact your administrator.");
+        return;
+      }
+
+      login({ id: userData.id, name: userData.name, email: userData.email, role: userData.role });
       setLocation("/");
     } catch {
       setError("Unable to connect. Please try again.");
