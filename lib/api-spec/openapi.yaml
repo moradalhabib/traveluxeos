@@ -3,20 +3,48 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Traveluxe OS API specification
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: dashboard
+    description: Dashboard summary
+  - name: clients
+    description: Client management
+  - name: quotes
+    description: Quote management
+  - name: bookings
+    description: Booking management
+  - name: drivers
+    description: Driver management
+  - name: commissions
+    description: Commission tracking
+  - name: invoices
+    description: Invoice management
+  - name: messages
+    description: Internal messaging
+  - name: tasks
+    description: Task management
+  - name: users
+    description: User management
+  - name: audit
+    description: Audit log
+  - name: search
+    description: Global search
+  - name: finance
+    description: Finance reports
+  - name: flight
+    description: Flight status
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +52,862 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get dashboard summary stats
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /clients:
+    get:
+      operationId: listClients
+      tags: [clients]
+      summary: List all clients
+      parameters:
+        - name: search
+          in: query
+          schema:
+            type: string
+        - name: vip_tier
+          in: query
+          schema:
+            type: string
+        - name: inactive
+          in: query
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of clients
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Client"
+    post:
+      operationId: createClient
+      tags: [clients]
+      summary: Create a new client
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClientBody"
+      responses:
+        "201":
+          description: Created client
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+
+  /clients/{id}:
+    get:
+      operationId: getClient
+      tags: [clients]
+      summary: Get a client by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Client details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ClientWithHistory"
+    put:
+      operationId: updateClient
+      tags: [clients]
+      summary: Update a client
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateClientBody"
+      responses:
+        "200":
+          description: Updated client
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+
+  /clients/check-duplicate:
+    get:
+      operationId: checkClientDuplicate
+      tags: [clients]
+      summary: Check for duplicate client by WhatsApp or email
+      parameters:
+        - name: whatsapp
+          in: query
+          schema:
+            type: string
+        - name: email
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Duplicate check result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DuplicateCheckResult"
+
+  /clients/merge:
+    post:
+      operationId: mergeClients
+      tags: [clients]
+      summary: Merge two client profiles
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MergeClientsBody"
+      responses:
+        "200":
+          description: Merged client
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Client"
+
+  /quotes:
+    get:
+      operationId: listQuotes
+      tags: [quotes]
+      summary: List all quotes
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: client_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of quotes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Quote"
+    post:
+      operationId: createQuote
+      tags: [quotes]
+      summary: Create a new quote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateQuoteBody"
+      responses:
+        "201":
+          description: Created quote
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quote"
+
+  /quotes/{id}:
+    get:
+      operationId: getQuote
+      tags: [quotes]
+      summary: Get a quote by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Quote details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quote"
+    put:
+      operationId: updateQuote
+      tags: [quotes]
+      summary: Update a quote
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateQuoteBody"
+      responses:
+        "200":
+          description: Updated quote
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Quote"
+
+  /quotes/{id}/convert:
+    post:
+      operationId: convertQuoteToBooking
+      tags: [quotes]
+      summary: Convert a quote to a booking
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Created booking from quote
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+
+  /bookings:
+    get:
+      operationId: listBookings
+      tags: [bookings]
+      summary: List all bookings
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: service_type
+          in: query
+          schema:
+            type: string
+        - name: date_from
+          in: query
+          schema:
+            type: string
+        - name: date_to
+          in: query
+          schema:
+            type: string
+        - name: driver_id
+          in: query
+          schema:
+            type: string
+        - name: operator_id
+          in: query
+          schema:
+            type: string
+        - name: payment_status
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of bookings
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Booking"
+    post:
+      operationId: createBooking
+      tags: [bookings]
+      summary: Create a new booking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookingBody"
+      responses:
+        "201":
+          description: Created booking
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+
+  /bookings/{id}:
+    get:
+      operationId: getBooking
+      tags: [bookings]
+      summary: Get a booking by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Booking details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BookingDetail"
+    put:
+      operationId: updateBooking
+      tags: [bookings]
+      summary: Update a booking
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBookingBody"
+      responses:
+        "200":
+          description: Updated booking
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+
+  /bookings/{id}/cancel:
+    post:
+      operationId: cancelBooking
+      tags: [bookings]
+      summary: Cancel a booking
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelBookingBody"
+      responses:
+        "200":
+          description: Cancelled booking
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+
+  /bookings/{id}/status:
+    put:
+      operationId: updateBookingStatus
+      tags: [bookings]
+      summary: Update booking status
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateStatusBody"
+      responses:
+        "200":
+          description: Updated booking
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+
+  /bookings/{id}/waiting-time:
+    post:
+      operationId: addWaitingTime
+      tags: [bookings]
+      summary: Add waiting time charge to a booking
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WaitingTimeBody"
+      responses:
+        "200":
+          description: Updated booking
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+
+  /bookings/{id}/return:
+    post:
+      operationId: createReturnJourney
+      tags: [bookings]
+      summary: Create a return journey for a booking
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "201":
+          description: Created return booking
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Booking"
+
+  /drivers:
+    get:
+      operationId: listDrivers
+      tags: [drivers]
+      summary: List all drivers
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of drivers
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Driver"
+    post:
+      operationId: createDriver
+      tags: [drivers]
+      summary: Create a new driver
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDriverBody"
+      responses:
+        "201":
+          description: Created driver
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Driver"
+
+  /drivers/{id}:
+    get:
+      operationId: getDriver
+      tags: [drivers]
+      summary: Get a driver by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Driver details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriverDetail"
+    put:
+      operationId: updateDriver
+      tags: [drivers]
+      summary: Update a driver
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateDriverBody"
+      responses:
+        "200":
+          description: Updated driver
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Driver"
+
+  /drivers/{id}/rate:
+    post:
+      operationId: rateDriver
+      tags: [drivers]
+      summary: Rate a driver after a completed job
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RateDriverBody"
+      responses:
+        "201":
+          description: Rating created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DriverRating"
+
+  /commissions:
+    get:
+      operationId: listCommissions
+      tags: [commissions]
+      summary: Get commission summary
+      responses:
+        "200":
+          description: Commission summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CommissionSummary"
+
+  /commissions/settlements:
+    post:
+      operationId: createSettlement
+      tags: [commissions]
+      summary: Create a commission settlement for a driver
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateSettlementBody"
+      responses:
+        "201":
+          description: Settlement created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Settlement"
+
+  /commissions/payouts:
+    post:
+      operationId: createPayout
+      tags: [commissions]
+      summary: Create a driver payout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePayoutBody"
+      responses:
+        "201":
+          description: Payout created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Payout"
+
+  /invoices:
+    get:
+      operationId: listInvoices
+      tags: [invoices]
+      summary: List all invoices
+      responses:
+        "200":
+          description: List of invoices
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Invoice"
+
+  /invoices/generate:
+    post:
+      operationId: generateInvoice
+      tags: [invoices]
+      summary: Generate an invoice for a booking
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GenerateInvoiceBody"
+      responses:
+        "201":
+          description: Invoice generated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Invoice"
+
+  /messages:
+    get:
+      operationId: listMessages
+      tags: [messages]
+      summary: List messages for a channel or DM
+      parameters:
+        - name: channel
+          in: query
+          schema:
+            type: string
+        - name: recipient_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of messages
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Message"
+    post:
+      operationId: sendMessage
+      tags: [messages]
+      summary: Send a message
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SendMessageBody"
+      responses:
+        "201":
+          description: Message sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Message"
+
+  /tasks:
+    get:
+      operationId: listTasks
+      tags: [tasks]
+      summary: List all tasks
+      responses:
+        "200":
+          description: List of tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+    post:
+      operationId: createTask
+      tags: [tasks]
+      summary: Create a task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTaskBody"
+      responses:
+        "201":
+          description: Task created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /tasks/{id}/complete:
+    put:
+      operationId: completeTask
+      tags: [tasks]
+      summary: Mark a task as complete
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Task completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+
+  /users:
+    get:
+      operationId: listUsers
+      tags: [users]
+      summary: List all users (admin only)
+      responses:
+        "200":
+          description: List of users
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/User"
+
+  /audit-log:
+    get:
+      operationId: listAuditLog
+      tags: [audit]
+      summary: Get audit log entries (admin only)
+      parameters:
+        - name: operator_id
+          in: query
+          schema:
+            type: string
+        - name: action_type
+          in: query
+          schema:
+            type: string
+        - name: date_from
+          in: query
+          schema:
+            type: string
+        - name: date_to
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Audit log entries
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditEntry"
+
+  /search:
+    get:
+      operationId: globalSearch
+      tags: [search]
+      summary: Global search across clients, bookings, drivers
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Search results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SearchResults"
+
+  /finance/summary:
+    get:
+      operationId: getFinanceSummary
+      tags: [finance]
+      summary: Get finance summary (admin only)
+      parameters:
+        - name: date_from
+          in: query
+          schema:
+            type: string
+        - name: date_to
+          in: query
+          schema:
+            type: string
+        - name: service_type
+          in: query
+          schema:
+            type: string
+        - name: operator_id
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Finance summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FinanceSummary"
+
+  /flight-status/{flight_number}:
+    get:
+      operationId: getFlightStatus
+      tags: [flight]
+      summary: Get live flight status
+      parameters:
+        - name: flight_number
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: date
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Flight status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FlightStatus"
+
+  /flight-tracker:
+    get:
+      operationId: listFlightTracker
+      tags: [flight]
+      summary: List today and tomorrow arrival bookings with flight status
+      responses:
+        "200":
+          description: Flight tracker data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FlightTrackerEntry"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +918,897 @@ components:
       required:
         - status
 
+    DashboardSummary:
+      type: object
+      properties:
+        bookings_today:
+          type: integer
+        bookings_this_week:
+          type: integer
+        bookings_this_month:
+          type: integer
+        revenue_today:
+          type: number
+        revenue_this_week:
+          type: number
+        revenue_this_month:
+          type: number
+        active_jobs:
+          type: integer
+        jobs_without_driver:
+          type: integer
+        pending_payments:
+          type: integer
+        outstanding_commissions:
+          type: number
+        pending_payouts:
+          type: number
+        top_clients:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClientStat"
+        top_drivers:
+          type: array
+          items:
+            $ref: "#/components/schemas/DriverStat"
+        booking_sources:
+          type: array
+          items:
+            $ref: "#/components/schemas/BookingSourceStat"
+      required:
+        - bookings_today
+        - bookings_this_week
+        - bookings_this_month
+        - revenue_today
+        - revenue_this_week
+        - revenue_this_month
+        - active_jobs
+        - jobs_without_driver
+        - pending_payments
+        - outstanding_commissions
+        - pending_payouts
+        - top_clients
+        - top_drivers
+        - booking_sources
+
+    ClientStat:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        total_bookings:
+          type: integer
+        total_spent:
+          type: number
+      required: [id, name, total_bookings, total_spent]
+
+    DriverStat:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        total_jobs:
+          type: integer
+        avg_rating:
+          type: number
+      required: [id, name, total_jobs, avg_rating]
+
+    BookingSourceStat:
+      type: object
+      properties:
+        source:
+          type: string
+        count:
+          type: integer
+      required: [source, count]
+
+    Client:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        whatsapp:
+          type: string
+        email:
+          type: string
+        nationality:
+          type: string
+        language_preference:
+          type: string
+        vip_tier:
+          type: string
+        notes:
+          type: string
+        inactive:
+          type: boolean
+        created_at:
+          type: string
+        created_by:
+          type: string
+        total_bookings:
+          type: integer
+        total_spent:
+          type: number
+        last_booking_date:
+          type: string
+      required: [id, name, whatsapp, vip_tier]
+
+    ClientWithHistory:
+      allOf:
+        - $ref: "#/components/schemas/Client"
+        - type: object
+          properties:
+            bookings:
+              type: array
+              items:
+                $ref: "#/components/schemas/Booking"
+
+    CreateClientBody:
+      type: object
+      properties:
+        name:
+          type: string
+        whatsapp:
+          type: string
+        email:
+          type: string
+        nationality:
+          type: string
+        language_preference:
+          type: string
+        vip_tier:
+          type: string
+        notes:
+          type: string
+        inactive:
+          type: boolean
+      required: [name, whatsapp, vip_tier]
+
+    DuplicateCheckResult:
+      type: object
+      properties:
+        found:
+          type: boolean
+        client:
+          $ref: "#/components/schemas/Client"
+        match_type:
+          type: string
+      required: [found]
+
+    MergeClientsBody:
+      type: object
+      properties:
+        primary_id:
+          type: string
+        secondary_id:
+          type: string
+      required: [primary_id, secondary_id]
+
+    Quote:
+      type: object
+      properties:
+        id:
+          type: string
+        client_id:
+          type: string
+        client_name:
+          type: string
+        service_type:
+          type: string
+        direction:
+          type: string
+        pickup:
+          type: string
+        dropoff:
+          type: string
+        date_time:
+          type: string
+        passengers:
+          type: integer
+        vehicle_type:
+          type: string
+        duration:
+          type: number
+        destination:
+          type: string
+        price:
+          type: number
+        status:
+          type: string
+        notes:
+          type: string
+        created_at:
+          type: string
+        created_by:
+          type: string
+      required: [id, service_type, price, status]
+
+    CreateQuoteBody:
+      type: object
+      properties:
+        client_id:
+          type: string
+        client_name:
+          type: string
+        service_type:
+          type: string
+        direction:
+          type: string
+        pickup:
+          type: string
+        dropoff:
+          type: string
+        date_time:
+          type: string
+        passengers:
+          type: integer
+        vehicle_type:
+          type: string
+        duration:
+          type: number
+        destination:
+          type: string
+        price:
+          type: number
+        status:
+          type: string
+        notes:
+          type: string
+      required: [service_type, price]
+
+    Booking:
+      type: object
+      properties:
+        id:
+          type: string
+        tvl_ref:
+          type: string
+        client_id:
+          type: string
+        client_name:
+          type: string
+        client_vip_tier:
+          type: string
+        quote_id:
+          type: string
+        service_type:
+          type: string
+        direction:
+          type: string
+        pickup:
+          type: string
+        dropoff:
+          type: string
+        destination:
+          type: string
+        flight_number:
+          type: string
+        date_time:
+          type: string
+        passengers:
+          type: integer
+        luggage:
+          type: integer
+        vehicle_type:
+          type: string
+        nameboard:
+          type: string
+        special_requests:
+          type: string
+        additional_charges:
+          type: number
+        price:
+          type: number
+        tvl_commission:
+          type: number
+        driver_receives:
+          type: number
+        commission_type:
+          type: string
+        payment_status:
+          type: string
+        payment_method:
+          type: string
+        commission_status:
+          type: string
+        payout_status:
+          type: string
+        source:
+          type: string
+        status:
+          type: string
+        operator_id:
+          type: string
+        operator_name:
+          type: string
+        driver_id:
+          type: string
+        driver_name:
+          type: string
+        driver_vehicle:
+          type: string
+        return_booking_id:
+          type: string
+        is_amended:
+          type: boolean
+        notes:
+          type: string
+        cancellation_reason:
+          type: string
+        cancellation_fee:
+          type: number
+        created_at:
+          type: string
+        updated_at:
+          type: string
+        created_by:
+          type: string
+        duration:
+          type: number
+      required: [id, tvl_ref, service_type, status, price]
+
+    BookingDetail:
+      allOf:
+        - $ref: "#/components/schemas/Booking"
+        - type: object
+          properties:
+            audit_log:
+              type: array
+              items:
+                $ref: "#/components/schemas/AuditEntry"
+            flight_status:
+              $ref: "#/components/schemas/FlightStatus"
+            invoice:
+              $ref: "#/components/schemas/Invoice"
+
+    CreateBookingBody:
+      type: object
+      properties:
+        client_id:
+          type: string
+        quote_id:
+          type: string
+        service_type:
+          type: string
+        direction:
+          type: string
+        pickup:
+          type: string
+        dropoff:
+          type: string
+        destination:
+          type: string
+        flight_number:
+          type: string
+        date_time:
+          type: string
+        passengers:
+          type: integer
+        luggage:
+          type: integer
+        vehicle_type:
+          type: string
+        nameboard:
+          type: string
+        special_requests:
+          type: string
+        additional_charges:
+          type: number
+        price:
+          type: number
+        tvl_commission:
+          type: number
+        payment_status:
+          type: string
+        payment_method:
+          type: string
+        source:
+          type: string
+        status:
+          type: string
+        driver_id:
+          type: string
+        return_booking_id:
+          type: string
+        notes:
+          type: string
+        duration:
+          type: number
+      required: [service_type, price, status]
+
+    CancelBookingBody:
+      type: object
+      properties:
+        reason:
+          type: string
+        cancellation_fee:
+          type: number
+      required: [reason]
+
+    UpdateStatusBody:
+      type: object
+      properties:
+        status:
+          type: string
+      required: [status]
+
+    WaitingTimeBody:
+      type: object
+      properties:
+        amount:
+          type: number
+      required: [amount]
+
+    Driver:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        whatsapp:
+          type: string
+        vehicle_type:
+          type: string
+        vehicle_model:
+          type: string
+        plate:
+          type: string
+        notes:
+          type: string
+        status:
+          type: string
+        avg_rating:
+          type: number
+        total_jobs:
+          type: integer
+        created_at:
+          type: string
+      required: [id, name, vehicle_type, status]
+
+    DriverDetail:
+      allOf:
+        - $ref: "#/components/schemas/Driver"
+        - type: object
+          properties:
+            bookings:
+              type: array
+              items:
+                $ref: "#/components/schemas/Booking"
+            ratings:
+              type: array
+              items:
+                $ref: "#/components/schemas/DriverRating"
+            commission_ledger:
+              type: array
+              items:
+                $ref: "#/components/schemas/CommissionEntry"
+
+    CreateDriverBody:
+      type: object
+      properties:
+        name:
+          type: string
+        whatsapp:
+          type: string
+        vehicle_type:
+          type: string
+        vehicle_model:
+          type: string
+        plate:
+          type: string
+        notes:
+          type: string
+        status:
+          type: string
+      required: [name, whatsapp, vehicle_type]
+
+    DriverRating:
+      type: object
+      properties:
+        id:
+          type: string
+        driver_id:
+          type: string
+        booking_id:
+          type: string
+        rating:
+          type: integer
+        note:
+          type: string
+        rated_by:
+          type: string
+        rated_at:
+          type: string
+      required: [id, driver_id, booking_id, rating]
+
+    RateDriverBody:
+      type: object
+      properties:
+        booking_id:
+          type: string
+        rating:
+          type: integer
+        note:
+          type: string
+      required: [booking_id, rating]
+
+    CommissionSummary:
+      type: object
+      properties:
+        total_earned_week:
+          type: number
+        total_earned_month:
+          type: number
+        total_outstanding:
+          type: number
+        total_pending_payouts:
+          type: number
+        driver_breakdown:
+          type: array
+          items:
+            $ref: "#/components/schemas/DriverCommissionBreakdown"
+        settlements:
+          type: array
+          items:
+            $ref: "#/components/schemas/Settlement"
+        payouts:
+          type: array
+          items:
+            $ref: "#/components/schemas/Payout"
+      required: [total_earned_week, total_earned_month, total_outstanding, total_pending_payouts, driver_breakdown, settlements, payouts]
+
+    DriverCommissionBreakdown:
+      type: object
+      properties:
+        driver_id:
+          type: string
+        driver_name:
+          type: string
+        outstanding_amount:
+          type: number
+        pending_payout:
+          type: number
+        jobs:
+          type: array
+          items:
+            $ref: "#/components/schemas/CommissionEntry"
+      required: [driver_id, driver_name, outstanding_amount, pending_payout, jobs]
+
+    CommissionEntry:
+      type: object
+      properties:
+        booking_id:
+          type: string
+        tvl_ref:
+          type: string
+        date:
+          type: string
+        client_name:
+          type: string
+        total_fare:
+          type: number
+        tvl_commission:
+          type: number
+        driver_receives:
+          type: number
+        payment_method:
+          type: string
+        commission_status:
+          type: string
+        payout_status:
+          type: string
+      required: [booking_id, tvl_ref, total_fare, tvl_commission, driver_receives]
+
+    Settlement:
+      type: object
+      properties:
+        id:
+          type: string
+        driver_id:
+          type: string
+        driver_name:
+          type: string
+        week_start:
+          type: string
+        week_end:
+          type: string
+        total_amount:
+          type: number
+        settled_at:
+          type: string
+        settled_by:
+          type: string
+        notes:
+          type: string
+      required: [id, driver_id, total_amount]
+
+    CreateSettlementBody:
+      type: object
+      properties:
+        driver_id:
+          type: string
+        week_start:
+          type: string
+        week_end:
+          type: string
+        booking_ids:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+      required: [driver_id, week_start, week_end, booking_ids]
+
+    Payout:
+      type: object
+      properties:
+        id:
+          type: string
+        driver_id:
+          type: string
+        driver_name:
+          type: string
+        week_start:
+          type: string
+        week_end:
+          type: string
+        total_amount:
+          type: number
+        paid_at:
+          type: string
+        paid_by:
+          type: string
+        notes:
+          type: string
+      required: [id, driver_id, total_amount]
+
+    CreatePayoutBody:
+      type: object
+      properties:
+        driver_id:
+          type: string
+        week_start:
+          type: string
+        week_end:
+          type: string
+        booking_ids:
+          type: array
+          items:
+            type: string
+        notes:
+          type: string
+      required: [driver_id, week_start, week_end, booking_ids]
+
+    Invoice:
+      type: object
+      properties:
+        id:
+          type: string
+        booking_id:
+          type: string
+        invoice_number:
+          type: string
+        generated_at:
+          type: string
+        generated_by:
+          type: string
+        status:
+          type: string
+      required: [id, booking_id, invoice_number, status]
+
+    GenerateInvoiceBody:
+      type: object
+      properties:
+        booking_id:
+          type: string
+      required: [booking_id]
+
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+        channel:
+          type: string
+        sender_id:
+          type: string
+        sender_name:
+          type: string
+        recipient_id:
+          type: string
+        content:
+          type: string
+        read:
+          type: boolean
+        created_at:
+          type: string
+      required: [id, content, created_at]
+
+    SendMessageBody:
+      type: object
+      properties:
+        channel:
+          type: string
+        recipient_id:
+          type: string
+        content:
+          type: string
+      required: [content]
+
+    Task:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        assigned_to:
+          type: string
+        assigned_to_name:
+          type: string
+        due_date:
+          type: string
+        priority:
+          type: string
+        completed:
+          type: boolean
+        created_by:
+          type: string
+        created_at:
+          type: string
+      required: [id, title, priority, completed]
+
+    CreateTaskBody:
+      type: object
+      properties:
+        title:
+          type: string
+        assigned_to:
+          type: string
+        due_date:
+          type: string
+        priority:
+          type: string
+      required: [title, priority]
+
+    User:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+        role:
+          type: string
+        active:
+          type: boolean
+        created_at:
+          type: string
+      required: [id, name, email, role]
+
+    AuditEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        action:
+          type: string
+        entity_type:
+          type: string
+        entity_id:
+          type: string
+        operator_id:
+          type: string
+        operator_name:
+          type: string
+        detail:
+          type: string
+        created_at:
+          type: string
+      required: [id, action, created_at]
+
+    SearchResults:
+      type: object
+      properties:
+        clients:
+          type: array
+          items:
+            $ref: "#/components/schemas/Client"
+        bookings:
+          type: array
+          items:
+            $ref: "#/components/schemas/Booking"
+        drivers:
+          type: array
+          items:
+            $ref: "#/components/schemas/Driver"
+      required: [clients, bookings, drivers]
+
+    FinanceSummary:
+      type: object
+      properties:
+        total_revenue:
+          type: number
+        total_commission:
+          type: number
+        total_driver_payouts:
+          type: number
+        outstanding_payments:
+          type: array
+          items:
+            $ref: "#/components/schemas/Booking"
+        cancellation_fees:
+          type: number
+        operator_performance:
+          type: array
+          items:
+            $ref: "#/components/schemas/OperatorPerformance"
+        bookings_detail:
+          type: array
+          items:
+            $ref: "#/components/schemas/Booking"
+      required: [total_revenue, total_commission, total_driver_payouts, outstanding_payments, cancellation_fees, operator_performance, bookings_detail]
+
+    OperatorPerformance:
+      type: object
+      properties:
+        operator_id:
+          type: string
+        operator_name:
+          type: string
+        total_bookings:
+          type: integer
+        total_revenue:
+          type: number
+      required: [operator_id, operator_name, total_bookings, total_revenue]
+
+    FlightStatus:
+      type: object
+      properties:
+        flight_number:
+          type: string
+        origin:
+          type: string
+        destination:
+          type: string
+        scheduled_time:
+          type: string
+        estimated_time:
+          type: string
+        status:
+          type: string
+        delay_minutes:
+          type: integer
+        terminal:
+          type: string
+        last_updated:
+          type: string
+      required: [flight_number, status]
+
+    FlightTrackerEntry:
+      type: object
+      properties:
+        booking_id:
+          type: string
+        tvl_ref:
+          type: string
+        client_name:
+          type: string
+        flight_number:
+          type: string
+        scheduled_time:
+          type: string
+        driver_name:
+          type: string
+        flight_status:
+          $ref: "#/components/schemas/FlightStatus"
+      required: [booking_id, tvl_ref, flight_number]
