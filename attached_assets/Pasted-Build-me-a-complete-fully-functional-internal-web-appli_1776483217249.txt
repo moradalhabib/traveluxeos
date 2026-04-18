@@ -1,0 +1,675 @@
+Build me a complete, fully functional internal web application called Traveluxe OS for a luxury travel concierge company based in London. This is a private internal app for operators and admin only. Use React for the frontend and Supabase for the database, authentication, and real-time features. Host entirely on Replit. Build as a Progressive Web App (PWA) so staff can install it on their phone home screen on both Android and iOS.
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ABSOLUTE PRIVACY RULE — NEVER BREAK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+This rule applies everywhere in the entire application without exception:
+- NEVER include the client's WhatsApp number in any message sent to the driver
+- NEVER include the driver's WhatsApp number in any message sent to the client
+- All communication between client and driver is managed exclusively by the operator
+- This must be enforced at every message template throughout the entire app
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PWA & MOBILE REQUIREMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+This app is used by staff on Android and iOS phones as their primary work tool. It must feel and perform like a native app.
+ 
+PWA SETUP:
+- Full Progressive Web App with web app manifest
+- Service worker for background sync and offline fallback screen
+- App installable to home screen on both Android and iOS
+- Show install prompt to staff on first visit: "Add Traveluxe OS to your home screen for the best experience"
+- App icon and splash screen branded as Traveluxe OS
+- Web push notifications enabled — staff receive alerts for: new bookings assigned to them, job starting in 3 hours with no driver, new direct message received, new task assigned, new announcement posted
+ 
+MOBILE DESIGN:
+- Desktop: fixed left sidebar navigation with icons and labels
+- Mobile: bottom navigation bar replacing the sidebar — large touch-friendly icons
+- All buttons must be large enough for thumb input — minimum 48px height
+- All form fields must be large, well spaced, and easy to type into on a small screen
+- Single column layout on mobile — no side by side cramped fields
+- Job cards on the jobs board must be fully readable on a phone without zooming
+- WhatsApp message buttons must be prominent and large on the job sheet
+- Forms scroll cleanly on small screens
+- No horizontal scrolling anywhere on mobile
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+AUTH & ROLES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+- Supabase Auth with role-based access
+- Two roles: Admin and Operator
+- Admin has full access including finance, commissions, exports, user management, and audit trail
+- Operator can manage clients, quotes, bookings, jobs, driver directory, and messaging
+- Login screen branded as Traveluxe OS with dark and gold luxury design
+- Session persists until manually logged out
+- Auto lock after 30 minutes of inactivity — requires PIN or password to unlock
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODULE 1 — CLIENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+CLIENT REGISTRATION FIELDS:
+- Full name
+- WhatsApp number (with country code — e.g. +44, +971)
+- Email address
+- Nationality
+- Language preference (English / Arabic / Other)
+- VIP Tier (Standard / VIP / VVIP)
+- Notes and preferences
+ 
+DUPLICATE DETECTION — CRITICAL:
+- The moment an operator starts typing a WhatsApp number, the app runs a live real-time scan against all existing client profiles
+- If a match is found, instantly display a prominent popup showing:
+  — Client name, nationality, VIP tier
+  — Last booking date and service type
+  — Total number of bookings
+  — Two buttons: "View Profile" and "Use This Client"
+- If operator clicks "Use This Client" the booking links to the existing profile — no new profile is created
+- Also scan email field for duplicates on a different number — flag with a soft warning
+- Also check for very similar names and show a soft warning (not a hard block)
+- Hard block at database level: no two client profiles can share the same WhatsApp number
+- Admin panel includes a Merge Clients tool to merge two duplicate profiles into one, combining full booking history
+ 
+CLIENT PROFILE PAGE:
+- Full client details
+- Complete booking history (all bookings, all statuses)
+- Total number of bookings
+- Total amount spent in GBP
+- VIP tier badge
+- Language preference badge
+- One-tap WhatsApp button to open chat directly with client
+- Edit profile option
+- Flag as inactive (for clients not booked in over 12 months)
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODULE 2 — QUOTES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+Before a booking is confirmed, operators can create a Quote:
+- Link to existing client or enter name only if client not yet registered
+- Service type: Airport Transfer or Tour
+- Full trip details (same fields as booking)
+- Quoted price in GBP
+- Quote status: Pending / Sent / Accepted / Declined / Expired
+- Notes
+- One-tap WhatsApp button to send quote message to client:
+ 
+For Airport Transfer:
+"Dear [Client Name], thank you for your enquiry 🌟
+Here is your quote:
+Date: [Date] | Time: [Time]
+From: [Pickup] | To: [Dropoff]
+Vehicle: [Vehicle Type] | Passengers: [X]
+Price: £[Amount]
+Please confirm to proceed with your booking.
+Traveluxe London"
+ 
+For Tour:
+"Dear [Client Name], thank you for your enquiry 🌟
+Here is your quote:
+Date: [Date] | Time: [Time]
+Tour: [Destination / Route] | Duration: [X hours]
+Vehicle: [Vehicle Type] | Passengers: [X]
+Price: £[Amount]
+Please confirm to proceed with your booking.
+Traveluxe London"
+ 
+- One-click "Convert to Booking" button — promotes the quote into a full confirmed booking, pre-filling all fields, and auto-registers the client if not already in the system
+- Quotes not converted within 48 hours automatically show as Expired
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODULE 3 — BOOKINGS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+Two service types only: Airport Transfer and Tour
+ 
+BOOKING STATUS PIPELINE:
+Quote → Confirmed → Driver Assigned → Active → Completed → Invoiced → Cancelled
+ 
+BOOKING REFERENCE:
+- Every booking auto-generates a unique reference in format TVL-0001, TVL-0002 etc.
+- Never duplicated, never reused even after cancellation
+ 
+AIRPORT TRANSFER FIELDS:
+- Link to existing client (search by name or WhatsApp number)
+- Transfer direction: Arrival or Departure
+- Pickup location (airport name + terminal, or full address)
+- Dropoff location
+- Flight number (critical — used by flight tracker)
+- Date and time
+- Number of passengers
+- Number of luggage pieces
+- Vehicle type (Saloon / Estate / MPV / Minibus / Luxury)
+- Meet and Greet name board text (auto-populated from client name, editable)
+- Special requests (child seat, extra stop, wheelchair, etc.)
+- Additional charges (for waiting time or extras — editable post-completion)
+- Price charged to client (editable — updates if waiting time added)
+- TVL commission amount (manually entered by operator)
+- Driver receives (auto-calculated: price minus TVL commission)
+- Commission type (auto-set by payment method: Cash = driver owes TVL / Bank Transfer = TVL owes driver)
+- Payment status: Paid / Unpaid / Partial
+- Payment method: Cash / Bank Transfer / Card
+- Booking source: WhatsApp / Snapchat / Referral / Returning Client / Other
+- Assigned operator (auto-set to logged in user, editable by admin)
+- Assign driver (dropdown from driver directory showing name and vehicle)
+- Internal notes
+- Linked return journey if applicable
+ 
+TOUR FIELDS:
+- Link to existing client (search by name or WhatsApp number)
+- Tour destination and route description
+- Date and time
+- Duration in hours
+- Number of passengers
+- Vehicle type (Saloon / Estate / MPV / Minibus / Luxury)
+- Special requests
+- Additional charges (editable post-completion)
+- Price charged to client
+- TVL commission amount (manually entered)
+- Driver receives (auto-calculated)
+- Commission type (auto-set by payment method)
+- Payment status: Paid / Unpaid / Partial
+- Payment method: Cash / Bank Transfer / Card
+- Booking source: WhatsApp / Snapchat / Referral / Returning Client / Other
+- Assigned operator
+- Assign driver (dropdown from driver directory)
+- Internal notes
+ 
+RETURN JOURNEY:
+- On any Airport Transfer booking there is an "Add Return Journey" button
+- Pre-fills a new booking with the same client and reverses pickup and dropoff
+- Both journeys linked to each other and visible on the client profile as one trip
+- Return journey gets its own unique TVL reference number
+ 
+AMEND BOOKING:
+- Any confirmed or active booking can be amended at any time
+- "Amend Booking" button opens full edit view with all fields editable
+- All changes logged in audit trail with timestamp and operator name
+- After saving an amendment the app shows two prompts:
+  — "Resend confirmation to client?" — one-tap opens WhatsApp with updated message prefixed with "AMENDED ✏️ Please note your booking details have been updated:"
+  — "Notify driver of changes?" — one-tap opens WhatsApp with updated job sheet prefixed with "AMENDED JOB DETAILS ✏️ Please note the following details have changed:"
+- Job sheet displays an "Amended" badge if changes were made after initial confirmation
+ 
+CANCELLATION:
+- "Cancel Booking" button available on any booking
+- Operator must select cancellation reason: Client Request / No Show / Duplicate Booking / Operational Issue / Other
+- Operator confirms whether a cancellation fee applies and enters fee amount if applicable
+- Status changes to Cancelled — booking is never deleted, always on record
+- Cancelled bookings appear in a Cancelled view and in client booking history
+- If driver was already assigned, app prompts: "Notify driver of cancellation?" — one-tap opens WhatsApp:
+  "Hi [Driver Name], please note that job Ref: TVL-XXXX on [Date] at [Time] has been cancelled. Apologies for any inconvenience. Traveluxe London"
+ 
+WAITING TIME CHARGES:
+- Once a job is marked Completed, operator can add a waiting time charge
+- Simple field: "Add waiting time — £[amount]"
+- Total price charged to client updates automatically
+- Margin and commission figures recalculate automatically
+- Note added to booking: "Waiting time charge of £[X] added on [date] by [operator]"
+- Invoice reflects the updated total
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODULE 4 — FLIGHT TRACKER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+The flight tracker monitors live flight status for all airport transfer arrivals where a flight number has been entered. This is critical so operators and drivers always know the real arrival time.
+ 
+INTEGRATION:
+- Use the AviationStack API (free tier available) or AeroDataBox API to fetch live flight data
+- API key stored securely in Supabase environment variables
+- Flight data refreshes automatically every 5 minutes for all active arrival bookings
+- If the API is unavailable, show a clear message: "Flight data temporarily unavailable — please check manually"
+ 
+FLIGHT STATUS PER BOOKING:
+On every Airport Transfer Arrival booking and job sheet, display a live flight status panel showing:
+- Flight number
+- Origin airport
+- Scheduled arrival time
+- Estimated actual arrival time
+- Status: On Time / Delayed / Landed / Cancelled / Unknown
+- Delay duration if delayed (e.g. "Delayed by 45 minutes")
+- Terminal (if available from API)
+- Last updated timestamp
+ 
+FLIGHT TRACKER DASHBOARD:
+- A dedicated Flight Tracker page accessible from the sidebar
+- Shows all Airport Transfer Arrival bookings for today and tomorrow
+- Each row shows: TVL reference, client name, flight number, scheduled time, live status, delay, driver assigned
+- Color coded:
+  — On Time: green
+  — Delayed: amber with delay duration
+  — Landed: blue
+  — Cancelled: red
+- Sorted by scheduled arrival time
+- Refreshes automatically every 5 minutes
+- Manual "Refresh Now" button
+ 
+DELAY ALERTS:
+- If a flight is detected as delayed by 30 minutes or more, show a prominent in-app alert banner:
+  "⚠️ Flight [number] for TVL-XXXX is delayed by [X] minutes — new ETA [time]"
+- Alert appears on the Jobs Board and Flight Tracker page
+- Alert sent as a push notification to all operators on shift
+- Operator can then tap "Notify Driver" — opens WhatsApp with pre-filled delay message:
+  "Hi [Driver Name], please note that flight [Flight Number] for job TVL-XXXX is delayed by [X] minutes. New estimated arrival time is [Time]. Please adjust accordingly. Traveluxe London"
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODULE 5 — JOBS BOARD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+- Live board showing all bookings and jobs
+- Default view: today's jobs sorted by time ascending
+- Filter by: Today / This Week / This Month / All
+- Filter by: Service type / Status / Operator / Driver
+- Each job card shows: TVL reference, client name, VIP badge, service type, date and time, pickup, dropoff, driver assigned or "No Driver ⚠️" in red, flight status badge for arrivals, status badge, payment status
+- Color coded by status:
+  — Confirmed: blue
+  — Driver Assigned: gold
+  — Active: green
+  — Completed: grey
+  — Cancelled: red
+  — Invoiced: purple
+- Click any job card to open full job sheet
+- Jobs board updates in real-time via Supabase real-time
+ 
+BOOKING REMINDERS — IN-APP ALERTS:
+- Job within 3 hours with no driver assigned: prominent red alert banner — "⚠️ TVL-XXXX — Job in [X] hours — No driver assigned"
+- Job within 24 hours still at Confirmed status: yellow warning
+- Flight delayed on an active job: amber alert
+- All alerts also appear as push notifications to relevant operators
+- Alert badges on sidebar and bottom nav icons
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODULE 6 — JOB SHEET & ONE-TAP MESSAGING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+Each job has a full Job Sheet page displaying all booking details clearly.
+ 
+Job sheet contains:
+- TVL reference, status badge, amended badge if applicable
+- Full client details — name and VIP tier only (NO phone number displayed)
+- Live flight status panel for arrival transfers
+- Full booking details
+- Assigned driver — name and vehicle only (NO phone number displayed)
+- Financial summary: price, TVL commission, driver receives, payment status
+- Audit log of all changes to this booking
+- Action buttons: Amend / Cancel / Add Waiting Time / Mark Active / Mark Completed / Generate Invoice / Rate Driver
+ 
+TWO PROMINENT WHATSAPP BUTTONS AT TOP OF EVERY JOB SHEET:
+ 
+BUTTON 1 — MESSAGE CLIENT
+Opens WhatsApp directly to the client's number with pre-filled message.
+ 
+Airport Transfer Arrival:
+"Dear [Client Name], your airport transfer is confirmed ✅
+Booking Ref: TVL-XXXX
+Date: [Date]
+Pickup Time: [Time]
+Flight Number: [Flight Number]
+Pickup: [Airport + Terminal]
+Dropoff: [Dropoff Location]
+Vehicle: [Vehicle Type]
+Passengers: [X]
+[Special requests if any]
+For any queries please don't hesitate to contact us.
+Traveluxe London 🌟"
+ 
+Airport Transfer Departure:
+"Dear [Client Name], your airport transfer is confirmed ✅
+Booking Ref: TVL-XXXX
+Date: [Date]
+Pickup Time: [Time]
+Pickup: [Pickup Address]
+Dropoff: [Airport + Terminal]
+Vehicle: [Vehicle Type]
+Passengers: [X]
+[Special requests if any]
+For any queries please don't hesitate to contact us.
+Traveluxe London 🌟"
+ 
+Tour:
+"Dear [Client Name], your tour is confirmed ✅
+Booking Ref: TVL-XXXX
+Date: [Date]
+Time: [Time]
+Tour: [Destination / Route]
+Duration: [X hours]
+Vehicle: [Vehicle Type]
+Passengers: [X]
+[Special requests if any]
+For any queries please don't hesitate to contact us.
+Traveluxe London 🌟"
+ 
+Amended version — same message prefixed with:
+"AMENDED ✏️ Please note your booking details have been updated:"
+ 
+BUTTON 2 — MESSAGE DRIVER
+Opens WhatsApp directly to the assigned driver's number with pre-filled message.
+ 
+Airport Transfer Arrival:
+"Hi [Driver Name], please find your job details below 👇
+Ref: TVL-XXXX
+Date: [Date]
+Pickup Time: [Time]
+Flight Number: [Flight Number]
+Passenger Name: [Client Name]
+Passengers: [X]
+Luggage: [X pieces]
+Pickup: [Airport + Terminal]
+Dropoff: [Dropoff Location]
+Name Board: [Name Board Text]
+[Special requests if any]
+Please confirm receipt ✅"
+ 
+Airport Transfer Departure:
+"Hi [Driver Name], please find your job details below 👇
+Ref: TVL-XXXX
+Date: [Date]
+Pickup Time: [Time]
+Passenger Name: [Client Name]
+Passengers: [X]
+Luggage: [X pieces]
+Pickup: [Pickup Address]
+Dropoff: [Airport + Terminal]
+[Special requests if any]
+Please confirm receipt ✅"
+ 
+Tour:
+"Hi [Driver Name], please find your job details below 👇
+Ref: TVL-XXXX
+Date: [Date]
+Time: [Time]
+Passenger Name: [Client Name]
+Passengers: [X]
+Tour: [Destination / Route]
+Duration: [X hours]
+Vehicle: [Vehicle Type]
+[Special requests if any]
+Please confirm receipt ✅"
+ 
+Amended version — same message prefixed with:
+"AMENDED JOB DETAILS ✏️ Please note the following details have changed:"
+ 
+Flight delay driver notification:
+"Hi [Driver Name], please note that flight [Flight Number] for job TVL-XXXX is delayed by [X] minutes. New estimated arrival time is [Time]. Please adjust accordingly. Traveluxe London"
+ 
+Cancellation driver notification:
+"Hi [Driver Name], please note that job Ref: TVL-XXXX on [Date] at [Time] has been cancelled. Apologies for any inconvenience. Traveluxe London"
+ 
+All buttons use wa.me deep link format. One tap, opens WhatsApp, message pre-filled, operator reviews and sends. No copy paste required. Client and driver numbers never visible in each other's messages under any circumstances.
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODULE 7 — DRIVER DIRECTORY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+Driver profile fields:
+- Full name
+- WhatsApp number (visible to operators for messaging only — never shared in any client-facing message)
+- Vehicle type (Saloon / Estate / MPV / Minibus / Luxury)
+- Vehicle make and model
+- Licence plate number
+- Notes (languages spoken, preferred routes, etc.)
+- Status: Active / Inactive
+ 
+Additional features:
+- One-tap WhatsApp button on each driver profile (operator use only)
+- Driver commission ledger — full list of all jobs, commissions owed or payouts due, settlement history
+- Driver performance ratings — star rating 1 to 5 logged by operator after each completed job with optional note
+- Average rating displayed on profile
+- Full job history for that driver
+- No driver login — internal directory only
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODULE 8 — INVOICE GENERATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+Each completed booking can generate a branded PDF invoice.
+ 
+Invoice contents:
+- Traveluxe London header
+- Company address: Mayfair, London
+- Contact: +44 7404 567902
+- Website: traveluxelondon.com
+- Invoice number: auto-generated as INV-0001, INV-0002 etc. (separate from TVL booking refs)
+- Invoice date
+- Client name and email
+- Booking reference: TVL-XXXX
+- Service description:
+  — Airport Transfer Arrival or Departure: date, time, pickup, dropoff, flight number, vehicle, passengers
+  — Tour: date, time, route, duration, vehicle, passengers
+- Itemised breakdown:
+  — Base service price
+  — Additional charges if applicable (waiting time, extras)
+  — Total amount due
+- Currency: GBP £
+- Payment status: Paid / Unpaid / Partial
+- Payment method if paid
+- Professional closing line: "Thank you for choosing Traveluxe London. We look forward to welcoming you again."
+- Dark luxury styled PDF matching the app — black background, gold accents
+ 
+Invoice actions on the job sheet:
+- "Generate Invoice" button — creates and previews the PDF instantly
+- "Download Invoice" — saves PDF to device
+- Invoice status tracked on booking: Not Generated / Generated / Sent
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODULE 9 — COMMISSION TRACKING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+Two payment flows exist and commission works differently for each:
+ 
+PAYMENT FLOW 1 — CASH JOBS:
+- Client pays the driver directly in cash
+- Driver owes TVL a commission from that job
+- Example: Job £100 — TVL commission £10 — Driver keeps £90
+- Commission sits as Outstanding against the driver until settled
+- Drivers pay TVL their accumulated commission weekly
+ 
+PAYMENT FLOW 2 — BANK TRANSFER JOBS:
+- Client pays TVL via bank transfer
+- TVL owes the driver their cut
+- Example: Job £100 — Driver cut £90 — TVL keeps £10 automatically
+- TVL pays the driver their cut weekly
+ 
+COMMISSION FIELDS ON EACH BOOKING (manually entered by operator at time of booking):
+- TVL commission amount: £[manual input]
+- Driver receives: auto-calculated (total fare minus TVL commission)
+- Commission type: auto-determined by payment method
+  — Cash = Driver owes TVL (outstanding commission)
+  — Bank Transfer = TVL owes driver (pending payout)
+ 
+DRIVER COMMISSION LEDGER (accessible from each driver profile and from the Commissions module):
+- Full list of all jobs assigned to that driver
+- Per job: TVL reference, date, client name, total fare, TVL commission, driver receives, payment method, commission status
+- Cash jobs: commission status — Outstanding / Settled
+- Bank transfer jobs: payout status — Pending / Paid
+- Running total: what the driver currently owes TVL
+- Running total: what TVL currently owes the driver
+ 
+WEEKLY COMMISSION SETTLEMENT — CASH JOBS:
+- End of each week, admin views all outstanding cash commissions per driver
+- "Mark as Settled" button — logs driver has paid TVL for that week
+- Settlement log: driver name, week period, total amount, date settled, logged by
+- All included jobs update to: Settled
+- One-tap WhatsApp generates weekly statement to driver:
+"Hi [Driver Name], here is your commission summary for [Date] to [Date] 📋
+[Job list: TVL Ref | Date | Fare | TVL Commission]
+Total owed to Traveluxe this week: £[Total]
+Please arrange payment at your earliest convenience.
+Thank you, Traveluxe London"
+ 
+WEEKLY PAYOUT — BANK TRANSFER JOBS:
+- Admin views all pending driver payouts for the week per driver
+- "Mark as Paid" button — logs TVL has paid the driver
+- Payout log: driver name, week period, total paid, date paid, logged by
+- All included jobs update to: Paid
+- One-tap WhatsApp confirms payout to driver:
+"Hi [Driver Name], your payment for [Date] to [Date] has been processed 💰
+[Job list: TVL Ref | Date | Fare | Your Cut]
+Total paid to you: £[Total]
+Thank you, Traveluxe London"
+ 
+COMMISSION DASHBOARD (Admin only):
+- Total TVL commission earned this week and this month
+- Total outstanding from drivers — cash commissions not yet paid
+- Total pending payouts to drivers — bank transfer jobs not yet paid out
+- Per driver breakdown — sortable by amount outstanding
+- Full settlement and payout history log
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODULE 10 — INTERNAL STAFF COMMUNICATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+- Team chat — group channel visible to all staff
+- Direct messages between individual staff members
+- Announcements channel — Admin only can post, all staff read only
+- Task assignments:
+  — Create task, assign to staff member, set due date and priority (Low / Medium / Urgent)
+  — Mark task as complete
+  — Overdue tasks highlighted in red
+  — Notification sent to assignee when task is created
+- Real-time messaging powered by Supabase real-time
+- Notification badge on sidebar and bottom nav for unread messages and announcements
+- Timestamps on all messages
+- Push notification sent when a direct message or announcement is received
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODULE 11 — FINANCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+- Revenue dashboard: total revenue, total TVL commission earned, total driver payouts — filterable by date range, service type, operator
+- Per booking view: TVL reference, client, service, date, price charged, TVL commission, driver receives, payment method, payment status
+- Waiting time charges included in total revenue
+- Operator performance: total bookings handled, total revenue generated per operator
+- Outstanding client payments: all bookings with Unpaid or Partial status, sorted oldest first
+- Cancellation fees collected tracked separately
+- All figures in GBP £
+- Finance section visible to Admin only
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODULE 12 — GLOBAL SEARCH
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+- Single search bar accessible from the top of every page
+- Searches across: client name, WhatsApp number, email, TVL reference, flight number, driver name, pickup location, dropoff location
+- Results appear instantly as operator types
+- Results grouped by: Clients / Bookings / Drivers
+- Clicking any result opens the relevant profile or job sheet directly
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODULE 13 — EXPORT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+- Export all bookings to CSV and Excel
+- Filter before export by: date range, service type, status, payment status, operator, driver
+- Export client list to CSV and Excel
+- Export finance summary to CSV and Excel
+- Export commission ledger per driver to CSV and Excel
+- Export all fields — no data truncated
+- Admin only
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODULE 14 — ADMIN PANEL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+USER MANAGEMENT:
+- Add new operators (name, email, role)
+- Deactivate or remove operators
+- Reset passwords
+- View which operator created or last edited each booking
+ 
+MERGE CLIENTS TOOL:
+- Search for two duplicate client profiles
+- Preview both profiles side by side
+- Select which to keep as primary
+- Merge all booking history from both into the primary profile
+- Secondary profile archived not deleted
+ 
+SYSTEM DASHBOARD:
+- Total bookings: today / this week / this month
+- Revenue snapshot: today / this week / this month
+- Active jobs right now
+- Jobs without driver assigned — urgent list
+- Pending client payments: unpaid or partial
+- Outstanding driver commissions total
+- Pending driver payouts total
+- Booking source breakdown — pie chart: WhatsApp / Snapchat / Referral / Returning / Other
+- Top 5 clients by booking count and total spend
+- Top 5 drivers by jobs completed and average rating
+ 
+AUDIT TRAIL:
+- Every action logged: booking created, booking amended, booking cancelled, driver assigned, invoice generated, commission settled, payout made, client merged, user added or removed
+- Each log entry: action, booking or client reference, operator name, timestamp
+- Read only — cannot be edited or deleted
+- Filterable by: operator, action type, date range
+- Admin only
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DESIGN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+- Dark background: #0a0a0a deep black
+- Gold accent: #C9A84C luxury gold
+- Clean modern font: Inter or similar
+- Desktop: fixed left sidebar with icons and section labels
+- Mobile: bottom navigation bar with large touch-friendly icons
+- Sidebar and bottom nav sections: Dashboard / Clients / Quotes / Bookings / Jobs / Flights / Drivers / Commissions / Messages / Finance / Search / Admin
+- Notification badges on nav icons for alerts and unread messages
+- Mobile responsive and mobile first — every screen must work perfectly on a 375px phone screen
+- Gold glow and border effects on primary action buttons
+- Status badges color coded and consistent throughout the entire app
+- Professional luxury feel at every touchpoint — this is a high-end brand
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DATABASE — SUPABASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+Create all tables with proper relationships and foreign keys:
+ 
+- clients (id, name, whatsapp, email, nationality, language_preference, vip_tier, notes, inactive, created_at, created_by)
+- quotes (id, client_id, service_type, pickup, dropoff, date_time, passengers, vehicle_type, duration, price, status, notes, created_at, created_by)
+- bookings (id, tvl_ref, client_id, quote_id, service_type, direction, pickup, dropoff, flight_number, date_time, passengers, luggage, vehicle_type, nameboard, special_requests, additional_charges, price, tvl_commission, driver_receives, commission_type, payment_status, payment_method, commission_status, payout_status, source, status, operator_id, driver_id, return_booking_id, is_amended, notes, created_at, updated_at, created_by)
+- drivers (id, name, whatsapp, vehicle_type, vehicle_model, plate, notes, status, created_at)
+- driver_ratings (id, driver_id, booking_id, rating, note, rated_by, rated_at)
+- commission_settlements (id, driver_id, week_start, week_end, total_amount, booking_ids, settled_at, settled_by, notes)
+- driver_payouts (id, driver_id, week_start, week_end, total_amount, booking_ids, paid_at, paid_by, notes)
+- invoices (id, booking_id, invoice_number, generated_at, generated_by, status)
+- flight_status_cache (id, flight_number, date, status, scheduled_time, estimated_time, delay_minutes, terminal, last_updated)
+- users (id, name, email, role, active, created_at)
+- messages (id, channel, sender_id, recipient_id, content, read, created_at)
+- tasks (id, title, assigned_to, due_date, priority, completed, created_by, created_at)
+- audit_log (id, action, entity_type, entity_id, operator_id, detail, created_at)
+ 
+- All foreign key relationships built properly
+- Row Level Security enabled on all tables
+- Real-time enabled on: messages, bookings, flight_status_cache
+- Operators see only their relevant data — Admin sees everything
+- All data stored permanently in Supabase — no data ever stored locally in the browser
+ 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BUILD ORDER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ 
+Build the complete application fully functional following this order:
+ 
+1. Supabase — all tables, relationships, RLS policies, real-time configuration
+2. PWA setup — manifest, service worker, install prompt, push notification config
+3. Authentication — login screen, role detection, session management, auto lock
+4. Navigation — desktop sidebar and mobile bottom nav with notification badges
+5. Module 1 — Clients with live real-time duplicate detection
+6. Module 2 — Quotes with one-tap convert to booking
+7. Module 3 — Bookings with amendment, cancellation, waiting time, and commission fields
+8. Module 4 — Flight Tracker with AviationStack API, auto-refresh, delay alerts
+9. Module 5 — Jobs Board with real-time updates, flight status badges, and alerts
+10. Module 6 — Job Sheet with all WhatsApp message buttons and flight status panel
+11. Module 7 — Driver Directory with rating system and commission ledger
+12. Module 8 — Invoice Generation with branded PDF download
+13. Module 9 — Commission Tracking with weekly settlements, payouts, and WhatsApp statements
+14. Module 10 — Internal Staff Communications with real-time messaging and push notifications
+15. Module 11 — Finance Dashboard
+16. Module 12 — Global Search
+17. Module 13 — Export including commission ledger
+18. Module 14 — Admin Panel with audit trail, merge tool, and system dashboard
+ 
+The duplicate client detection on WhatsApp number must be live and real-time — this is the most critical feature. Client and driver contact numbers are strictly private and must never appear in messages sent to the other party under any circumstances. All data must be stored exclusively in Supabase — nothing stored locally in the browser.
