@@ -2,7 +2,8 @@ import { useParams, useLocation } from "wouter";
 import {
   useGetBooking, getGetBookingQueryKey,
   useUpdateBookingStatus, useCancelBooking,
-  useAddWaitingTime, useGenerateInvoice, useRateDriver
+  useAddWaitingTime, useGenerateInvoice, useRateDriver,
+  useUpdateBooking,
 } from "@workspace/api-client-react";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -47,6 +48,7 @@ export default function BookingDetail() {
   const addWaiting = useAddWaitingTime();
   const generateInvoice = useGenerateInvoice();
   const rateDriver = useRateDriver();
+  const updateBooking = useUpdateBooking();
 
   const [cancelReason, setCancelReason] = useState("");
   const [cancelFee, setCancelFee] = useState(0);
@@ -56,6 +58,68 @@ export default function BookingDetail() {
   const [isCancelOpen, setIsCancelOpen] = useState(false);
   const [isWaitingOpen, setIsWaitingOpen] = useState(false);
   const [isRateOpen, setIsRateOpen] = useState(false);
+
+  // Edit Stay dialog (Apartment / Hotel) — for stay extensions, rate
+  // adjustments, or correcting a date the operator entered wrong. The state
+  // is initialised lazily from the booking when the dialog opens so we never
+  // overwrite user input while they're typing.
+  const [isEditStayOpen, setIsEditStayOpen] = useState(false);
+  const [editCheckIn, setEditCheckIn] = useState("");
+  const [editCheckOut, setEditCheckOut] = useState("");
+  const [editPrice, setEditPrice] = useState<number>(0);
+  const [editCommission, setEditCommission] = useState<number>(0);
+  const [editNights, setEditNights] = useState<number>(0);
+
+  const openEditStay = () => {
+    if (!booking) return;
+    const ci = (booking as any).check_in_date;
+    const co = (booking as any).check_out_date;
+    setEditCheckIn(ci ? String(ci).slice(0, 10) : "");
+    setEditCheckOut(co ? String(co).slice(0, 10) : "");
+    setEditPrice(Number(booking.price || 0));
+    setEditCommission(Number((booking as any).commission_amount || 0));
+    setEditNights(
+      Number((booking as any).nights || (booking as any).num_nights || 0)
+    );
+    setIsEditStayOpen(true);
+  };
+
+  // Recompute nights when edit dates change
+  useEffect(() => {
+    if (editCheckIn && editCheckOut) {
+      const a = new Date(editCheckIn);
+      const b = new Date(editCheckOut);
+      const diff = Math.max(0, Math.ceil((b.getTime() - a.getTime()) / 86400000));
+      setEditNights(diff);
+    }
+  }, [editCheckIn, editCheckOut]);
+
+  const handleEditStaySave = () => {
+    if (!booking) return;
+    const isHotel = booking.service_type === "Hotel";
+    const payload: Record<string, any> = {
+      check_in_date: editCheckIn || undefined,
+      check_out_date: editCheckOut || undefined,
+      price: Number.isFinite(editPrice) ? editPrice : undefined,
+      commission_amount: Number.isFinite(editCommission) ? editCommission : undefined,
+      // Hotels store nights as num_nights, Apartments use nights.
+      ...(isHotel
+        ? { num_nights: editNights || undefined }
+        : { nights: editNights || undefined }),
+      // Keep date_time aligned with check-in so list/calendar sorting stays
+      // consistent after an extension.
+      date_time: editCheckIn ? `${editCheckIn}T12:00:00` : undefined,
+      is_amended: true,
+    };
+    updateBooking.mutate({ id, data: payload as any }, {
+      onSuccess: () => {
+        toast({ title: "Booking updated" });
+        setIsEditStayOpen(false);
+        refetch();
+      },
+      onError: (e: any) => toast({ title: "Update failed", description: e?.message, variant: "destructive" }),
+    });
+  };
 
   if (isLoading) {
     return (
@@ -136,9 +200,20 @@ export default function BookingDetail() {
     }
   };
 
-  // Build pre-filled WhatsApp messages
-  const dateStr = booking.date_time ? format(new Date(booking.date_time), "EEEE d MMMM yyyy") : "TBC";
-  const timeStr = booking.date_time ? format(new Date(booking.date_time), "HH:mm") : "TBC";
+  // Header date strings.
+  // For Hotel/Apartment we prefer the check-in date — Date & Time isn't
+  // captured for accommodation bookings (only check-in / check-out).
+  const headerDateSrc =
+    (booking.service_type === "Hotel" || booking.service_type === "Apartment")
+      ? ((booking as any).check_in_date || booking.date_time)
+      : booking.date_time;
+  const dateStr = headerDateSrc ? format(new Date(headerDateSrc), "EEEE d MMMM yyyy") : "TBC";
+  const timeStr =
+    (booking.service_type === "Hotel" || booking.service_type === "Apartment")
+      ? ((booking as any).check_out_date
+          ? `→ ${format(new Date((booking as any).check_out_date), "d MMM yyyy")}`
+          : "")
+      : (booking.date_time ? format(new Date(booking.date_time), "HH:mm") : "TBC");
   const extras = (booking as any).extras;
 
   // Service-type-specific message templates.
@@ -400,6 +475,12 @@ export default function BookingDetail() {
           <Button variant="outline" size="sm" onClick={() => handleUpdateStatus('Completed')} className="text-gray-400 hover:bg-gray-500/10">
             Mark Completed
           </Button>
+          {(svc === "Apartment" || svc === "Hotel") && (
+            <Button variant="outline" size="sm" onClick={openEditStay} className="text-primary hover:bg-primary/10 border-primary/30">
+              <CalendarRange className="w-3.5 h-3.5 mr-1.5" />
+              {svc === "Apartment" ? "Extend / Edit Stay" : "Edit Stay"}
+            </Button>
+          )}
           <Dialog open={isWaitingOpen} onOpenChange={setIsWaitingOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm" className="text-amber-400 hover:bg-amber-500/10 border-amber-500/30">
@@ -431,6 +512,55 @@ export default function BookingDetail() {
           </Dialog>
         </div>
       )}
+
+      {/* Edit Stay dialog (Hotel / Apartment).
+          Mounted outside the conditional status-actions block so it can be
+          opened from either Confirmed or Active states without being torn
+          down between renders. */}
+      <Dialog open={isEditStayOpen} onOpenChange={setIsEditStayOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{svc === "Apartment" ? "Extend / Edit Stay" : "Edit Stay"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Check-in</p>
+                <Input type="date" value={editCheckIn} onChange={e => setEditCheckIn(e.target.value)} />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Check-out</p>
+                <Input type="date" value={editCheckOut} onChange={e => setEditCheckOut(e.target.value)} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Nights (auto)</p>
+                <Input type="number" value={editNights || ""} onChange={e => setEditNights(Number(e.target.value))} />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Total Charged (£)</p>
+                <Input type="number" value={editPrice || ""} onChange={e => setEditPrice(Number(e.target.value))} />
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Commission Earned (£)</p>
+              <Input type="number" value={editCommission || ""} onChange={e => setEditCommission(Number(e.target.value))} />
+            </div>
+            <p className="text-xs text-muted-foreground pt-1">
+              {svc === "Apartment"
+                ? "Use this to extend a stay, adjust the weekly rate, or correct dates. The booking will be marked Amended."
+                : "Use this to correct dates or adjust the per-night totals. The booking will be marked Amended."}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsEditStayOpen(false)}>Cancel</Button>
+            <Button onClick={handleEditStaySave} disabled={updateBooking.isPending}>
+              {updateBooking.isPending ? "Saving…" : "Save Changes"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {booking.status === 'Completed' && (
         <div className="flex gap-2 flex-wrap">
@@ -502,42 +632,52 @@ export default function BookingDetail() {
         </CardContent>
       </Card>
 
-      {/* Journey details */}
+      {/* Journey / Property card.
+          For Hotel and Apartment bookings the title becomes "Property Details"
+          and the transport-only rows (Pickup, Drop-off, Vehicle, Pax/Luggage,
+          Flight, Meet & Greet Board) are hidden — those fields do not apply
+          to accommodation and would otherwise leak placeholder data into the
+          job sheet. */}
+      {(() => {
+        const accommodation = svc === "Hotel" || svc === "Apartment";
+        return (
       <Card className="border-primary/10 bg-card">
-        <CardHeader className="pb-2"><CardTitle className="text-base">Journey</CardTitle></CardHeader>
+        <CardHeader className="pb-2"><CardTitle className="text-base">{accommodation ? "Property Details" : "Journey"}</CardTitle></CardHeader>
         <CardContent className="space-y-3">
-          <div className="grid grid-cols-2 gap-3 text-sm">
-            <div>
-              <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> Pickup</p>
-              <p className="font-medium">{booking.pickup || '—'}</p>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> Drop-off</p>
-              <p className="font-medium">{booking.dropoff || (booking as any).destination || '—'}</p>
-            </div>
-            {booking.vehicle_type && (
+          {!accommodation && (
+            <div className="grid grid-cols-2 gap-3 text-sm">
               <div>
-                <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Car className="w-3 h-3" /> Vehicle</p>
-                <p className="font-medium">{booking.vehicle_type}</p>
+                <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> Pickup</p>
+                <p className="font-medium">{booking.pickup || '—'}</p>
               </div>
-            )}
-            <div>
-              <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Users className="w-3 h-3" /> Pax / Luggage</p>
-              <p className="font-medium">{booking.passengers || 0} pax · {booking.luggage || 0} bags</p>
-            </div>
-            {booking.flight_number && (
               <div>
-                <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Plane className="w-3 h-3" /> Flight</p>
-                <p className="font-medium">{booking.flight_number} · {(booking as any).direction}</p>
+                <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> Drop-off</p>
+                <p className="font-medium">{booking.dropoff || (booking as any).destination || '—'}</p>
               </div>
-            )}
-            {booking.nameboard && (
-              <div className="col-span-2">
-                <p className="text-xs text-muted-foreground mb-1">Meet &amp; Greet Board</p>
-                <p className="font-bold text-primary text-lg">"{booking.nameboard}"</p>
+              {booking.vehicle_type && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Car className="w-3 h-3" /> Vehicle</p>
+                  <p className="font-medium">{booking.vehicle_type}</p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Users className="w-3 h-3" /> Pax / Luggage</p>
+                <p className="font-medium">{booking.passengers || 0} pax · {booking.luggage || 0} bags</p>
               </div>
-            )}
-          </div>
+              {booking.flight_number && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Plane className="w-3 h-3" /> Flight</p>
+                  <p className="font-medium">{booking.flight_number} · {(booking as any).direction}</p>
+                </div>
+              )}
+              {booking.nameboard && (
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-1">Meet &amp; Greet Board</p>
+                  <p className="font-bold text-primary text-lg">"{booking.nameboard}"</p>
+                </div>
+              )}
+            </div>
+          )}
 
           {extras && (
             <div className="pt-3 border-t border-border">
@@ -628,6 +768,8 @@ export default function BookingDetail() {
           )}
         </CardContent>
       </Card>
+        );
+      })()}
 
       {/* Order Lines */}
       {orderLines.length > 0 && (
@@ -659,13 +801,19 @@ export default function BookingDetail() {
         </Card>
       )}
 
-      {/* Financials — hidden from Residence Managers */}
+      {/* Financials — hidden from Residence Managers.
+          Accommodation bookings (Hotel/Apartment) have NO driver, so the
+          "Driver Receives" line is suppressed. Hotel commission is shown
+          as "Commission Earned" (positive — money in) instead of the
+          transport-style "TVL Commission". */}
       {!isResidenceManager && (
         <Card className="border-primary/10 bg-card">
           <CardHeader className="pb-2"><CardTitle className="text-base">Financials</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             <div className="flex justify-between items-center pb-2 border-b border-border">
-              <span className="text-muted-foreground">Total Fare</span>
+              <span className="text-muted-foreground">
+                {svc === "Hotel" || svc === "Apartment" ? "Total Charged to Client" : "Total Fare"}
+              </span>
               <span className="font-bold text-xl text-primary">£{(booking.price || 0).toLocaleString()}</span>
             </div>
             {(booking.additional_charges || 0) > 0 && (
@@ -674,14 +822,25 @@ export default function BookingDetail() {
                 <span className="font-medium">£{(booking.additional_charges || 0).toLocaleString()}</span>
               </div>
             )}
-            <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground">TVL Commission</span>
-              <span className="font-medium">£{(booking.tvl_commission || 0).toLocaleString()}</span>
-            </div>
-            <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground">Driver Receives</span>
-              <span className="font-medium text-blue-400">£{(booking.driver_receives || 0).toLocaleString()}</span>
-            </div>
+            {svc === "Hotel" || svc === "Apartment" ? (
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground">Commission Earned</span>
+                <span className="font-medium text-green-400">
+                  £{((booking as any).commission_amount || 0).toLocaleString()}
+                </span>
+              </div>
+            ) : (
+              <>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">TVL Commission</span>
+                  <span className="font-medium">£{(booking.tvl_commission || 0).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">Driver Receives</span>
+                  <span className="font-medium text-blue-400">£{(booking.driver_receives || 0).toLocaleString()}</span>
+                </div>
+              </>
+            )}
             <div className="flex gap-3 pt-2">
               <Badge variant="outline" className={booking.payment_status === 'Paid' ? 'text-green-400 border-green-500/30' : 'text-amber-400 border-amber-500/30'}>
                 {booking.payment_status}

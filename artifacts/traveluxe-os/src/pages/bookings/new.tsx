@@ -161,10 +161,22 @@ export default function NewBooking() {
   const isAsDirected = serviceType === "As Directed";
   const needsCommission = isHotel || isAccommodation;
 
-  // Clear order lines when switching to accommodation types (no vehicles)
+  // Clear order lines AND any transport-specific fields when switching to
+  // accommodation types — Hotel/Apartment have no vehicle, no name board, no
+  // pickup/drop-off, no passengers/luggage. Leaving stale values causes them
+  // to leak into the booking record and the Job Sheet / WhatsApp message.
   useEffect(() => {
     if (isHotel || isAccommodation) {
       setOrderLines([]);
+      bookingForm.setValue("vehicle_type", "");
+      bookingForm.setValue("nameboard", "");
+      bookingForm.setValue("pickup", "");
+      bookingForm.setValue("dropoff", "");
+      bookingForm.setValue("destination", "");
+      bookingForm.setValue("flight_number", "");
+      bookingForm.setValue("direction", "");
+      bookingForm.setValue("passengers", undefined as any);
+      bookingForm.setValue("luggage", undefined as any);
     }
   }, [serviceType]);
 
@@ -301,7 +313,11 @@ export default function NewBooking() {
   const confirmFoundClient = (client: FoundClient) => {
     setConfirmedClient(client);
     bookingForm.setValue("client_id", client.id);
-    if (client.name) bookingForm.setValue("nameboard", client.name);
+    // Only auto-fill the meet & greet name board for transport services.
+    // Hotel and Apartment bookings do not use a name board.
+    if (client.name && !isHotel && !isAccommodation) {
+      bookingForm.setValue("nameboard", client.name);
+    }
     setPhase("booking");
   };
 
@@ -335,20 +351,40 @@ export default function NewBooking() {
   };
 
   const onBookingSubmit = async (values: z.infer<typeof bookingSchema>) => {
+    const isAccommodationSubmit =
+      values.service_type === "Hotel" || values.service_type === "Apartment";
+
+    // Hotel and Apartment have NO transport fields. Force them blank on the
+    // payload so old auto-fills (name board from client name, vehicle from
+    // order lines) cannot leak into the booking record, the Job Sheet card,
+    // or the WhatsApp/driver message.
+    const transportSafe = {
+      direction: isAccommodationSubmit ? undefined : values.direction,
+      pickup: isAccommodationSubmit ? undefined : values.pickup,
+      dropoff: isAccommodationSubmit ? undefined : values.dropoff,
+      destination: isAccommodationSubmit ? undefined : values.destination,
+      flight_number: isAccommodationSubmit ? undefined : values.flight_number,
+      passengers: isAccommodationSubmit ? undefined : values.passengers,
+      luggage: isAccommodationSubmit ? undefined : values.luggage,
+      vehicle_type: isAccommodationSubmit ? undefined : values.vehicle_type,
+      nameboard: isAccommodationSubmit ? undefined : values.nameboard,
+    };
+
+    // For Hotel/Apartment, derive date_time from the check-in date so
+    // calendars, dashboard sorting, and "upcoming" filters still work even
+    // though the user no longer enters a separate Date & Time.
+    const effectiveDateTime = isAccommodationSubmit
+      ? values.check_in_date
+        ? `${values.check_in_date}T12:00`
+        : undefined
+      : values.date_time;
+
     // Only include fields that exist as columns in the bookings table
     const allowedPayload: Record<string, any> = {
       client_id: values.client_id,
       service_type: values.service_type,
-      direction: values.direction,
-      pickup: values.pickup,
-      dropoff: values.dropoff,
-      destination: values.destination,
-      flight_number: values.flight_number,
-      date_time: values.date_time,
-      passengers: values.passengers,
-      luggage: values.luggage,
-      vehicle_type: values.vehicle_type,
-      nameboard: values.nameboard,
+      ...transportSafe,
+      date_time: effectiveDateTime,
       special_requests: values.extras
         ? `${values.special_requests ? values.special_requests + "\n" : ""}Extras: ${values.extras}`
         : values.special_requests,
@@ -675,13 +711,17 @@ export default function NewBooking() {
                         <FormMessage />
                       </FormItem>
                     )} />
-                    <FormField control={bookingForm.control} name="date_time" render={({ field }) => (
-                      <FormItem className="col-span-2">
-                        <FormLabel>Date & Time</FormLabel>
-                        <FormControl><Input type="datetime-local" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
+                    {/* Date & Time only for transport services. For Hotel and Apartment
+                        the booking is bracketed by Check-in / Check-out instead. */}
+                    {!isHotel && !isAccommodation && (
+                      <FormField control={bookingForm.control} name="date_time" render={({ field }) => (
+                        <FormItem className="col-span-2">
+                          <FormLabel>Date & Time</FormLabel>
+                          <FormControl><Input type="datetime-local" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    )}
                     <FormField control={bookingForm.control} name="source" render={({ field }) => (
                       <FormItem className="col-span-2">
                         <FormLabel>Source</FormLabel>
