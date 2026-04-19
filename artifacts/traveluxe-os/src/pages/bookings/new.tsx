@@ -17,6 +17,7 @@ import { supabase } from "@/lib/supabase";
 import { format } from "date-fns";
 import { Label } from "@/components/ui/label";
 import ProductPicker, { type OrderLine } from "@/components/booking/ProductPicker";
+import { FlightLookupCard } from "@/components/booking/FlightLookupCard";
 
 type Phase = "lookup" | "found" | "register" | "booking";
 
@@ -125,6 +126,8 @@ export default function NewBooking() {
   });
 
   const serviceType = bookingForm.watch("service_type");
+  const watchedFlightNumber = bookingForm.watch("flight_number") ?? "";
+  const watchedDirection = bookingForm.watch("direction") ?? "Arrival";
   const price = bookingForm.watch("price") || 0;
   const commission = bookingForm.watch("tvl_commission") || 0;
   const driverReceives = price - commission;
@@ -597,11 +600,26 @@ export default function NewBooking() {
                         <FormField control={bookingForm.control} name="flight_number" render={({ field }) => (
                           <FormItem>
                             <FormLabel>Flight No.</FormLabel>
-                            <FormControl><Input placeholder="BA123" {...field} /></FormControl>
+                            <FormControl><Input placeholder="BA123" {...field} className="uppercase" /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
                       </div>
+                      {serviceType === "Airport Transfer" && (
+                        <FlightLookupCard
+                          flightNumber={watchedFlightNumber}
+                          direction={watchedDirection}
+                          onAutoFill={(dateTime, origin, destination) => {
+                            bookingForm.setValue("date_time", dateTime);
+                            if (watchedDirection === "Arrival" && origin) {
+                              bookingForm.setValue("pickup", origin);
+                            }
+                            if (watchedDirection === "Departure" && destination) {
+                              bookingForm.setValue("dropoff", destination);
+                            }
+                          }}
+                        />
+                      )}
                       <FormField control={bookingForm.control} name="nameboard" render={({ field }) => (
                         <FormItem>
                           <FormLabel>

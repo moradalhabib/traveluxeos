@@ -2,7 +2,7 @@ import { useGetDashboardSummary, getGetDashboardSummaryQueryKey } from "@workspa
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertTriangle, Briefcase, PoundSterling, Users, Plus, ChevronRight } from "lucide-react";
+import { AlertTriangle, Briefcase, PoundSterling, Users, Plus, ChevronRight, Layers } from "lucide-react";
 import { Link } from "wouter";
 
 export default function Dashboard() {
@@ -111,11 +111,17 @@ export default function Dashboard() {
       </div>
 
       {/* Quick links */}
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 gap-3">
         <Link href="/jobs">
           <div className="rounded-xl border border-border bg-card p-4 text-center hover:border-primary/50 hover:bg-secondary/20 transition-all cursor-pointer">
             <Briefcase className="w-5 h-5 text-primary mx-auto mb-2" />
             <span className="text-xs font-medium text-foreground">Jobs Board</span>
+          </div>
+        </Link>
+        <Link href="/services">
+          <div className="rounded-xl border border-border bg-card p-4 text-center hover:border-primary/50 hover:bg-secondary/20 transition-all cursor-pointer">
+            <Layers className="w-5 h-5 text-primary mx-auto mb-2" />
+            <span className="text-xs font-medium text-foreground">Services</span>
           </div>
         </Link>
         <Link href="/clients">

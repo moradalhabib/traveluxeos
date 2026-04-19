@@ -87,9 +87,43 @@ export default function InvoiceDetail() {
     const dateStr = inv.generated_at ? format(new Date(inv.generated_at), "dd MMMM yyyy") : format(new Date(), "dd MMMM yyyy");
     const serviceDate = bk.date_time ? format(new Date(bk.date_time), "dd MMM yyyy HH:mm") : "—";
     const hasLines = lines.length > 0;
+    const buildFallbackDesc = (bk: any): string => {
+      const st = bk.service_type ?? "";
+      if (st === "Airport Transfer") {
+        const parts: string[] = [`Airport Transfer — ${bk.direction ?? ""}${bk.vehicle_type ? ` · ${bk.vehicle_type}` : ""}`];
+        if (bk.pickup) parts.push(`${bk.pickup}${bk.dropoff ? ` → ${bk.dropoff}` : ""}`);
+        if (bk.flight_number) parts.push(`✈ ${bk.flight_number}${bk.passengers ? ` · ${bk.passengers} pax` : ""}`);
+        if (bk.nameboard) parts.push(`Board: ${bk.nameboard}`);
+        return parts.join("<br><span class='service-detail'>")+Array(parts.length-1).fill("</span>").join("");
+      }
+      if (st === "Tour") {
+        const parts: string[] = [`Tour${bk.tour_name ? ` — ${bk.tour_name}` : ""}${bk.vehicle_type ? ` · ${bk.vehicle_type}` : ""}`];
+        if (bk.meeting_point) parts.push(`Meeting: ${bk.meeting_point}`);
+        if (bk.duration) parts.push(`Duration: ${bk.duration}`);
+        return parts.join("<br><span class='service-detail'>")+Array(parts.length-1).fill("</span>").join("");
+      }
+      if (st === "As Directed") {
+        const parts: string[] = [`Chauffeur — As Directed${bk.vehicle_type ? ` · ${bk.vehicle_type}` : ""}`];
+        if (bk.pickup) parts.push(`${bk.pickup}${bk.dropoff ? ` → ${bk.dropoff}` : ""}`);
+        return parts.join("<br><span class='service-detail'>")+Array(parts.length-1).fill("</span>").join("");
+      }
+      if (st === "Hotel") {
+        const parts: string[] = [`Hotel Accommodation${bk.hotel_name ? ` — ${bk.hotel_name}` : ""}`];
+        if (bk.room_type) parts.push(bk.room_type);
+        if (bk.num_nights) parts.push(`${bk.num_nights} night${bk.num_nights !== 1 ? "s" : ""}`);
+        return parts.join("<br><span class='service-detail'>")+Array(parts.length-1).fill("</span>").join("");
+      }
+      if (st === "Apartment") {
+        const parts: string[] = [`Apartment Accommodation${bk.property_name ? ` — ${bk.property_name}` : ""}`];
+        if (bk.property_address) parts.push(bk.property_address);
+        if (bk.nights) parts.push(`${bk.nights} night${bk.nights !== 1 ? "s" : ""}`);
+        return parts.join("<br><span class='service-detail'>")+Array(parts.length-1).fill("</span>").join("");
+      }
+      return st;
+    };
     const linesHtml = hasLines
       ? lines.map(l => `<tr><td>${l.name}</td><td style="text-align:center">${l.quantity}</td><td style="text-align:right">£${Number(l.unit_price).toLocaleString()}</td><td style="text-align:right;font-weight:600">£${Number(l.total ?? l.unit_price * l.quantity).toLocaleString()}</td></tr>`).join("")
-      : `<tr><td>${bk.service_type}${bk.vehicle_type ? ` — ${bk.vehicle_type}` : ""}</td><td style="text-align:center">1</td><td style="text-align:right">£${Number(bk.price || 0).toLocaleString()}</td><td style="text-align:right;font-weight:600">£${Number(bk.price || 0).toLocaleString()}</td></tr>`;
+      : `<tr><td>${buildFallbackDesc(bk)}</td><td style="text-align:center">1</td><td style="text-align:right">£${Number(bk.price || 0).toLocaleString()}</td><td style="text-align:right;font-weight:600">£${Number(bk.price || 0).toLocaleString()}</td></tr>`;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -318,7 +352,7 @@ export default function InvoiceDetail() {
               )}
             </div>
             <div>
-              <p className="text-xs uppercase tracking-widest text-muted-foreground mb-3">Booking Details</p>
+              <p className="text-xs uppercase tracking-widest text-muted-foreground mb-3">Booking Reference</p>
               <p className="font-mono font-bold text-lg text-foreground">{booking?.tvl_ref || "—"}</p>
               <p className="text-sm text-muted-foreground mt-1">{booking?.service_type}</p>
               {booking?.date_time && (
@@ -326,15 +360,115 @@ export default function InvoiceDetail() {
                   📅 {format(new Date(booking.date_time), "dd MMM yyyy, HH:mm")}
                 </p>
               )}
-              {booking?.pickup && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  📍 {booking.pickup}{(booking.dropoff || (booking as any).destination) ? ` → ${booking.dropoff || (booking as any).destination}` : ""}
-                </p>
+
+              {/* Airport Transfer specific details */}
+              {booking?.service_type === "Airport Transfer" && (
+                <>
+                  {(booking as any).direction && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      🛬 {(booking as any).direction}
+                    </p>
+                  )}
+                  {booking?.flight_number && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      ✈ Flight {booking.flight_number}{(booking as any).passengers ? ` · ${(booking as any).passengers} pax` : ""}
+                    </p>
+                  )}
+                  {booking?.pickup && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      📍 {booking.pickup}{(booking.dropoff || (booking as any).destination) ? ` → ${booking.dropoff || (booking as any).destination}` : ""}
+                    </p>
+                  )}
+                  {(booking as any).vehicle_type && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      🚗 {(booking as any).vehicle_type}
+                    </p>
+                  )}
+                  {(booking as any).nameboard && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      🪧 Board: {(booking as any).nameboard}
+                    </p>
+                  )}
+                </>
               )}
-              {booking?.flight_number && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  ✈ {booking.flight_number}{booking.passengers ? ` · ${booking.passengers} pax` : ""}
-                </p>
+
+              {/* Tour specific details */}
+              {booking?.service_type === "Tour" && (
+                <>
+                  {(booking as any).tour_name && (
+                    <p className="text-xs text-muted-foreground mt-1 font-medium">
+                      🗺 {(booking as any).tour_name}
+                    </p>
+                  )}
+                  {(booking as any).meeting_point && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      📍 Meet: {(booking as any).meeting_point}
+                    </p>
+                  )}
+                  {(booking as any).duration && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      ⏱ Duration: {(booking as any).duration}
+                    </p>
+                  )}
+                  {(booking as any).vehicle_type && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      🚗 {(booking as any).vehicle_type}
+                    </p>
+                  )}
+                </>
+              )}
+
+              {/* As Directed */}
+              {booking?.service_type === "As Directed" && (
+                <>
+                  {booking?.pickup && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      📍 {booking.pickup}{(booking.dropoff || (booking as any).destination) ? ` → ${booking.dropoff || (booking as any).destination}` : ""}
+                    </p>
+                  )}
+                  {(booking as any).vehicle_type && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      🚗 {(booking as any).vehicle_type}
+                    </p>
+                  )}
+                </>
+              )}
+
+              {/* Hotel specific */}
+              {booking?.service_type === "Hotel" && (
+                <>
+                  {(booking as any).hotel_name && (
+                    <p className="text-xs text-muted-foreground mt-1 font-medium">
+                      🏨 {(booking as any).hotel_name}
+                    </p>
+                  )}
+                  {(booking as any).room_type && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      🛏 {(booking as any).room_type}
+                    </p>
+                  )}
+                  {(booking as any).num_nights && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      📅 {(booking as any).num_nights} night{(booking as any).num_nights !== 1 ? "s" : ""}
+                    </p>
+                  )}
+                </>
+              )}
+
+              {/* Apartment specific */}
+              {booking?.service_type === "Apartment" && (
+                <>
+                  {(booking as any).property_name && (
+                    <p className="text-xs text-muted-foreground mt-1 font-medium">
+                      🏠 {(booking as any).property_name}
+                    </p>
+                  )}
+                  {(booking as any).nights && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      📅 {(booking as any).nights} night{(booking as any).nights !== 1 ? "s" : ""}
+                    </p>
+                  )}
+                </>
               )}
             </div>
           </div>
@@ -367,9 +501,89 @@ export default function InvoiceDetail() {
             ) : (
               <div className="grid grid-cols-12 gap-2 py-3.5 border-b border-border/50 text-sm">
                 <div className="col-span-6">
-                  <p className="font-medium text-foreground">{booking?.service_type}{booking?.vehicle_type ? ` — ${booking.vehicle_type}` : ""}</p>
-                  {booking?.flight_number && <p className="text-xs text-muted-foreground mt-0.5">Flight: {booking.flight_number}</p>}
-                  {booking?.nameboard && <p className="text-xs text-muted-foreground">Board: {booking.nameboard}</p>}
+                  {/* Airport Transfer */}
+                  {booking?.service_type === "Airport Transfer" && (
+                    <>
+                      <p className="font-medium text-foreground">
+                        Airport Transfer — {(booking as any).direction ?? ""}
+                        {(booking as any).vehicle_type ? ` · ${(booking as any).vehicle_type}` : ""}
+                      </p>
+                      {booking?.pickup && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {booking.pickup}{booking.dropoff ? ` → ${booking.dropoff}` : ""}
+                        </p>
+                      )}
+                      {booking?.flight_number && (
+                        <p className="text-xs text-muted-foreground">
+                          ✈ {booking.flight_number}
+                          {(booking as any).passengers ? ` · ${(booking as any).passengers} passengers` : ""}
+                        </p>
+                      )}
+                      {(booking as any).nameboard && (
+                        <p className="text-xs text-muted-foreground">Board: {(booking as any).nameboard}</p>
+                      )}
+                    </>
+                  )}
+                  {/* Tour */}
+                  {booking?.service_type === "Tour" && (
+                    <>
+                      <p className="font-medium text-foreground">
+                        Tour{(booking as any).tour_name ? ` — ${(booking as any).tour_name}` : ""}
+                        {(booking as any).vehicle_type ? ` · ${(booking as any).vehicle_type}` : ""}
+                      </p>
+                      {(booking as any).meeting_point && (
+                        <p className="text-xs text-muted-foreground mt-0.5">Meeting: {(booking as any).meeting_point}</p>
+                      )}
+                      {(booking as any).duration && (
+                        <p className="text-xs text-muted-foreground">Duration: {(booking as any).duration}</p>
+                      )}
+                    </>
+                  )}
+                  {/* As Directed */}
+                  {booking?.service_type === "As Directed" && (
+                    <>
+                      <p className="font-medium text-foreground">
+                        Chauffeur — As Directed{(booking as any).vehicle_type ? ` · ${(booking as any).vehicle_type}` : ""}
+                      </p>
+                      {booking?.pickup && (
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          {booking.pickup}{booking.dropoff ? ` → ${booking.dropoff}` : ""}
+                        </p>
+                      )}
+                    </>
+                  )}
+                  {/* Hotel */}
+                  {booking?.service_type === "Hotel" && (
+                    <>
+                      <p className="font-medium text-foreground">
+                        Hotel Accommodation{(booking as any).hotel_name ? ` — ${(booking as any).hotel_name}` : ""}
+                      </p>
+                      {(booking as any).room_type && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{(booking as any).room_type}</p>
+                      )}
+                      {(booking as any).num_nights && (
+                        <p className="text-xs text-muted-foreground">{(booking as any).num_nights} night{(booking as any).num_nights !== 1 ? "s" : ""}</p>
+                      )}
+                    </>
+                  )}
+                  {/* Apartment */}
+                  {booking?.service_type === "Apartment" && (
+                    <>
+                      <p className="font-medium text-foreground">
+                        Apartment Accommodation{(booking as any).property_name ? ` — ${(booking as any).property_name}` : ""}
+                      </p>
+                      {(booking as any).property_address && (
+                        <p className="text-xs text-muted-foreground mt-0.5">{(booking as any).property_address}</p>
+                      )}
+                      {(booking as any).nights && (
+                        <p className="text-xs text-muted-foreground">{(booking as any).nights} night{(booking as any).nights !== 1 ? "s" : ""}</p>
+                      )}
+                    </>
+                  )}
+                  {/* Unknown / other service type */}
+                  {!["Airport Transfer","Tour","As Directed","Hotel","Apartment"].includes(booking?.service_type ?? "") && (
+                    <p className="font-medium text-foreground">{booking?.service_type}</p>
+                  )}
                 </div>
                 <div className="col-span-2 text-center text-muted-foreground">1</div>
                 <div className="col-span-2 text-right text-muted-foreground">£{Number(booking?.price || 0).toLocaleString()}</div>
