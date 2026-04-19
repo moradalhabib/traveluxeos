@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Link } from "wouter";
 import { format } from "date-fns";
-import { FileText, Plus, Eye, Receipt, Search, X } from "lucide-react";
+import { FileText, Plus, Receipt, Search, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Invoices() {
@@ -176,15 +176,9 @@ export default function Invoices() {
                       </div>
                     </div>
                     <div className="flex items-center gap-3 ml-0 sm:ml-4 flex-shrink-0">
-                      <Badge variant="outline" className={getStatusColor(invoice.status)}>
+                      <Badge variant="outline" className={`${getStatusColor(invoice.status)} text-xs px-3 py-1`}>
                         {invoice.status}
                       </Badge>
-                      <Button variant="outline" size="sm" className="text-muted-foreground gap-2" asChild onClick={e => e.preventDefault()}>
-                        <Link href={`/invoices/${invoice.id}`}>
-                          <Eye className="w-4 h-4" />
-                          View
-                        </Link>
-                      </Button>
                     </div>
                   </CardContent>
                 </Card>

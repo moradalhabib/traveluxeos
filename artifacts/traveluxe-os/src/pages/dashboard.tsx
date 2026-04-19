@@ -57,7 +57,7 @@ export default function Dashboard() {
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-3">
         {/* Active Jobs */}
-        <Link href="/jobs">
+        <Link href="/jobs?status=Active">
           <Card className="border-border bg-card hover:border-primary/30 transition-colors cursor-pointer">
             <CardHeader className="flex flex-row items-center justify-between pb-1 pt-4 px-4 space-y-0">
               <CardTitle className="text-xs font-medium text-muted-foreground">Active Jobs</CardTitle>
@@ -71,7 +71,7 @@ export default function Dashboard() {
         </Link>
 
         {/* Upcoming Bookings */}
-        <Link href="/bookings">
+        <Link href="/bookings?upcoming=1">
           <Card className="border-border bg-card hover:border-primary/30 transition-colors cursor-pointer">
             <CardHeader className="flex flex-row items-center justify-between pb-1 pt-4 px-4 space-y-0">
               <CardTitle className="text-xs font-medium text-muted-foreground">Upcoming Bookings</CardTitle>

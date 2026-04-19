@@ -3,10 +3,10 @@ import { useListBookings, getListBookingsQueryKey } from "@workspace/api-client-
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Briefcase, CalendarRange, Home } from "lucide-react";
+import { Plus, Briefcase, CalendarRange, Home, X } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Link } from "wouter";
-import { format } from "date-fns";
+import { Link, useSearch } from "wouter";
+import { format, startOfDay, isBefore } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -16,6 +16,8 @@ export default function Bookings() {
 
   const [status, setStatus] = useState<string>("");
   const [search, setSearch] = useState<string>("");
+  const urlSearch = useSearch();
+  const upcomingOnly = new URLSearchParams(urlSearch).get("upcoming") === "1";
 
   const { data: rawBookings, isLoading } = useListBookings(
     { status: status || undefined },
@@ -29,6 +31,16 @@ export default function Bookings() {
     if (isResidenceManager) {
       list = list.filter((b) => b.service_type === "Apartment");
     }
+    // ?upcoming=1 → only show future bookings that aren't already running/finished
+    if (upcomingOnly) {
+      const today = startOfDay(new Date());
+      const exclude = new Set(["Active", "Completed", "Cancelled"]);
+      list = list.filter((b) => {
+        if (exclude.has(b.status)) return false;
+        if (!b.date_time) return true;
+        return !isBefore(new Date(b.date_time), today);
+      });
+    }
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(
@@ -40,7 +52,7 @@ export default function Bookings() {
       );
     }
     return list;
-  }, [rawBookings, isResidenceManager, search]);
+  }, [rawBookings, isResidenceManager, search, upcomingOnly]);
 
   const getStatusColor = (s: string) => {
     switch (s) {
@@ -61,12 +73,28 @@ export default function Bookings() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-2">
             {isResidenceManager && <Home className="w-7 h-7 text-primary" />}
-            {isResidenceManager ? "Apartment Bookings" : "Bookings"}
+            {isResidenceManager
+              ? "Apartment Bookings"
+              : upcomingOnly
+                ? "Upcoming Bookings"
+                : "Bookings"}
           </h1>
           {isResidenceManager && (
             <p className="text-sm text-muted-foreground mt-0.5">
               View and update status on apartment bookings
             </p>
+          )}
+          {upcomingOnly && !isResidenceManager && (
+            <div className="flex items-center gap-2 mt-2">
+              <Badge variant="outline" className="border-primary/40 text-primary bg-primary/10">
+                Showing only: future bookings (excl. Active / Completed)
+              </Badge>
+              <Link href="/bookings">
+                <Button variant="ghost" size="sm" className="text-muted-foreground gap-1 h-8">
+                  <X className="w-3.5 h-3.5" /> Clear
+                </Button>
+              </Link>
+            </div>
           )}
         </div>
         {!isResidenceManager && (

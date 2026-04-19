@@ -15,8 +15,8 @@ import { useToast } from "@/hooks/use-toast";
 const COMPANY = {
   name: "TRAVELUXE LONDON",
   address: "Berkeley Square, Mayfair, London W1J 6BR",
-  email: "notifications@traveluxelondon.com",
-  phone: "+44 (0) 20 XXXX XXXX",
+  email: "Info@traveluxelondon.com",
+  phone: "+44 7404 567902",
   website: "www.traveluxelondon.com",
   tagline: "Luxury Chauffeur & Travel Concierge",
 };

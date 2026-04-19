@@ -4,13 +4,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Link } from "wouter";
+import { Link, useSearch } from "wouter";
 import { format, isToday, isTomorrow, startOfDay, endOfDay, addDays, isBefore, isAfter } from "date-fns";
-import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase } from "lucide-react";
+import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function Jobs() {
   const [timeFilter, setTimeFilter] = useState("all");
+  const search = useSearch();
+  const statusFilter = new URLSearchParams(search).get("status") ?? "";
 
   const { data: bookings, isLoading } = useListBookings(
     {},
@@ -34,6 +36,11 @@ export default function Jobs() {
     const now = new Date();
     return bookings.filter(b => {
       if (b.status === 'Cancelled') return false;
+      // Hard status filter from URL (e.g. dashboard "Active Jobs" → ?status=Active)
+      if (statusFilter && b.status !== statusFilter) return false;
+      // When a hard status filter is set, do not also filter by date — we want
+      // every job in that status regardless of when it is.
+      if (statusFilter) return true;
       if (!b.date_time) return timeFilter === 'all';
       const d = new Date(b.date_time);
       switch (timeFilter) {
@@ -47,7 +54,7 @@ export default function Jobs() {
         default: return !isBefore(d, startOfDay(now));
       }
     });
-  }, [bookings, timeFilter]);
+  }, [bookings, timeFilter, statusFilter]);
 
   const urgentJobs = filteredBookings.filter(b => !b.driver_id && b.status !== 'Completed');
   const activeJobs = bookings?.filter(b => b.status !== 'Cancelled') || [];
@@ -57,8 +64,13 @@ export default function Jobs() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Jobs Board</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{filteredBookings.length} job{filteredBookings.length !== 1 ? 's' : ''} · {activeJobs.length} total active</p>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+            {statusFilter ? `${statusFilter} Jobs` : "Jobs Board"}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            {filteredBookings.length} job{filteredBookings.length !== 1 ? 's' : ''}
+            {statusFilter ? ` · status: ${statusFilter}` : ` · ${activeJobs.length} total active`}
+          </p>
         </div>
         <Link href="/bookings/new">
           <Button className="shadow-[0_0_15px_rgba(201,168,76,0.25)] hover:shadow-[0_0_25px_rgba(201,168,76,0.4)]">
@@ -78,18 +90,34 @@ export default function Jobs() {
         </div>
       )}
 
-      {/* Time filter */}
-      <Select value={timeFilter} onValueChange={setTimeFilter}>
-        <SelectTrigger className="w-full sm:w-[200px]">
-          <SelectValue placeholder="Filter by time" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="today">Today</SelectItem>
-          <SelectItem value="tomorrow">Tomorrow</SelectItem>
-          <SelectItem value="this_week">This Week</SelectItem>
-          <SelectItem value="all">All Upcoming</SelectItem>
-        </SelectContent>
-      </Select>
+      {/* Active status pill (when filtering by a fixed status from the dashboard) */}
+      {statusFilter && (
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="border-primary/40 text-primary bg-primary/10 gap-1.5 py-1">
+            Showing only: {statusFilter}
+          </Badge>
+          <Link href="/jobs">
+            <Button variant="ghost" size="sm" className="text-muted-foreground gap-1 h-8">
+              <X className="w-3.5 h-3.5" /> Clear
+            </Button>
+          </Link>
+        </div>
+      )}
+
+      {/* Time filter — only when no hard status filter is applied */}
+      {!statusFilter && (
+        <Select value={timeFilter} onValueChange={setTimeFilter}>
+          <SelectTrigger className="w-full sm:w-[200px]">
+            <SelectValue placeholder="Filter by time" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="today">Today</SelectItem>
+            <SelectItem value="tomorrow">Tomorrow</SelectItem>
+            <SelectItem value="this_week">This Week</SelectItem>
+            <SelectItem value="all">All Upcoming</SelectItem>
+          </SelectContent>
+        </Select>
+      )}
 
       {/* Job cards */}
       <div className="space-y-3">
