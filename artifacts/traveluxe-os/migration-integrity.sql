@@ -29,7 +29,7 @@ ALTER TABLE public.invoices
   DROP CONSTRAINT IF EXISTS invoices_status_check;
 ALTER TABLE public.invoices
   ADD CONSTRAINT invoices_status_check
-    CHECK (status IN ('Generated', 'Sent', 'Paid', 'Overdue'));
+    CHECK (status IN ('Generated', 'Sent', 'Paid', 'Overdue', 'Cancelled'));
 
 -- 4. Add paid_at / overdue_at timestamps to invoices for audit trail
 ALTER TABLE public.invoices
@@ -130,8 +130,8 @@ CREATE TRIGGER trg_invoice_audit
 -- ============================================================
 -- Summary of what this migration fixes:
 -- - service_type CHECK now accepts all 5 canonical types
--- - role CHECK now accepts super_admin
--- - invoice status CHECK now accepts Paid + Overdue
+-- - role CHECK now accepts super_admin + residence_manager
+-- - invoice status CHECK now accepts Paid + Overdue + Cancelled
 -- - Hotel/Apartment arrangement fees tracked via arrangement_fee_status
 -- - Indexes added for all commission, payout and invoice queries
 -- - Invoice status changes auto-logged via DB trigger

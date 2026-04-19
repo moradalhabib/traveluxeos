@@ -214,8 +214,17 @@ router.put("/:id", async (req, res) => {
 
   const enriched = await enrichBooking(data);
 
-  // On payment_status → Paid: send payment receipt email
+  // On payment_status → Paid: auto-mark related invoice Paid + send receipt email
   if (body.payment_status === "Paid" && prevPaymentStatus !== "Paid") {
+    // Auto-sync invoice status
+    void (async () => {
+      await supabase
+        .from("invoices")
+        .update({ status: "Paid", paid_at: new Date().toISOString() })
+        .eq("booking_id", req.params.id)
+        .in("status", ["Generated", "Sent", "Overdue"]);
+    })();
+
     sendPaymentReceiptEmail(enriched).catch(err =>
       console.error("[Email] Receipt send error:", err?.message)
     );
@@ -236,6 +245,15 @@ router.post("/:id/cancel", async (req, res) => {
     .single();
 
   if (error) return res.status(400).json({ error: error.message });
+
+  // Auto-cancel related invoice (unless already Paid)
+  void (async () => {
+    await supabase
+      .from("invoices")
+      .update({ status: "Cancelled" })
+      .eq("booking_id", req.params.id)
+      .not("status", "eq", "Paid");
+  })();
 
   await auditLog("cancel_booking", "booking", req.params.id, user?.id ?? null,
     `Booking ${data.tvl_ref} cancelled. Reason: ${reason}`);

@@ -3,6 +3,14 @@ import { supabase, auditLog, getUserFromToken } from "../lib/supabase";
 
 const router = Router();
 
+// Default payment terms: 30 days from invoice generation
+const PAYMENT_TERMS_DAYS = 30;
+
+/**
+ * GET /invoices
+ * Returns all invoices, automatically flipping Generated/Sent invoices to
+ * Overdue if their due date (generated_at + 30 days) has passed.
+ */
 router.get("/", async (_req, res) => {
   const { data, error } = await supabase
     .from("invoices")
@@ -10,7 +18,33 @@ router.get("/", async (_req, res) => {
     .order("generated_at", { ascending: false });
 
   if (error) return res.status(500).json({ error: error.message });
-  return res.json(data ?? []);
+
+  const invoices = data ?? [];
+  const nowMs = Date.now();
+
+  // Find invoices that should flip to Overdue
+  const overdueIds: string[] = invoices
+    .filter(inv => {
+      if (inv.status !== "Generated" && inv.status !== "Sent") return false;
+      if (!inv.generated_at) return false;
+      const dueMs = new Date(inv.generated_at).getTime() + PAYMENT_TERMS_DAYS * 86_400_000;
+      return nowMs > dueMs;
+    })
+    .map(inv => inv.id);
+
+  if (overdueIds.length > 0) {
+    await supabase
+      .from("invoices")
+      .update({ status: "Overdue" })
+      .in("id", overdueIds);
+
+    // Reflect the update in the response
+    invoices.forEach(inv => {
+      if (overdueIds.includes(inv.id)) inv.status = "Overdue";
+    });
+  }
+
+  return res.json(invoices);
 });
 
 router.patch("/:id/status", async (req, res) => {

@@ -3,6 +3,17 @@ import { format } from "date-fns";
 const BRAND_GOLD = "#C9A84C";
 const BRAND_DARK = "#111111";
 
+/** Escape user-supplied text before interpolating into HTML to prevent injection. */
+function esc(value: string | null | undefined): string {
+  if (!value) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#x27;");
+}
+
 function baseLayout(content: string, preheader: string): string {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -88,7 +99,7 @@ function formatDate(dt: string | null | undefined): string {
 // ─────────────────────────────────────────────────────────────────────────────
 export function bookingConfirmationHtml(booking: any, invoiceNumber?: string): string {
   const clientName = booking.client_name || booking.clients?.name || "Valued Guest";
-  const firstName = clientName.split(" ")[0];
+  const firstName = esc(clientName.split(" ")[0]);
   const isAirport = booking.service_type === "Airport Transfer";
   const isTour = ["Tour", "City Tour", "Chauffeur Tour"].includes(booking.service_type);
   const isAccommodation = booking.service_type === "Apartment / Accommodation";
@@ -100,46 +111,46 @@ export function bookingConfirmationHtml(booking: any, invoiceNumber?: string): s
       is ready to ensure an exceptional experience for you.
     </p>
 
-    ${booking.tvl_ref ? `<div class="ref-badge">${booking.tvl_ref}</div>` : ""}
+    ${booking.tvl_ref ? `<div class="ref-badge">${esc(booking.tvl_ref)}</div>` : ""}
 
     <div class="section-title">Booking Details</div>
     <table class="detail-grid">
-      ${row("Service", booking.service_type)}
+      ${row("Service", esc(booking.service_type))}
       ${row("Date &amp; Time", formatDateTime(booking.date_time))}
-      ${isAirport && booking.flight_number ? row("Flight", booking.flight_number) : ""}
-      ${booking.direction ? row("Direction", booking.direction) : ""}
-      ${booking.pickup ? row("Pickup", booking.pickup) : ""}
-      ${booking.dropoff || booking.destination ? row("Drop-off", booking.dropoff || booking.destination) : ""}
-      ${booking.vehicle_type ? row("Vehicle", booking.vehicle_type) : ""}
-      ${booking.passengers ? row("Passengers", String(booking.passengers)) : ""}
-      ${booking.nameboard ? row("Name Board", `<em>"${booking.nameboard}"</em>`) : ""}
-      ${booking.luggage ? row("Luggage", booking.luggage) : ""}
+      ${isAirport && booking.flight_number ? row("Flight", esc(booking.flight_number)) : ""}
+      ${booking.direction ? row("Direction", esc(booking.direction)) : ""}
+      ${booking.pickup ? row("Pickup", esc(booking.pickup)) : ""}
+      ${booking.dropoff || booking.destination ? row("Drop-off", esc(booking.dropoff || booking.destination)) : ""}
+      ${booking.vehicle_type ? row("Vehicle", esc(booking.vehicle_type)) : ""}
+      ${booking.passengers ? row("Passengers", esc(String(booking.passengers))) : ""}
+      ${booking.nameboard ? row("Name Board", `<em>&ldquo;${esc(booking.nameboard)}&rdquo;</em>`) : ""}
+      ${booking.luggage ? row("Luggage", esc(booking.luggage)) : ""}
     </table>
 
     ${isTour && booking.tour_name ? `
     <div class="section-title">Tour Details</div>
     <table class="detail-grid">
-      ${row("Tour", booking.tour_name)}
-      ${row("Meeting Point", booking.meeting_point)}
+      ${row("Tour", esc(booking.tour_name))}
+      ${row("Meeting Point", esc(booking.meeting_point))}
       ${booking.guide_included ? row("Guide", "Included") : ""}
-      ${booking.itinerary ? row("Itinerary", `<span style="white-space:pre-line">${booking.itinerary}</span>`) : ""}
+      ${booking.itinerary ? row("Itinerary", `<span style="white-space:pre-line">${esc(booking.itinerary)}</span>`) : ""}
     </table>` : ""}
 
     ${isAccommodation && booking.property_name ? `
     <div class="section-title">Accommodation Details</div>
     <table class="detail-grid">
-      ${row("Property", booking.property_name)}
-      ${row("Address", booking.property_address)}
+      ${row("Property", esc(booking.property_name))}
+      ${row("Address", esc(booking.property_address))}
       ${row("Check-in", formatDateTime(booking.check_in_date))}
       ${row("Check-out", formatDateTime(booking.check_out_date))}
-      ${booking.nights ? row("Nights", String(booking.nights)) : ""}
+      ${booking.nights ? row("Nights", esc(String(booking.nights))) : ""}
     </table>` : ""}
 
     ${booking.driver_name ? `
     <div class="section-title">Your Driver</div>
     <table class="detail-grid">
-      ${row("Driver", booking.driver_name)}
-      ${booking.vehicle_type ? row("Vehicle", booking.vehicle_type) : ""}
+      ${row("Driver", esc(booking.driver_name))}
+      ${booking.vehicle_type ? row("Vehicle", esc(booking.vehicle_type)) : ""}
     </table>
     <p style="font-size:13px;color:#666;margin-top:8px">
       Your driver will meet you at the agreed location. A Traveluxe representative will be in touch
@@ -149,14 +160,14 @@ export function bookingConfirmationHtml(booking: any, invoiceNumber?: string): s
     <div class="price-box">
       <div class="price-label">Total Amount</div>
       <div class="price-amount">£${Number(booking.price || 0).toLocaleString()}</div>
-      ${booking.payment_method ? `<div style="font-size:12px;color:#888;margin-top:4px">Payment: ${booking.payment_method}</div>` : ""}
+      ${booking.payment_method ? `<div style="font-size:12px;color:#888;margin-top:4px">Payment: ${esc(booking.payment_method)}</div>` : ""}
     </div>
 
-    ${invoiceNumber ? `<p style="font-size:13px;color:#888">Invoice reference: <strong style="color:#333;font-family:monospace">${invoiceNumber}</strong></p>` : ""}
+    ${invoiceNumber ? `<p style="font-size:13px;color:#888">Invoice reference: <strong style="color:#333;font-family:monospace">${esc(invoiceNumber)}</strong></p>` : ""}
 
     ${booking.notes ? `
     <div class="note-box">
-      <strong>Notes from your concierge:</strong><br>${booking.notes}
+      <strong>Notes from your concierge:</strong><br>${esc(booking.notes)}
     </div>` : ""}
 
     <p style="font-size:14px;color:#555;line-height:1.7;margin-top:20px">
@@ -174,7 +185,7 @@ export function bookingConfirmationHtml(booking: any, invoiceNumber?: string): s
 // ─────────────────────────────────────────────────────────────────────────────
 export function paymentReceiptHtml(booking: any, invoiceNumber?: string): string {
   const clientName = booking.client_name || booking.clients?.name || "Valued Guest";
-  const firstName = clientName.split(" ")[0];
+  const firstName = esc(clientName.split(" ")[0]);
 
   const content = `
     <div class="greeting">Dear ${firstName},</div>
@@ -183,15 +194,15 @@ export function paymentReceiptHtml(booking: any, invoiceNumber?: string): string
       your account is now settled.
     </p>
 
-    ${booking.tvl_ref ? `<div class="ref-badge">${booking.tvl_ref} <span class="paid-badge">Paid</span></div>` : ""}
+    ${booking.tvl_ref ? `<div class="ref-badge">${esc(booking.tvl_ref)} <span class="paid-badge">Paid</span></div>` : ""}
 
     <div class="section-title">Payment Summary</div>
     <table class="detail-grid">
-      ${row("Service", booking.service_type)}
+      ${row("Service", esc(booking.service_type))}
       ${row("Date", formatDateTime(booking.date_time))}
-      ${row("Payment Method", booking.payment_method || "—")}
+      ${row("Payment Method", esc(booking.payment_method || "—"))}
       ${row("Payment Date", formatDate(new Date().toISOString()))}
-      ${invoiceNumber ? row("Invoice", invoiceNumber) : ""}
+      ${invoiceNumber ? row("Invoice", esc(invoiceNumber)) : ""}
     </table>
 
     <div class="price-box">
