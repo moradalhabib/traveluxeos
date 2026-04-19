@@ -72,6 +72,7 @@ export default function InvoiceDetail() {
       }
     }
   );
+  const bookingAny = booking as any;
 
   const [orderLines, setOrderLines] = useState<any[]>([]);
   const [clientProfile, setClientProfile] = useState<any | null>(null);
@@ -653,14 +654,14 @@ export default function InvoiceDetail() {
               <div className="mt-4 p-4 rounded-xl border border-primary/20 bg-primary/5 text-sm space-y-1">
                 <p className="text-xs font-semibold text-primary uppercase tracking-wider mb-2">Booking Details</p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                  {booking.hotel_name && <><span className="text-muted-foreground">Hotel:</span><span className="font-medium">{booking.hotel_name}</span></>}
-                  {booking.room_type && <><span className="text-muted-foreground">Room Type:</span><span className="font-medium">{booking.room_type}</span></>}
-                  {booking.hotel_booking_ref && <><span className="text-muted-foreground">Booking Ref:</span><span className="font-medium font-mono">{booking.hotel_booking_ref}</span></>}
-                  {booking.num_guests && <><span className="text-muted-foreground">Guests:</span><span className="font-medium">{booking.num_guests}</span></>}
-                  {booking.check_in_date && <><span className="text-muted-foreground">Check-in:</span><span className="font-medium">{new Date(booking.check_in_date).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</span></>}
-                  {booking.check_out_date && <><span className="text-muted-foreground">Check-out:</span><span className="font-medium">{new Date(booking.check_out_date).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</span></>}
-                  {booking.num_nights && <><span className="text-muted-foreground">Nights:</span><span className="font-medium">{booking.num_nights} {booking.num_nights === 1 ? "night" : "nights"}</span></>}
-                  {booking.breakfast_included != null && <><span className="text-muted-foreground">Breakfast:</span><span className="font-medium">{booking.breakfast_included ? "Included" : "Not included"}</span></>}
+                  {bookingAny?.hotel_name && <><span className="text-muted-foreground">Hotel:</span><span className="font-medium">{bookingAny.hotel_name}</span></>}
+                  {bookingAny?.room_type && <><span className="text-muted-foreground">Room Type:</span><span className="font-medium">{bookingAny.room_type}</span></>}
+                  {bookingAny?.hotel_booking_ref && <><span className="text-muted-foreground">Booking Ref:</span><span className="font-medium font-mono">{bookingAny.hotel_booking_ref}</span></>}
+                  {bookingAny?.num_guests && <><span className="text-muted-foreground">Guests:</span><span className="font-medium">{bookingAny.num_guests}</span></>}
+                  {bookingAny?.check_in_date && <><span className="text-muted-foreground">Check-in:</span><span className="font-medium">{new Date(bookingAny.check_in_date).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</span></>}
+                  {bookingAny?.check_out_date && <><span className="text-muted-foreground">Check-out:</span><span className="font-medium">{new Date(bookingAny.check_out_date).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</span></>}
+                  {bookingAny?.num_nights && <><span className="text-muted-foreground">Nights:</span><span className="font-medium">{bookingAny.num_nights} {bookingAny.num_nights === 1 ? "night" : "nights"}</span></>}
+                  {bookingAny?.breakfast_included != null && <><span className="text-muted-foreground">Breakfast:</span><span className="font-medium">{bookingAny.breakfast_included ? "Included" : "Not included"}</span></>}
                 </div>
               </div>
             )}
@@ -670,11 +671,11 @@ export default function InvoiceDetail() {
               <div className="mt-4 p-4 rounded-xl border border-amber-500/20 bg-amber-500/5 text-sm space-y-1">
                 <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider mb-2">Accommodation Details</p>
                 <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                  {booking.property_name && <><span className="text-muted-foreground">Property:</span><span className="font-medium">{booking.property_name}</span></>}
-                  {booking.property_address && <><span className="text-muted-foreground col-span-1">Address:</span><span className="font-medium">{booking.property_address}</span></>}
-                  {booking.check_in_date && <><span className="text-muted-foreground">Check-in:</span><span className="font-medium">{new Date(booking.check_in_date).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</span></>}
-                  {booking.check_out_date && <><span className="text-muted-foreground">Check-out:</span><span className="font-medium">{new Date(booking.check_out_date).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</span></>}
-                  {booking.nights && <><span className="text-muted-foreground">Nights:</span><span className="font-medium">{booking.nights}</span></>}
+                  {bookingAny?.property_name && <><span className="text-muted-foreground">Property:</span><span className="font-medium">{bookingAny.property_name}</span></>}
+                  {bookingAny?.property_address && <><span className="text-muted-foreground col-span-1">Address:</span><span className="font-medium">{bookingAny.property_address}</span></>}
+                  {bookingAny?.check_in_date && <><span className="text-muted-foreground">Check-in:</span><span className="font-medium">{new Date(bookingAny.check_in_date).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</span></>}
+                  {bookingAny?.check_out_date && <><span className="text-muted-foreground">Check-out:</span><span className="font-medium">{new Date(bookingAny.check_out_date).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" })}</span></>}
+                  {bookingAny?.nights && <><span className="text-muted-foreground">Nights:</span><span className="font-medium">{bookingAny.nights}</span></>}
                 </div>
               </div>
             )}
