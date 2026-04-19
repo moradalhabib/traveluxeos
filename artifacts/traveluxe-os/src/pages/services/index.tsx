@@ -13,33 +13,27 @@ import {
 import { Link } from "wouter";
 
 const SERVICE_ICONS: Record<string, React.ReactNode> = {
-  "Airport Transfer":          <PlaneTakeoff className="w-6 h-6" />,
-  "Tour":                      <Map className="w-6 h-6" />,
-  "City Tour":                 <Map className="w-6 h-6" />,
-  "Chauffeur Tour":            <Map className="w-6 h-6" />,
-  "As Directed":               <Car className="w-6 h-6" />,
-  "Event Transfer":            <CalendarRange className="w-6 h-6" />,
-  "Apartment / Accommodation": <Building2 className="w-6 h-6" />,
+  "Airport Transfer": <PlaneTakeoff className="w-6 h-6" />,
+  "Tour":             <Map className="w-6 h-6" />,
+  "As Directed":      <Car className="w-6 h-6" />,
+  "Apartment":        <Building2 className="w-6 h-6" />,
+  "Hotel":            <Building2 className="w-6 h-6" />,
 };
 
 const SERVICE_COLORS: Record<string, string> = {
-  "Airport Transfer":          "from-blue-500/20 to-blue-600/10 border-blue-500/30",
-  "Tour":                      "from-emerald-500/20 to-emerald-600/10 border-emerald-500/30",
-  "City Tour":                 "from-teal-500/20 to-teal-600/10 border-teal-500/30",
-  "Chauffeur Tour":            "from-purple-500/20 to-purple-600/10 border-purple-500/30",
-  "As Directed":               "from-amber-500/20 to-amber-600/10 border-amber-500/30",
-  "Event Transfer":            "from-rose-500/20 to-rose-600/10 border-rose-500/30",
-  "Apartment / Accommodation": "from-indigo-500/20 to-indigo-600/10 border-indigo-500/30",
+  "Airport Transfer": "from-blue-500/20 to-blue-600/10 border-blue-500/30",
+  "Tour":             "from-emerald-500/20 to-emerald-600/10 border-emerald-500/30",
+  "As Directed":      "from-amber-500/20 to-amber-600/10 border-amber-500/30",
+  "Apartment":        "from-indigo-500/20 to-indigo-600/10 border-indigo-500/30",
+  "Hotel":            "from-purple-500/20 to-purple-600/10 border-purple-500/30",
 };
 
 const SERVICE_ICON_COLORS: Record<string, string> = {
-  "Airport Transfer":          "text-blue-400 bg-blue-500/10",
-  "Tour":                      "text-emerald-400 bg-emerald-500/10",
-  "City Tour":                 "text-teal-400 bg-teal-500/10",
-  "Chauffeur Tour":            "text-purple-400 bg-purple-500/10",
-  "As Directed":               "text-amber-400 bg-amber-500/10",
-  "Event Transfer":            "text-rose-400 bg-rose-500/10",
-  "Apartment / Accommodation": "text-indigo-400 bg-indigo-500/10",
+  "Airport Transfer": "text-blue-400 bg-blue-500/10",
+  "Tour":             "text-emerald-400 bg-emerald-500/10",
+  "As Directed":      "text-amber-400 bg-amber-500/10",
+  "Apartment":        "text-indigo-400 bg-indigo-500/10",
+  "Hotel":            "text-purple-400 bg-purple-500/10",
 };
 
 const STATUS_COLORS: Record<string, string> = {

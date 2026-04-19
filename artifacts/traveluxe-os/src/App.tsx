@@ -5,6 +5,13 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
 import { Shell } from "@/components/layout/Shell";
+import { setAuthTokenGetter } from "@workspace/api-client-react";
+import { supabase } from "@/lib/supabase";
+
+// Forward Supabase JWT to the API server so all mutations pass RLS
+setAuthTokenGetter(() =>
+  supabase.auth.getSession().then(r => r.data.session?.access_token ?? null)
+);
 
 import Login from "@/pages/login";
 import Dashboard from "@/pages/dashboard";

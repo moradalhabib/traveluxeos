@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { supabase, auditLog, getUserFromToken } from "../lib/supabase";
+import { supabase, auditLog, getUserFromToken, getDbClient } from "../lib/supabase";
 
 const router = Router();
 
@@ -114,16 +114,21 @@ router.post("/merge", async (req, res) => {
 
 // Create client
 router.post("/", async (req, res) => {
-  const user = await getUserFromToken(req.headers.authorization);
+  const authHeader = req.headers.authorization;
+  const user = await getUserFromToken(authHeader);
+  const db = getDbClient(authHeader);
   const body = req.body;
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("clients")
     .insert({ ...body, created_by: user?.id ?? null })
     .select()
     .single();
 
-  if (error) return res.status(400).json({ error: error.message });
+  if (error) {
+    console.error("[clients POST] Supabase error:", error.message, error.details, error.hint);
+    return res.status(400).json({ error: error.message, details: error.details, hint: error.hint });
+  }
 
   await auditLog("create_client", "client", data.id, user?.id ?? null, `Created client ${data.name}`);
   return res.status(201).json({ ...data, total_bookings: 0, total_spent: 0 });

@@ -74,6 +74,16 @@ const bookingSchema = z.object({
   check_out_date: z.string().optional(),
   nights: z.coerce.number().optional(),
   property_contact: z.string().optional(),
+  // Hotel fields
+  hotel_name: z.string().optional(),
+  room_type: z.string().optional(),
+  hotel_booking_ref: z.string().optional(),
+  breakfast_included: z.boolean().optional(),
+  num_guests: z.coerce.number().optional(),
+  num_nights: z.coerce.number().optional(),
+  // Commission (Hotel / Apartment third-party)
+  commission_amount: z.coerce.number().min(0).default(0),
+  commission_notes: z.string().optional(),
 });
 
 export default function NewBooking() {
@@ -118,8 +128,23 @@ export default function NewBooking() {
   const price = bookingForm.watch("price") || 0;
   const commission = bookingForm.watch("tvl_commission") || 0;
   const driverReceives = price - commission;
-  const isTourType = ["Tour", "City Tour", "Chauffeur Tour"].includes(serviceType);
-  const isAccommodation = serviceType === "Apartment / Accommodation";
+  const checkIn = bookingForm.watch("check_in_date");
+  const checkOut = bookingForm.watch("check_out_date");
+  const isTourType = serviceType === "Tour";
+  const isAccommodation = serviceType === "Apartment";
+  const isHotel = serviceType === "Hotel";
+  const needsCommission = isHotel || isAccommodation;
+
+  // Auto-calculate nights when check-in/check-out change
+  useEffect(() => {
+    if (checkIn && checkOut) {
+      const days = Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000);
+      if (days > 0) {
+        if (isHotel) bookingForm.setValue("num_nights", days);
+        else bookingForm.setValue("nights", days);
+      }
+    }
+  }, [checkIn, checkOut, isHotel]);
 
   // Populate client_id from URL param on mount (coming from client profile)
   useEffect(() => {
@@ -486,11 +511,9 @@ export default function NewBooking() {
                           <SelectContent>
                             <SelectItem value="Airport Transfer">Airport Transfer</SelectItem>
                             <SelectItem value="Tour">Tour</SelectItem>
-                            <SelectItem value="City Tour">City Tour</SelectItem>
-                            <SelectItem value="Chauffeur Tour">Chauffeur Tour</SelectItem>
                             <SelectItem value="As Directed">As Directed</SelectItem>
-                            <SelectItem value="Event Transfer">Event Transfer</SelectItem>
-                            <SelectItem value="Apartment / Accommodation">Apartment / Accommodation</SelectItem>
+                            <SelectItem value="Apartment">Apartment</SelectItem>
+                            <SelectItem value="Hotel">Hotel</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -646,14 +669,80 @@ export default function NewBooking() {
                     </div>
                   )}
 
+                  {isHotel && (
+                    <div className="space-y-3 p-3 rounded-xl border border-blue-500/20 bg-blue-500/5">
+                      <p className="text-xs font-semibold text-blue-400 uppercase tracking-wider">Hotel Details</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField control={bookingForm.control} name="hotel_name" render={({ field }) => (
+                          <FormItem className="col-span-2">
+                            <FormLabel>Hotel Name</FormLabel>
+                            <FormControl><Input placeholder="e.g. The Savoy, Claridge's, Amba" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="room_type" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Room Type</FormLabel>
+                            <FormControl><Input placeholder="e.g. Standard Room, Suite" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="hotel_booking_ref" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Booking Ref</FormLabel>
+                            <FormControl><Input placeholder="External booking reference" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="check_in_date" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Check-in</FormLabel>
+                            <FormControl><Input type="date" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="check_out_date" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Check-out</FormLabel>
+                            <FormControl><Input type="date" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="num_nights" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Nights</FormLabel>
+                            <FormControl><Input type="number" min="1" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="num_guests" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Guests</FormLabel>
+                            <FormControl><Input type="number" min="1" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <div className="col-span-2 flex items-center gap-3 pt-1">
+                          <input
+                            type="checkbox"
+                            id="breakfast_included"
+                            className="w-4 h-4 accent-primary"
+                            onChange={(e) => bookingForm.setValue("breakfast_included", e.target.checked)}
+                          />
+                          <label htmlFor="breakfast_included" className="text-sm font-medium cursor-pointer">Breakfast included</label>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {isAccommodation && (
                     <div className="space-y-3 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5">
-                      <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Accommodation Details</p>
+                      <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Apartment Details</p>
                       <div className="grid grid-cols-2 gap-3">
                         <FormField control={bookingForm.control} name="property_name" render={({ field }) => (
                           <FormItem className="col-span-2">
                             <FormLabel>Property Name</FormLabel>
-                            <FormControl><Input placeholder="e.g. The Dorchester, Hyde Park Penthouse" {...field} /></FormControl>
+                            <FormControl><Input placeholder="e.g. Hyde Park Penthouse" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -667,14 +756,14 @@ export default function NewBooking() {
                         <FormField control={bookingForm.control} name="check_in_date" render={({ field }) => (
                           <FormItem>
                             <FormLabel>Check-in</FormLabel>
-                            <FormControl><Input type="datetime-local" {...field} /></FormControl>
+                            <FormControl><Input type="date" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
                         <FormField control={bookingForm.control} name="check_out_date" render={({ field }) => (
                           <FormItem>
                             <FormLabel>Check-out</FormLabel>
-                            <FormControl><Input type="datetime-local" {...field} /></FormControl>
+                            <FormControl><Input type="date" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -755,12 +844,10 @@ export default function NewBooking() {
                   <CardTitle className="text-base">
                     {serviceType === "Airport Transfer" && "Vehicle · Meet & Greet · Extras"}
                     {serviceType === "Tour" && "Tour · Vehicle · Extras"}
-                    {serviceType === "City Tour" && "Tour · Vehicle · Extras"}
-                    {serviceType === "Chauffeur Tour" && "Tour · Vehicle · Extras"}
                     {serviceType === "As Directed" && "Vehicle · Extras"}
-                    {serviceType === "Event Transfer" && "Vehicle · Meet & Greet · Extras"}
-                    {serviceType === "Apartment / Accommodation" && "Accommodation · Extras"}
-                    {(!serviceType || !["Airport Transfer","Tour","City Tour","Chauffeur Tour","As Directed","Event Transfer","Apartment / Accommodation"].includes(serviceType)) && "Products & Order Lines"}
+                    {serviceType === "Apartment" && "Accommodation · Extras"}
+                    {serviceType === "Hotel" && "Add-ons & Extras"}
+                    {(!serviceType || !["Airport Transfer","Tour","As Directed","Apartment","Hotel"].includes(serviceType)) && "Products & Order Lines"}
                   </CardTitle>
                   <p className="text-xs text-muted-foreground mt-0.5">
                     Select step by step — price totals automatically.
@@ -789,18 +876,43 @@ export default function NewBooking() {
                     )} />
                     <FormField control={bookingForm.control} name="tvl_commission" render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Commission (£)</FormLabel>
+                        <FormLabel>TVL Commission (£)</FormLabel>
                         <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
                         <FormMessage />
                       </FormItem>
                     )} />
-                    <div className="space-y-2">
-                      <Label className="text-sm font-medium">Driver Gets</Label>
-                      <div className="h-10 flex items-center px-3 border border-border rounded-md bg-muted/50 font-bold text-primary">
-                        £{driverReceives.toFixed(0)}
+                    {!needsCommission && (
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">Driver Gets</Label>
+                        <div className="h-10 flex items-center px-3 border border-border rounded-md bg-muted/50 font-bold text-primary">
+                          £{driverReceives.toFixed(0)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Third-party Commission — Hotel & Apartment only */}
+                  {needsCommission && (
+                    <div className="space-y-3 p-3 rounded-xl border border-primary/20 bg-primary/5">
+                      <p className="text-xs font-semibold text-primary uppercase tracking-wider">Third-party Commission</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField control={bookingForm.control} name="commission_amount" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Commission Paid (£)</FormLabel>
+                            <FormControl><Input type="number" step="0.01" placeholder="0.00" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="commission_notes" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Commission Notes</FormLabel>
+                            <FormControl><Input placeholder="e.g. Agent: XYZ Travels" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
                       </div>
                     </div>
-                  </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-3">
                     <FormField control={bookingForm.control} name="payment_status" render={({ field }) => (

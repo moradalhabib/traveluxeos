@@ -66,6 +66,22 @@ export async function auditLog(
   });
 }
 
+export function createClientForJwt(token: string): SupabaseClient {
+  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim();
+  const key = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "").trim();
+  return createClient(url, key, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+export function getDbClient(authHeader: string | undefined): SupabaseClient {
+  if (authHeader?.startsWith("Bearer ")) {
+    return createClientForJwt(authHeader.substring(7));
+  }
+  return supabase;
+}
+
 export async function getUserFromToken(authHeader: string | undefined) {
   if (!authHeader?.startsWith("Bearer ")) return null;
   const token = authHeader.substring(7);

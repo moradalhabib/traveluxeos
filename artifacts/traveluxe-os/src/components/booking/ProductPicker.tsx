@@ -23,13 +23,11 @@ interface Product {
 
 // Map each service type to which category sections to show, in order
 const SERVICE_CATEGORY_MAP: Record<string, string[]> = {
-  "Airport Transfer":       ["Vehicle", "Meet & Greet", "Add-on"],
-  "Event Transfer":         ["Vehicle", "Meet & Greet", "Add-on"],
-  "As Directed":            ["Vehicle", "Add-on"],
-  "Tour":                   ["Tour", "Vehicle", "Add-on"],
-  "City Tour":              ["Tour", "Vehicle", "Add-on"],
-  "Chauffeur Tour":         ["Tour", "Vehicle", "Add-on"],
-  "Apartment / Accommodation": ["Accommodation", "Add-on"],
+  "Airport Transfer": ["Vehicle", "Meet & Greet", "Add-on"],
+  "As Directed":      ["Vehicle", "Add-on"],
+  "Tour":             ["Tour", "Vehicle", "Add-on"],
+  "Apartment":        ["Accommodation", "Add-on"],
+  "Hotel":            ["Add-on"],
 };
 const DEFAULT_CATEGORIES = ["Vehicle", "Meet & Greet", "Tour", "Add-on", "Accommodation"];
 
