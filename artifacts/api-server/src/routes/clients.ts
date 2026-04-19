@@ -176,9 +176,15 @@ router.put("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
   const { id } = req.params;
 
+  const ALLOWED = new Set(["name","whatsapp","email","nationality","language_preference","vip_tier","notes","inactive"]);
+  const body: Record<string, any> = {};
+  for (const [k, v] of Object.entries(req.body)) {
+    if (ALLOWED.has(k)) body[k] = v;
+  }
+
   const { data, error } = await supabase
     .from("clients")
-    .update(req.body)
+    .update(body)
     .eq("id", id)
     .select()
     .single();
@@ -187,6 +193,29 @@ router.put("/:id", async (req, res) => {
 
   await auditLog("update_client", "client", id, user?.id ?? null, `Updated client ${data.name}`);
   return res.json({ ...data, total_bookings: 0, total_spent: 0 });
+});
+
+// Delete client (only allowed when no non-cancelled bookings exist)
+router.delete("/:id", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  const { id } = req.params;
+
+  const { data: active } = await supabase
+    .from("bookings")
+    .select("id")
+    .eq("client_id", id)
+    .neq("status", "Cancelled")
+    .limit(1);
+
+  if (active && active.length > 0) {
+    return res.status(409).json({ error: "Cannot delete a client with active bookings. Cancel all bookings first." });
+  }
+
+  const { error } = await supabase.from("clients").delete().eq("id", id);
+  if (error) return res.status(400).json({ error: error.message });
+
+  await auditLog("delete_client", "client", id, user?.id ?? null, `Deleted client ${id}`);
+  return res.json({ success: true });
 });
 
 export default router;

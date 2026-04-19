@@ -1,4 +1,5 @@
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, Link } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useGetBooking, getGetBookingQueryKey,
   useUpdateBookingStatus, useCancelBooking,
@@ -25,6 +26,7 @@ export default function BookingDetail() {
   const id = params.id as string;
   const { toast } = useToast();
   const { user } = useAuth();
+  const qc = useQueryClient();
   const isResidenceManager = user?.role === "residence_manager";
 
   const { data: booking, isLoading, refetch } = useGetBooking(id, {
@@ -1092,12 +1094,32 @@ export default function BookingDetail() {
                 </div>
               </>
             )}
-            <div className="flex gap-3 pt-2">
-              <Badge variant="outline" className={booking.payment_status === 'Paid' ? 'text-green-400 border-green-500/30' : 'text-amber-400 border-amber-500/30'}>
-                {booking.payment_status}
-              </Badge>
+            <div className="flex items-center gap-3 pt-2 border-t border-border">
+              <div className="flex-1">
+                <p className="text-xs text-muted-foreground mb-1">Payment Status</p>
+                <select
+                  value={booking.payment_status || "Unpaid"}
+                  onChange={e => updateBooking.mutate({ id, data: { payment_status: e.target.value } as any }, {
+                    onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
+                  })}
+                  className={`h-9 rounded-md border px-3 text-sm bg-background w-full ${
+                    booking.payment_status === 'Paid'
+                      ? 'text-green-400 border-green-500/40'
+                      : booking.payment_status === 'Partial'
+                        ? 'text-blue-400 border-blue-500/40'
+                        : 'text-amber-400 border-amber-500/40'
+                  }`}
+                >
+                  <option value="Unpaid">Unpaid</option>
+                  <option value="Partial">Partial</option>
+                  <option value="Paid">Paid</option>
+                </select>
+              </div>
               {booking.payment_method && (
-                <Badge variant="outline">{booking.payment_method}</Badge>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Method</p>
+                  <Badge variant="outline" className="h-9 px-3 flex items-center">{booking.payment_method}</Badge>
+                </div>
               )}
             </div>
           </CardContent>
@@ -1105,18 +1127,43 @@ export default function BookingDetail() {
       )}
 
       {/* Invoice — hidden from Residence Managers */}
-      {!isResidenceManager && booking.invoice && (
-        <Card className="border-purple-500/30 bg-purple-500/5">
-          <CardContent className="p-4 flex justify-between items-center">
-            <div>
-              <div className="font-bold text-purple-400">Invoice {booking.invoice.invoice_number}</div>
-              <div className="text-xs text-muted-foreground">{booking.invoice.status}</div>
-            </div>
-            <Button variant="ghost" size="icon" className="text-purple-400">
-              <FileText className="w-5 h-5" />
-            </Button>
-          </CardContent>
-        </Card>
+      {!isResidenceManager && (
+        booking.invoice ? (
+          <Card className="border-purple-500/30 bg-purple-500/5">
+            <CardContent className="p-4 flex justify-between items-center">
+              <div>
+                <div className="font-bold text-purple-400">Invoice {booking.invoice.invoice_number}</div>
+                <div className="text-xs text-muted-foreground">{booking.invoice.status}</div>
+              </div>
+              <Link href={`/invoices/${booking.invoice.id}`}>
+                <Button variant="ghost" size="icon" className="text-purple-400">
+                  <FileText className="w-5 h-5" />
+                </Button>
+              </Link>
+            </CardContent>
+          </Card>
+        ) : booking.status !== 'Cancelled' ? (
+          <Card className="border-border bg-card">
+            <CardContent className="p-4 flex justify-between items-center">
+              <div>
+                <div className="font-semibold text-sm text-foreground">No Invoice Yet</div>
+                <div className="text-xs text-muted-foreground">Generate an invoice for this booking</div>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-purple-400 border-purple-500/30 hover:bg-purple-500/10"
+                disabled={generateInvoice.isPending}
+                onClick={() => generateInvoice.mutate({ data: { booking_id: id } }, {
+                  onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
+                })}
+              >
+                <FileText className="w-4 h-4 mr-2" />
+                {generateInvoice.isPending ? "Generating…" : "Generate Invoice"}
+              </Button>
+            </CardContent>
+          </Card>
+        ) : null
       )}
 
       {/* Internal notes */}
