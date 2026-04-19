@@ -467,6 +467,129 @@ function ExportTab() {
   );
 }
 
+// ─── Users tab ────────────────────────────────────────────────────────────────
+function UsersTab({ currentUserId }: { currentUserId?: string }) {
+  const { toast } = useToast();
+  const { data: users, isLoading, refetch } = useListUsers(
+    { query: { enabled: true, queryKey: getListUsersQueryKey() } }
+  );
+  const [toggling, setToggling] = useState<string | null>(null);
+
+  const toggleActive = async (userId: string, currentActive: boolean) => {
+    if (userId === currentUserId) {
+      toast({ title: "You cannot deactivate your own account", variant: "destructive" });
+      return;
+    }
+    setToggling(userId);
+    const { error } = await supabase
+      .from("users")
+      .update({ active: !currentActive })
+      .eq("id", userId);
+    if (error) {
+      toast({ title: "Failed to update user", variant: "destructive" });
+    } else {
+      toast({ title: currentActive ? "Account suspended" : "Account reactivated" });
+      refetch();
+    }
+    setToggling(null);
+  };
+
+  const roleColor = (role: string) => {
+    if (role === "super_admin") return "border-amber-500 text-amber-500";
+    if (role === "admin") return "border-primary text-primary";
+    return "border-border text-muted-foreground";
+  };
+
+  const roleLabel = (role: string) => {
+    if (role === "super_admin") return "Super Admin";
+    if (role === "admin") return "Admin";
+    return "Operator";
+  };
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="font-semibold text-foreground mb-1">Access Control</h2>
+        <p className="text-sm text-muted-foreground">
+          Activate or suspend operator accounts instantly. Suspended users are blocked at the database level — they cannot access any data even with a valid session.
+        </p>
+      </div>
+
+      <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2 text-sm">
+        <p className="font-semibold text-foreground">How to add a new member</p>
+        <ol className="text-muted-foreground space-y-1 list-decimal list-inside text-xs">
+          <li>Go to your <strong className="text-foreground">Supabase Dashboard</strong> → Authentication → Users</li>
+          <li>Click <strong className="text-foreground">Invite User</strong> and enter their email</li>
+          <li>They receive an invite link to set their password</li>
+          <li>Their account appears here — set their role via SQL if needed</li>
+          <li>Activate their account using the toggle below</li>
+        </ol>
+        <p className="text-xs text-muted-foreground mt-2">
+          To set a role: <code className="bg-secondary px-1 rounded text-foreground">UPDATE public.users SET role = 'admin' WHERE email = '...';</code>
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        {isLoading ? (
+          [...Array(3)].map((_, i) => <Skeleton key={i} className="h-20" />)
+        ) : !users?.length ? (
+          <div className="text-center py-8 text-muted-foreground border border-dashed rounded-xl text-sm">No users found</div>
+        ) : (
+          users.map((u) => {
+            const isCurrentUser = u.id === currentUserId;
+            return (
+              <div
+                key={u.id}
+                className={`flex items-center gap-4 p-4 rounded-xl border transition-all ${
+                  !u.active ? "border-destructive/30 bg-destructive/5" : "border-border bg-card"
+                }`}
+              >
+                <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center text-foreground font-bold uppercase flex-shrink-0">
+                  {u.name?.charAt(0) || "?"}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-sm text-foreground">{u.name}</span>
+                    {isCurrentUser && <span className="text-[10px] text-muted-foreground">(you)</span>}
+                  </div>
+                  <div className="text-xs text-muted-foreground">{u.email}</div>
+                  <div className="flex items-center gap-2 mt-1">
+                    <Badge variant="outline" className={`${roleColor(u.role)} text-[10px]`}>
+                      {roleLabel(u.role)}
+                    </Badge>
+                    <Badge
+                      variant="outline"
+                      className={u.active ? "text-green-500 border-green-500/30 text-[10px]" : "text-destructive border-destructive/30 text-[10px]"}
+                    >
+                      {u.active ? "Active" : "Suspended"}
+                    </Badge>
+                  </div>
+                </div>
+                <Button
+                  size="sm"
+                  variant={u.active ? "destructive" : "outline"}
+                  disabled={isCurrentUser || toggling === u.id}
+                  onClick={() => toggleActive(u.id, u.active ?? true)}
+                  className={`text-xs flex-shrink-0 ${!u.active ? "border-green-500/30 text-green-500 hover:bg-green-500/10" : ""}`}
+                >
+                  {toggling === u.id ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : u.active ? "Suspend" : "Activate"}
+                </Button>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-xs text-muted-foreground space-y-1">
+        <p className="font-semibold text-destructive">Security Note</p>
+        <p>Suspending an account takes effect immediately. The user is blocked at the database level — their existing session cannot access any data. They are also automatically signed out within 5 minutes.</p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Fleet tab ────────────────────────────────────────────────────────────────
 function FleetTab() {
   const { data: drivers, isLoading } = useListDrivers(
@@ -623,40 +746,7 @@ export default function Admin() {
             </TabsContent>
 
             <TabsContent value="users" className="mt-5">
-              <Card className="border-border">
-                <CardHeader>
-                  <CardTitle className="text-base">System Operators</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-1">To promote a user to super_admin, run the SQL migration in your Supabase dashboard.</p>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {usersLoading ? (
-                      [...Array(3)].map((_, i) => <Skeleton key={i} className="h-16" />)
-                    ) : users?.map((u) => (
-                      <div key={u.id} className="flex justify-between items-center p-3 border border-border rounded-xl bg-background/50">
-                        <div>
-                          <div className="font-semibold text-sm">{u.name}</div>
-                          <div className="text-xs text-muted-foreground">{u.email}</div>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Badge
-                            variant="outline"
-                            className={
-                              u.role === "admin" ? "border-primary text-primary" :
-                              u.role === "super_admin" ? "border-amber-500 text-amber-500" : ""
-                            }
-                          >
-                            {u.role}
-                          </Badge>
-                          <Badge variant={u.active ? "outline" : "destructive"} className={u.active ? "text-green-400" : ""}>
-                            {u.active ? "Active" : "Inactive"}
-                          </Badge>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
+              <UsersTab currentUserId={user?.id} />
             </TabsContent>
 
             <TabsContent value="audit" className="mt-5">

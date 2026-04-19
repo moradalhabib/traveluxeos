@@ -4,9 +4,11 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   LayoutDashboard, Users, FileText, CalendarRange,
   Briefcase, PlaneTakeoff, Car, Calculator, MessageSquare,
-  LineChart, Search, Settings, LogOut, Plus, X, Database
+  LineChart, Search, Settings, LogOut, Plus, X, Lock
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { supabase } from "@/lib/supabase";
 
 const MORE_ITEMS = [
   { href: "/bookings", label: "Bookings", icon: CalendarRange },
@@ -35,14 +37,101 @@ const SIDEBAR_ITEMS = [
   { href: "/admin", label: "Admin", icon: Settings, reqAdmin: true },
 ];
 
+function LockScreen() {
+  const { user, unlock, logout } = useAuth();
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleUnlock = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setLoading(true);
+    setError("");
+    try {
+      const { error: authError } = await supabase.auth.signInWithPassword({
+        email: user.email,
+        password,
+      });
+      if (authError) {
+        setError("Incorrect password");
+      } else {
+        unlock();
+      }
+    } catch {
+      setError("Unable to verify. Please try again.");
+    } finally {
+      setLoading(false);
+      setPassword("");
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[999] bg-background/95 backdrop-blur-md flex items-center justify-center p-4">
+      <div className="w-full max-w-sm bg-card border border-primary/20 rounded-2xl shadow-2xl p-8 space-y-6">
+        <div className="text-center space-y-3">
+          <div className="mx-auto w-14 h-14 rounded-full bg-primary/10 flex items-center justify-center">
+            <Lock className="w-7 h-7 text-primary" />
+          </div>
+          <div>
+            <h2 className="font-bold text-foreground text-lg">Session Locked</h2>
+            <p className="text-xs text-muted-foreground mt-1">
+              Locked due to inactivity. Enter your password to continue.
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-xl bg-secondary/30 px-4 py-3 text-center">
+          <p className="text-sm font-medium text-foreground">{user?.name}</p>
+          <p className="text-xs text-muted-foreground">{user?.email}</p>
+        </div>
+
+        <form onSubmit={handleUnlock} className="space-y-4">
+          {error && (
+            <p className="text-destructive text-xs text-center bg-destructive/10 border border-destructive/20 rounded-lg px-3 py-2">
+              {error}
+            </p>
+          )}
+          <Input
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Enter your password"
+            required
+            autoFocus
+            className="h-12 border-primary/20 focus-visible:ring-primary"
+          />
+          <Button
+            type="submit"
+            className="w-full h-11 font-semibold"
+            disabled={loading || !password}
+          >
+            {loading ? "Verifying..." : "Unlock"}
+          </Button>
+        </form>
+
+        <button
+          onClick={logout}
+          className="w-full text-xs text-muted-foreground hover:text-destructive transition-colors text-center"
+        >
+          Sign out instead
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function Shell({ children }: { children: ReactNode }) {
-  const { user, logout } = useAuth();
+  const { user, logout, isLocked } = useAuth();
   const [location, setLocation] = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
 
   if (!user) return <>{children}</>;
 
   const isSuperAdmin = user.role === "super_admin";
+
+  // Inactivity lock screen overlay
+  if (isLocked) return <LockScreen />;
 
   // super_admin sees a stripped-down shell — data only
   if (isSuperAdmin) {

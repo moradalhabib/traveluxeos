@@ -34,7 +34,7 @@ function ProtectedRoute({ component: Component, reqAdmin = false, ...rest }: any
   const { user, isLocked } = useAuth();
 
   if (!user) return <Redirect to="/login" />;
-  if (isLocked) return <Redirect to="/login" />;
+  // Locked sessions show an overlay inside Shell — not a redirect
 
   // super_admin is locked to /admin only — they can only import/export/backup
   if (user.role === "super_admin" && rest.path !== "/admin") {
