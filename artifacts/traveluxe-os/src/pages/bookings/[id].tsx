@@ -85,7 +85,16 @@ export default function BookingDetail() {
 
   const handleUpdateStatus = (status: string) => {
     updateStatus.mutate({ id, data: { status } }, {
-      onSuccess: () => { toast({ title: `Booking marked as ${status}` }); refetch(); }
+      onSuccess: () => {
+        toast({ title: `Booking marked as ${status}` });
+        refetch();
+        // Auto-generate invoice when booking is confirmed or completed
+        if ((status === "Confirmed" || status === "Completed") && !booking?.invoice) {
+          generateInvoice.mutate({ data: { booking_id: id } }, {
+            onSuccess: (inv) => toast({ title: `Invoice ${(inv as any).invoice_number} auto-generated` }),
+          });
+        }
+      }
     });
   };
 

@@ -1062,6 +1062,16 @@ function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
 // ─── Services Management tab (super_admin) ────────────────────────────────────
 const DEFAULT_ADD_ON = { name: "", description: "", price: 0 };
 
+const SERVICE_ICONS: Record<string, string> = {
+  "Airport Transfer": "✈",
+  "Chauffeuring": "🚘",
+  "Tour": "🗺",
+  "Apartments": "🏠",
+  "Hotel Bookings": "🏨",
+  "Open Space": "🌿",
+  "Yacht Charter": "⛵",
+};
+
 function ServicesTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const { toast } = useToast();
   const [services, setServices] = useState<any[]>([]);
@@ -1069,6 +1079,7 @@ function ServicesTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [editing, setEditing] = useState<any | null>(null);
   const [saving, setSaving] = useState(false);
+  const [bookingStats, setBookingStats] = useState<Record<string, { count: number; total: number }>>({});
 
   const fetchServices = async () => {
     setLoading(true);
@@ -1077,7 +1088,23 @@ function ServicesTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
     setLoading(false);
   };
 
-  useEffect(() => { fetchServices(); }, []);
+  const fetchStats = async () => {
+    const { data } = await supabase
+      .from("bookings")
+      .select("service_type, price")
+      .neq("status", "Cancelled");
+    if (!data) return;
+    const stats: Record<string, { count: number; total: number }> = {};
+    data.forEach(b => {
+      const key = b.service_type || "Other";
+      if (!stats[key]) stats[key] = { count: 0, total: 0 };
+      stats[key].count++;
+      stats[key].total += Number(b.price || 0);
+    });
+    setBookingStats(stats);
+  };
+
+  useEffect(() => { fetchServices(); fetchStats(); }, []);
 
   const startEdit = (svc: any) => {
     setEditing({
@@ -1281,10 +1308,49 @@ function ServicesTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
           )}
         </div>
         <p className="text-sm text-muted-foreground">
-          All services offered by Traveluxe. Each service can have configurable add-ons and pricing guidance visible to operators when creating bookings.
+          All services offered by Traveluxe. Click a service card to expand its add-ons and pricing guidance.
           {!isSuperAdmin && " Only Super Admins can edit."}
         </p>
       </div>
+
+      {/* Odoo-style service stat cards */}
+      {services.length > 0 && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {services.filter(s => s.active).map(svc => {
+            const stats = bookingStats[svc.name] ?? { count: 0, total: 0 };
+            const icon = SERVICE_ICONS[svc.name] || "📋";
+            return (
+              <button
+                key={svc.id}
+                onClick={() => setExpanded(expanded === svc.id ? null : svc.id)}
+                className={`text-left p-4 rounded-2xl border transition-all ${
+                  expanded === svc.id
+                    ? "border-primary bg-primary/5 shadow-[0_0_14px_rgba(201,168,76,0.15)]"
+                    : "border-border bg-card hover:border-primary/40 hover:bg-card/80"
+                }`}
+              >
+                <div className="text-2xl mb-2">{icon}</div>
+                <div className="font-semibold text-sm text-foreground leading-tight line-clamp-2">{svc.name}</div>
+                {svc.base_price_guidance && (
+                  <div className="text-[11px] text-primary mt-1 font-medium">{svc.base_price_guidance}</div>
+                )}
+                <div className="mt-3 pt-2 border-t border-border/60 space-y-1">
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Bookings</span>
+                    <span className="text-sm font-bold text-foreground">{stats.count}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Revenue</span>
+                    <span className="text-sm font-bold text-primary">
+                      {stats.total > 0 ? `£${stats.total.toLocaleString()}` : "—"}
+                    </span>
+                  </div>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {services.length === 0 && (
         <div className="text-center py-10 border border-dashed border-border rounded-xl text-muted-foreground">
