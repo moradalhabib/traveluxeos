@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { format } from "date-fns";
 import {
   Upload, Download, FileText, Users, ShieldCheck,
-  CheckCircle2, XCircle, AlertTriangle, Loader2, Database, RefreshCw, Car
+  CheckCircle2, XCircle, AlertTriangle, Loader2, Database, RefreshCw, Car, Plug, Copy, Check
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
@@ -681,6 +681,180 @@ function FleetTab() {
   );
 }
 
+// ─── Integration Hub tab ──────────────────────────────────────────────────────
+function CopyButton({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+  return (
+    <button onClick={copy} className="ml-2 p-1 rounded text-muted-foreground hover:text-primary transition-colors">
+      {copied ? <Check className="w-3.5 h-3.5 text-green-500" /> : <Copy className="w-3.5 h-3.5" />}
+    </button>
+  );
+}
+
+function IntegrationTab() {
+  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL ?? "").replace(/\/$/, "");
+  const apiBase = `${supabaseUrl}/rest/v1`;
+  const realtimeUrl = `${supabaseUrl}/realtime/v1`;
+
+  const endpoints = [
+    { method: "GET", path: "/clients", desc: "List all clients (name, WhatsApp, VIP tier, nationality)" },
+    { method: "POST", path: "/clients", desc: "Create a new client" },
+    { method: "GET", path: "/clients?id=eq.{id}", desc: "Get client by ID" },
+    { method: "PATCH", path: "/clients?id=eq.{id}", desc: "Update client record" },
+    { method: "GET", path: "/bookings", desc: "List all bookings with client + driver joins" },
+    { method: "POST", path: "/bookings", desc: "Create a new booking" },
+    { method: "GET", path: "/bookings?status=eq.Confirmed", desc: "Filter bookings by status" },
+    { method: "GET", path: "/quotes", desc: "List all quotes" },
+    { method: "POST", path: "/quotes", desc: "Create a quote" },
+    { method: "GET", path: "/drivers", desc: "List all drivers and their vehicles" },
+    { method: "GET", path: "/commissions", desc: "Commission ledger" },
+  ];
+
+  const methodColor = (m: string) => {
+    if (m === "GET") return "text-blue-400 bg-blue-500/10";
+    if (m === "POST") return "text-green-400 bg-green-500/10";
+    if (m === "PATCH") return "text-amber-400 bg-amber-500/10";
+    if (m === "DELETE") return "text-red-400 bg-red-500/10";
+    return "text-muted-foreground bg-secondary";
+  };
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="font-semibold text-foreground mb-1">CRM Integration</h2>
+        <p className="text-sm text-muted-foreground">
+          Share this page with your development team. Everything they need to connect your CRM to Traveluxe OS is below.
+        </p>
+      </div>
+
+      {/* Architecture overview */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {[
+          { label: "Database", value: "Supabase (PostgreSQL)", icon: Database },
+          { label: "API Standard", value: "REST + JSON", icon: FileText },
+          { label: "Realtime", value: "WebSocket (Supabase)", icon: Plug },
+        ].map(({ label, value, icon: Icon }) => (
+          <div key={label} className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
+            <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+              <Icon className="w-4 h-4 text-primary" />
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground">{label}</p>
+              <p className="font-semibold text-sm text-foreground">{value}</p>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Base URL */}
+      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Base API URL</p>
+        <div className="flex items-center gap-2 bg-background rounded-lg px-3 py-2 border border-border">
+          <code className="text-xs text-primary flex-1 break-all">{apiBase}</code>
+          <CopyButton value={apiBase} />
+        </div>
+        <div className="flex items-center gap-2 bg-background rounded-lg px-3 py-2 border border-border">
+          <div className="flex-1">
+            <p className="text-[10px] text-muted-foreground mb-0.5">Realtime WebSocket</p>
+            <code className="text-xs text-foreground break-all">{realtimeUrl}</code>
+          </div>
+          <CopyButton value={realtimeUrl} />
+        </div>
+      </div>
+
+      {/* Authentication */}
+      <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
+        <p className="text-xs font-semibold text-foreground uppercase tracking-wider">Authentication</p>
+        <p className="text-xs text-muted-foreground">All requests require two headers:</p>
+        <div className="space-y-2">
+          {[
+            { header: "apikey", value: "YOUR_SUPABASE_ANON_KEY", desc: "Public anon key from Supabase → Settings → API" },
+            { header: "Authorization", value: "Bearer {user_access_token}", desc: "JWT from supabase.auth.signInWithPassword() — Row Level Security enforced" },
+            { header: "Content-Type", value: "application/json", desc: "For POST/PATCH requests" },
+            { header: "Prefer", value: "return=representation", desc: "Returns the created/updated record in response" },
+          ].map(({ header, value, desc }) => (
+            <div key={header} className="bg-background rounded-lg p-3 border border-border">
+              <div className="flex items-center gap-2 mb-1">
+                <code className="text-xs text-primary">{header}:</code>
+                <code className="text-xs text-foreground">{value}</code>
+              </div>
+              <p className="text-[10px] text-muted-foreground">{desc}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Endpoints */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Available Endpoints</p>
+        {endpoints.map(({ method, path, desc }) => (
+          <div key={`${method}${path}`} className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card">
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded font-mono flex-shrink-0 ${methodColor(method)}`}>
+              {method}
+            </span>
+            <div className="flex-1 min-w-0">
+              <code className="text-xs text-foreground">{path}</code>
+              <p className="text-[10px] text-muted-foreground mt-0.5">{desc}</p>
+            </div>
+            <CopyButton value={`${apiBase}${path}`} />
+          </div>
+        ))}
+      </div>
+
+      {/* Realtime example */}
+      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <p className="text-xs font-semibold text-foreground">Realtime Sync (for live CRM updates)</p>
+        <p className="text-xs text-muted-foreground">Subscribe to any table change using the Supabase client. Your CRM will receive instant updates when a booking is created, a client is added, or status changes.</p>
+        <div className="bg-background rounded-lg p-3 border border-border overflow-x-auto">
+          <pre className="text-[10px] text-green-400 whitespace-pre">{`supabase
+  .channel('crm-sync')
+  .on('postgres_changes', {
+    event: '*',          // INSERT | UPDATE | DELETE | *
+    schema: 'public',
+    table: 'bookings',   // or 'clients', 'quotes', etc.
+  }, (payload) => {
+    console.log('Change received:', payload)
+  })
+  .subscribe()`}</pre>
+        </div>
+      </div>
+
+      {/* Filtering & sorting */}
+      <div className="rounded-xl border border-border bg-card p-4 space-y-2">
+        <p className="text-xs font-semibold text-foreground">Query Examples</p>
+        <div className="space-y-2">
+          {[
+            { label: "Filter by status", ex: `${apiBase}/bookings?status=eq.Confirmed` },
+            { label: "Get VIP clients only", ex: `${apiBase}/clients?vip_tier=eq.VVIP` },
+            { label: "Sort + limit bookings", ex: `${apiBase}/bookings?order=date_time.desc&limit=50` },
+            { label: "Search by WhatsApp", ex: `${apiBase}/clients?whatsapp=eq.+447700000000` },
+            { label: "Join client on booking", ex: `${apiBase}/bookings?select=*,clients(name,vip_tier)` },
+          ].map(({ label, ex }) => (
+            <div key={label} className="bg-background rounded-lg p-3 border border-border">
+              <p className="text-[10px] text-muted-foreground mb-1">{label}</p>
+              <div className="flex items-center gap-2">
+                <code className="text-[10px] text-primary flex-1 break-all">{ex}</code>
+                <CopyButton value={ex} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-border bg-muted/20 p-4 text-xs text-muted-foreground space-y-1">
+        <p className="font-semibold text-foreground">For your developers</p>
+        <p>Use the official <strong className="text-foreground">Supabase JavaScript client</strong> (<code>@supabase/supabase-js</code>) or any HTTP client. All data access is protected by Row Level Security — your CRM must authenticate as an active Traveluxe OS operator to read or write data.</p>
+        <p className="mt-2">Recommended integration pattern: create a dedicated <strong className="text-foreground">service account</strong> in Traveluxe OS (operator role) for your CRM. This keeps CRM traffic audited separately from human operators.</p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Admin page ──────────────────────────────────────────────────────────
 export default function Admin() {
   const { user } = useAuth();
@@ -704,21 +878,24 @@ export default function Admin() {
       </div>
 
       <Tabs defaultValue="import" className="w-full">
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="import">
-            <Upload className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Import
+        <TabsList className="grid w-full grid-cols-6">
+          <TabsTrigger value="import" className="text-xs px-1">
+            <Upload className="w-3 h-3 mr-1 hidden sm:block" />Import
           </TabsTrigger>
-          <TabsTrigger value="export">
-            <Download className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Export
+          <TabsTrigger value="export" className="text-xs px-1">
+            <Download className="w-3 h-3 mr-1 hidden sm:block" />Export
           </TabsTrigger>
-          <TabsTrigger value="fleet">
-            <Car className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Fleet
+          <TabsTrigger value="fleet" className="text-xs px-1">
+            <Car className="w-3 h-3 mr-1 hidden sm:block" />Fleet
           </TabsTrigger>
-          <TabsTrigger value="users">
-            <Users className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Users
+          <TabsTrigger value="users" className="text-xs px-1">
+            <Users className="w-3 h-3 mr-1 hidden sm:block" />Users
           </TabsTrigger>
-          <TabsTrigger value="audit">
-            <ShieldCheck className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Audit
+          <TabsTrigger value="audit" className="text-xs px-1">
+            <ShieldCheck className="w-3 h-3 mr-1 hidden sm:block" />Audit
+          </TabsTrigger>
+          <TabsTrigger value="api" className="text-xs px-1">
+            <Plug className="w-3 h-3 mr-1 hidden sm:block" />API
           </TabsTrigger>
         </TabsList>
 
@@ -761,6 +938,10 @@ export default function Admin() {
               </div>
             </CardContent>
           </Card>
+        </TabsContent>
+
+        <TabsContent value="api" className="mt-5">
+          <IntegrationTab />
         </TabsContent>
       </Tabs>
     </div>
