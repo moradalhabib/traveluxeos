@@ -287,11 +287,80 @@ export default function NewBooking() {
   };
 
   const onBookingSubmit = async (values: z.infer<typeof bookingSchema>) => {
-    const payload = { ...values };
-    if (values.driver_id === "unassigned") delete (payload as any).driver_id;
+    // Only include fields that exist as columns in the bookings table
+    const allowedPayload: Record<string, any> = {
+      client_id: values.client_id,
+      service_type: values.service_type,
+      direction: values.direction,
+      pickup: values.pickup,
+      dropoff: values.dropoff,
+      destination: values.destination,
+      flight_number: values.flight_number,
+      date_time: values.date_time,
+      passengers: values.passengers,
+      luggage: values.luggage,
+      vehicle_type: values.vehicle_type,
+      nameboard: values.nameboard,
+      special_requests: values.extras
+        ? `${values.special_requests ? values.special_requests + "\n" : ""}Extras: ${values.extras}`
+        : values.special_requests,
+      additional_charges: values.additional_charges,
+      price: values.price,
+      tvl_commission: values.tvl_commission,
+      payment_status: values.payment_status,
+      payment_method: values.payment_method,
+      source: values.source,
+      status: values.status,
+      driver_id: values.driver_id,
+      notes: values.notes,
+      duration: values.duration,
+    };
+
+    // Fold service-specific details into notes so data is preserved
+    const extraDetails: string[] = [];
+    if (values.service_type === "Tour") {
+      if (values.tour_name) extraDetails.push(`Tour: ${values.tour_name}`);
+      if (values.meeting_point) extraDetails.push(`Meeting Point: ${values.meeting_point}`);
+      if (values.itinerary) extraDetails.push(`Itinerary: ${values.itinerary}`);
+      if (values.guide_included) extraDetails.push(`Guide: Included`);
+      if (values.destination) allowedPayload.destination = values.destination;
+    }
+    if (values.service_type === "Hotel") {
+      if (values.hotel_name) extraDetails.push(`Hotel: ${values.hotel_name}`);
+      if (values.room_type) extraDetails.push(`Room: ${values.room_type}`);
+      if (values.hotel_booking_ref) extraDetails.push(`Booking Ref: ${values.hotel_booking_ref}`);
+      if (values.check_in_date) extraDetails.push(`Check-in: ${values.check_in_date}`);
+      if (values.check_out_date) extraDetails.push(`Check-out: ${values.check_out_date}`);
+      if (values.num_nights) extraDetails.push(`Nights: ${values.num_nights}`);
+      if (values.num_guests) extraDetails.push(`Guests: ${values.num_guests}`);
+      if (values.breakfast_included) extraDetails.push(`Breakfast: Included`);
+      if (values.commission_amount) extraDetails.push(`Commission: £${values.commission_amount}${values.commission_notes ? ` — ${values.commission_notes}` : ""}`);
+    }
+    if (values.service_type === "Apartment") {
+      if (values.property_name) extraDetails.push(`Property: ${values.property_name}`);
+      if (values.property_address) extraDetails.push(`Address: ${values.property_address}`);
+      if (values.check_in_date) extraDetails.push(`Check-in: ${values.check_in_date}`);
+      if (values.check_out_date) extraDetails.push(`Check-out: ${values.check_out_date}`);
+      if (values.nights) extraDetails.push(`Nights: ${values.nights}`);
+      if (values.property_contact) extraDetails.push(`Contact: ${values.property_contact}`);
+      if (values.commission_amount) extraDetails.push(`Commission: £${values.commission_amount}${values.commission_notes ? ` — ${values.commission_notes}` : ""}`);
+    }
+    if (extraDetails.length > 0) {
+      const base = allowedPayload.notes ? `${allowedPayload.notes}\n---\n` : "";
+      allowedPayload.notes = base + extraDetails.join(" | ");
+    }
+
+    // Remove undefined / empty string values to avoid sending nulls unnecessarily
+    Object.keys(allowedPayload).forEach((k) => {
+      if (allowedPayload[k] === undefined || allowedPayload[k] === "") {
+        delete allowedPayload[k];
+      }
+    });
+
+    if (allowedPayload.driver_id === "unassigned") delete allowedPayload.driver_id;
 
     createBooking.mutate(
-      { data: payload },
+      { data: allowedPayload as any },
       {
         onSuccess: async (booking: any) => {
           // Save order lines if any
@@ -529,36 +598,8 @@ export default function NewBooking() {
                         <FormMessage />
                       </FormItem>
                     )} />
-                    <FormField control={bookingForm.control} name="vehicle_type" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Vehicle <span className="text-xs text-muted-foreground font-normal">(make &amp; model)</span></FormLabel>
-                        <FormControl>
-                          <Input
-                            list="fleet-vehicles-list"
-                            placeholder="e.g. MB V-Class, Range Rover"
-                            {...field}
-                          />
-                        </FormControl>
-                        <datalist id="fleet-vehicles-list">
-                          {drivers?.map((d: any) => d.vehicle_model && (
-                            <option key={d.id} value={d.vehicle_model} />
-                          ))}
-                          <option value="MB V-Class" />
-                          <option value="MB S-Class" />
-                          <option value="MB E-Class" />
-                          <option value="MB GLS" />
-                          <option value="BMW 7 Series" />
-                          <option value="Range Rover" />
-                          <option value="Rolls-Royce Ghost" />
-                          <option value="Bentley Flying Spur" />
-                          <option value="Toyota Alphard" />
-                          <option value="VW Caravelle" />
-                        </datalist>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
                     <FormField control={bookingForm.control} name="source" render={({ field }) => (
-                      <FormItem>
+                      <FormItem className="col-span-2">
                         <FormLabel>Source</FormLabel>
                         <Select onValueChange={field.onChange} defaultValue={field.value}>
                           <FormControl><SelectTrigger><SelectValue placeholder="Source" /></SelectTrigger></FormControl>
@@ -975,6 +1016,8 @@ export default function NewBooking() {
                             if (selected?.vehicle_model) {
                               bookingForm.setValue("vehicle_type", selected.vehicle_model);
                             }
+                          } else {
+                            bookingForm.setValue("vehicle_type", "");
                           }
                         }}
                         defaultValue={field.value}
@@ -990,6 +1033,35 @@ export default function NewBooking() {
                           ))}
                         </SelectContent>
                       </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+
+                  <FormField control={bookingForm.control} name="vehicle_type" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Vehicle <span className="text-xs text-muted-foreground font-normal">(auto-filled from driver · override if needed)</span></FormLabel>
+                      <FormControl>
+                        <Input
+                          list="fleet-vehicles-list"
+                          placeholder="e.g. MB V-Class, Range Rover"
+                          {...field}
+                        />
+                      </FormControl>
+                      <datalist id="fleet-vehicles-list">
+                        {drivers?.map((d: any) => d.vehicle_model && (
+                          <option key={d.id} value={d.vehicle_model} />
+                        ))}
+                        <option value="MB V-Class" />
+                        <option value="MB S-Class" />
+                        <option value="MB E-Class" />
+                        <option value="MB GLS" />
+                        <option value="BMW 7 Series" />
+                        <option value="Range Rover" />
+                        <option value="Rolls-Royce Ghost" />
+                        <option value="Bentley Flying Spur" />
+                        <option value="Toyota Alphard" />
+                        <option value="VW Caravelle" />
+                      </datalist>
                       <FormMessage />
                     </FormItem>
                   )} />
