@@ -4,8 +4,7 @@ import "./index.css";
 import { setBaseUrl, setAuthTokenGetter } from "@workspace/api-client-react";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-const API_BASE = `${BASE}/api`;
-setBaseUrl(API_BASE);
+setBaseUrl(BASE || null);
 
 setAuthTokenGetter(() => {
   const raw = localStorage.getItem("traveluxe_token");
