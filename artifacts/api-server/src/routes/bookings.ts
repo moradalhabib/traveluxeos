@@ -186,6 +186,12 @@ router.post("/", async (req, res) => {
     `Created booking ${data.tvl_ref} for service: ${data.service_type}`);
 
   const enriched = await enrichBooking(data);
+
+  // Auto-generate invoice for confirmed bookings on creation
+  if (data.status === "Confirmed") {
+    await autoGenerateInvoice(data.id, user?.id ?? null);
+  }
+
   return res.status(201).json(enriched);
 });
 
@@ -293,16 +299,24 @@ router.put("/:id", async (req, res) => {
 
   const enriched = await enrichBooking(data);
 
-  // On payment_status → Paid: auto-mark related invoice Paid + send receipt email
+  // On payment_status → Paid: auto-mark invoice Paid, complete booking, send receipt
   if (body.payment_status === "Paid" && prevPaymentStatus !== "Paid") {
-    // Auto-sync invoice status
-    void (async () => {
+    // Mark invoice as Paid
+    void supabase
+      .from("invoices")
+      .update({ status: "Paid", paid_at: new Date().toISOString() })
+      .eq("booking_id", req.params.id)
+      .in("status", ["Generated", "Sent", "Overdue"]);
+
+    // Auto-transition booking to Completed (unless already cancelled)
+    if (data.status !== "Cancelled" && data.status !== "Completed") {
       await supabase
-        .from("invoices")
-        .update({ status: "Paid", paid_at: new Date().toISOString() })
-        .eq("booking_id", req.params.id)
-        .in("status", ["Generated", "Sent", "Overdue"]);
-    })();
+        .from("bookings")
+        .update({ status: "Completed" })
+        .eq("id", req.params.id);
+      await auditLog("status_change", "booking", req.params.id, user?.id ?? null,
+        `Booking ${data.tvl_ref} auto-completed on payment`);
+    }
 
     sendPaymentReceiptEmail(enriched).catch(err =>
       console.error("[Email] Receipt send error:", err?.message)
