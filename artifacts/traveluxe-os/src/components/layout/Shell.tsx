@@ -4,8 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   LayoutDashboard, Users, FileText, CalendarRange,
   Briefcase, PlaneTakeoff, Car, Calculator, MessageSquare,
-  LineChart, Search, Settings, LogOut, Plus,
-  X, ChevronRight
+  LineChart, Search, Settings, LogOut, Plus, X, Database
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -42,6 +41,34 @@ export function Shell({ children }: { children: ReactNode }) {
   const [moreOpen, setMoreOpen] = useState(false);
 
   if (!user) return <>{children}</>;
+
+  const isSuperAdmin = user.role === "super_admin";
+
+  // super_admin sees a stripped-down shell — data only
+  if (isSuperAdmin) {
+    return (
+      <div className="min-h-screen bg-background flex flex-col">
+        <header className="bg-card border-b border-border px-4 py-3 flex items-center justify-between sticky top-0 z-40">
+          <div className="flex items-center gap-3">
+            <div className="w-7 h-7 rounded bg-primary flex items-center justify-center">
+              <span className="text-primary-foreground font-bold text-sm">T</span>
+            </div>
+            <span className="font-bold text-sm tracking-wide uppercase text-foreground">TRAVELUXE OS</span>
+            <span className="text-xs text-muted-foreground border border-border rounded px-2 py-0.5">Data Access Only</span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-xs text-muted-foreground hidden sm:block">{user.name}</span>
+            <Button variant="outline" size="sm" onClick={logout} className="text-muted-foreground">
+              <LogOut className="w-3.5 h-3.5 mr-1.5" /> Sign Out
+            </Button>
+          </div>
+        </header>
+        <main className="flex-1 p-4 md:p-8 max-w-3xl mx-auto w-full">
+          {children}
+        </main>
+      </div>
+    );
+  }
 
   const filteredSidebar = SIDEBAR_ITEMS.filter(item => !item.reqAdmin || user.role === "admin");
   const filteredMore = MORE_ITEMS.filter(item => !item.reqAdmin || user.role === "admin");
@@ -104,19 +131,17 @@ export function Shell({ children }: { children: ReactNode }) {
 
       {/* Mobile Bottom Nav */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-card border-t border-border z-50 flex items-center justify-around px-1" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-        {/* Dashboard */}
         <Link href="/" className={`flex flex-col items-center justify-center w-14 h-16 ${location === '/' ? 'text-primary' : 'text-muted-foreground'}`}>
           <LayoutDashboard className="w-5 h-5 mb-1" />
           <span className="text-[10px] font-medium">Home</span>
         </Link>
 
-        {/* Jobs */}
         <Link href="/jobs" className={`flex flex-col items-center justify-center w-14 h-16 ${location.startsWith('/jobs') ? 'text-primary' : 'text-muted-foreground'}`}>
           <Briefcase className="w-5 h-5 mb-1" />
           <span className="text-[10px] font-medium">Jobs</span>
         </Link>
 
-        {/* Centre New Booking Button */}
+        {/* Centre New Booking */}
         <div className="flex flex-col items-center justify-center w-16 h-16 -mt-4">
           <Link href="/bookings/new">
             <button className="w-14 h-14 rounded-full bg-primary flex items-center justify-center shadow-[0_0_20px_rgba(201,168,76,0.5)] hover:shadow-[0_0_30px_rgba(201,168,76,0.7)] active:scale-95 transition-all">
@@ -126,13 +151,11 @@ export function Shell({ children }: { children: ReactNode }) {
           <span className="text-[9px] font-medium text-primary mt-0.5">Book</span>
         </div>
 
-        {/* Clients */}
         <Link href="/clients" className={`flex flex-col items-center justify-center w-14 h-16 ${location.startsWith('/clients') ? 'text-primary' : 'text-muted-foreground'}`}>
           <Users className="w-5 h-5 mb-1" />
           <span className="text-[10px] font-medium">Clients</span>
         </Link>
 
-        {/* More */}
         <button
           onClick={() => setMoreOpen(true)}
           className={`flex flex-col items-center justify-center w-14 h-16 ${moreOpen ? 'text-primary' : 'text-muted-foreground'}`}
@@ -149,25 +172,17 @@ export function Shell({ children }: { children: ReactNode }) {
       {/* More Drawer */}
       {moreOpen && (
         <>
-          <div
-            className="md:hidden fixed inset-0 bg-black/60 z-50 backdrop-blur-sm"
-            onClick={() => setMoreOpen(false)}
-          />
+          <div className="md:hidden fixed inset-0 bg-black/60 z-50 backdrop-blur-sm" onClick={() => setMoreOpen(false)} />
           <div className="md:hidden fixed bottom-0 left-0 right-0 bg-card rounded-t-2xl z-50 border-t border-border shadow-2xl">
-            {/* Handle */}
             <div className="flex justify-center pt-3 pb-2">
               <div className="w-10 h-1 rounded-full bg-border" />
             </div>
-
-            {/* Header */}
             <div className="flex items-center justify-between px-5 pb-4">
               <span className="font-bold text-foreground text-lg">All Modules</span>
               <button onClick={() => setMoreOpen(false)} className="text-muted-foreground p-1">
                 <X className="w-5 h-5" />
               </button>
             </div>
-
-            {/* User info */}
             <div className="mx-5 mb-4 p-3 rounded-xl bg-secondary/50 flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold uppercase">
                 {user.name.charAt(0)}
@@ -177,8 +192,6 @@ export function Shell({ children }: { children: ReactNode }) {
                 <p className="text-xs text-muted-foreground capitalize">{user.role}</p>
               </div>
             </div>
-
-            {/* Module grid */}
             <div className="px-5 pb-4 grid grid-cols-3 gap-3">
               {filteredMore.map((item) => {
                 const isActive = location.startsWith(item.href);
@@ -194,8 +207,6 @@ export function Shell({ children }: { children: ReactNode }) {
                 );
               })}
             </div>
-
-            {/* Logout */}
             <div className="px-5 pb-6">
               <button
                 onClick={() => { logout(); setMoreOpen(false); }}

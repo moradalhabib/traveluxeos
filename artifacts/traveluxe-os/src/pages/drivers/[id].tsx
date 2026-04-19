@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MessageSquare, Edit, ArrowLeft, Star, Calculator } from "lucide-react";
+import { MessageSquare, Edit, ArrowLeft, Star, Calculator, Car } from "lucide-react";
 import { format } from "date-fns";
 
 export default function DriverDetail() {
@@ -40,13 +40,20 @@ export default function DriverDetail() {
 
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3 mb-2">
+          <div className="flex items-center gap-3 mb-1">
             <h1 className="text-3xl font-bold tracking-tight text-foreground">{driver.name}</h1>
             <Badge variant="outline" className={driver.status === 'Active' ? 'bg-green-500/20 text-green-500 border-green-500/50' : 'bg-secondary text-secondary-foreground border-border'}>
               {driver.status}
             </Badge>
           </div>
-          <p className="text-muted-foreground text-lg">{driver.whatsapp}</p>
+          {(driver.vehicle_model || driver.vehicle_type) && (
+            <div className="flex items-center gap-2 mt-1 mb-1">
+              <Car className="w-4 h-4 text-primary" />
+              <span className="text-primary font-semibold text-lg">{driver.vehicle_model || driver.vehicle_type}</span>
+              {driver.plate && <span className="font-mono text-sm text-muted-foreground bg-secondary px-2 py-0.5 rounded">{driver.plate}</span>}
+            </div>
+          )}
+          <p className="text-muted-foreground">{driver.whatsapp}</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           {driver.whatsapp && (

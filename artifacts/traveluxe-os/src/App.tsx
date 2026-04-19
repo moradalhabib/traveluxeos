@@ -33,15 +33,16 @@ const queryClient = new QueryClient();
 function ProtectedRoute({ component: Component, reqAdmin = false, ...rest }: any) {
   const { user, isLocked } = useAuth();
 
-  if (!user) {
-    return <Redirect to="/login" />;
+  if (!user) return <Redirect to="/login" />;
+  if (isLocked) return <Redirect to="/login" />;
+
+  // super_admin is locked to /admin only — they can only import/export/backup
+  if (user.role === "super_admin" && rest.path !== "/admin") {
+    return <Redirect to="/admin" />;
   }
 
-  if (isLocked) {
-    return <Redirect to="/login" />; // Or a lock screen component
-  }
-
-  if (reqAdmin && user.role !== "admin") {
+  // Admin-only routes block operators (but allow super_admin through to /admin)
+  if (reqAdmin && user.role !== "admin" && user.role !== "super_admin") {
     return <Redirect to="/" />;
   }
 
@@ -58,7 +59,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/login" component={Login} />
-      
+
       <ProtectedRoute path="/" component={Dashboard} />
       <ProtectedRoute path="/clients" component={Clients} />
       <ProtectedRoute path="/clients/new" component={NewClient} />
@@ -79,7 +80,7 @@ function Router() {
       <ProtectedRoute path="/finance" component={Finance} reqAdmin={true} />
       <ProtectedRoute path="/search" component={Search} />
       <ProtectedRoute path="/admin" component={Admin} reqAdmin={true} />
-      
+
       <Route component={NotFound} />
     </Switch>
   );

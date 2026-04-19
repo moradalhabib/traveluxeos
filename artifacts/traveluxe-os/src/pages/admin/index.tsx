@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from "react";
-import { useListUsers, getListUsersQueryKey, useListAuditLog, getListAuditLogQueryKey } from "@workspace/api-client-react";
+import { useListUsers, getListUsersQueryKey, useListAuditLog, getListAuditLogQueryKey, useListDrivers, getListDriversQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
@@ -9,10 +9,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { format } from "date-fns";
 import {
   Upload, Download, FileText, Users, ShieldCheck,
-  CheckCircle2, XCircle, AlertTriangle, Loader2, Database, RefreshCw
+  CheckCircle2, XCircle, AlertTriangle, Loader2, Database, RefreshCw, Car
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 
 // ─── CSV utilities ────────────────────────────────────────────────────────────
 function parseCSVRow(line: string): string[] {
@@ -466,34 +467,145 @@ function ExportTab() {
   );
 }
 
+// ─── Fleet tab ────────────────────────────────────────────────────────────────
+function FleetTab() {
+  const { data: drivers, isLoading } = useListDrivers(
+    {},
+    { query: { enabled: true, queryKey: getListDriversQueryKey({}) } }
+  );
+
+  const byClass: Record<string, any[]> = {};
+  drivers?.forEach((d: any) => {
+    const cls = d.vehicle_type || "Other";
+    if (!byClass[cls]) byClass[cls] = [];
+    byClass[cls].push(d);
+  });
+
+  const total = drivers?.length || 0;
+  const active = drivers?.filter((d: any) => d.status === "Active").length || 0;
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <h2 className="font-semibold text-foreground mb-1">Fleet Overview</h2>
+        <p className="text-sm text-muted-foreground">All vehicles assigned to drivers. Edit a driver's profile to update their vehicle.</p>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-xl border border-border bg-card p-4 text-center">
+          <div className="text-2xl font-bold text-primary">{total}</div>
+          <div className="text-xs text-muted-foreground mt-1">Total Vehicles</div>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-4 text-center">
+          <div className="text-2xl font-bold text-green-500">{active}</div>
+          <div className="text-xs text-muted-foreground mt-1">Active</div>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-4 text-center">
+          <div className="text-2xl font-bold text-foreground">{total - active}</div>
+          <div className="text-xs text-muted-foreground mt-1">Inactive</div>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div className="space-y-3">
+          {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20" />)}
+        </div>
+      ) : Object.keys(byClass).length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground border border-dashed rounded-xl">
+          <Car className="w-10 h-10 mx-auto mb-3 opacity-30" />
+          <p className="text-sm">No vehicles in fleet yet.</p>
+          <p className="text-xs mt-1">Add drivers to build the fleet.</p>
+        </div>
+      ) : (
+        Object.entries(byClass).map(([cls, group]) => (
+          <div key={cls}>
+            <div className="flex items-center gap-2 mb-2">
+              <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{cls}</span>
+              <div className="flex-1 h-px bg-border" />
+              <span className="text-xs text-muted-foreground">{group.length}</span>
+            </div>
+            <div className="space-y-2">
+              {group.map((d: any) => (
+                <div key={d.id} className="flex items-center gap-4 p-4 rounded-xl border border-border bg-card">
+                  <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
+                    <Car className="w-5 h-5 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-bold text-foreground">{d.vehicle_model || d.vehicle_type || "—"}</p>
+                    <p className="text-xs text-muted-foreground">{d.name}</p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    {d.plate && <p className="font-mono text-sm text-foreground uppercase">{d.plate}</p>}
+                    <Badge
+                      variant="outline"
+                      className={d.status === "Active" ? "text-green-500 border-green-500/30 text-[10px]" : "text-muted-foreground text-[10px]"}
+                    >
+                      {d.status || "Active"}
+                    </Badge>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))
+      )}
+
+      <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 text-xs text-muted-foreground">
+        <p className="font-semibold text-foreground mb-1">How to update vehicles</p>
+        <p>Go to <strong>Drivers</strong> and open a driver's profile. Edit their <em>Vehicle Make &amp; Model</em> field — changes reflect here instantly and appear on all job sheets.</p>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Admin page ──────────────────────────────────────────────────────────
 export default function Admin() {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
+
   const { data: users, isLoading: usersLoading } = useListUsers(
-    { query: { enabled: true, queryKey: getListUsersQueryKey() } }
+    { query: { enabled: !isSuperAdmin, queryKey: getListUsersQueryKey() } }
   );
   const { data: logs, isLoading: logsLoading } = useListAuditLog(
     {},
-    { query: { enabled: true, queryKey: getListAuditLogQueryKey({}) } }
+    { query: { enabled: !isSuperAdmin, queryKey: getListAuditLogQueryKey({}) } }
   );
 
   return (
     <div className="space-y-5 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold tracking-tight text-foreground">Admin Panel</h1>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Admin Panel</h1>
+          {isSuperAdmin && (
+            <p className="text-xs text-muted-foreground mt-1">Data access only — import, export, and backup</p>
+          )}
+        </div>
+        {isSuperAdmin && (
+          <Badge variant="outline" className="border-primary/30 text-primary text-xs">Super Admin</Badge>
+        )}
+      </div>
 
       <Tabs defaultValue="import" className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className={`grid w-full ${isSuperAdmin ? "grid-cols-2" : "grid-cols-5"}`}>
           <TabsTrigger value="import">
             <Upload className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Import
           </TabsTrigger>
           <TabsTrigger value="export">
             <Download className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Export
           </TabsTrigger>
-          <TabsTrigger value="users">
-            <Users className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Users
-          </TabsTrigger>
-          <TabsTrigger value="audit">
-            <ShieldCheck className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Audit
-          </TabsTrigger>
+          {!isSuperAdmin && (
+            <>
+              <TabsTrigger value="fleet">
+                <Car className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Fleet
+              </TabsTrigger>
+              <TabsTrigger value="users">
+                <Users className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Users
+              </TabsTrigger>
+              <TabsTrigger value="audit">
+                <ShieldCheck className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Audit
+              </TabsTrigger>
+            </>
+          )}
         </TabsList>
 
         <TabsContent value="import" className="mt-5">
@@ -504,56 +616,75 @@ export default function Admin() {
           <ExportTab />
         </TabsContent>
 
-        <TabsContent value="users" className="mt-5">
-          <Card className="border-border">
-            <CardHeader><CardTitle className="text-base">System Operators</CardTitle></CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {usersLoading ? (
-                  [...Array(3)].map((_, i) => <Skeleton key={i} className="h-16" />)
-                ) : users?.map((user) => (
-                  <div key={user.id} className="flex justify-between items-center p-3 border border-border rounded-xl bg-background/50">
-                    <div>
-                      <div className="font-semibold text-sm">{user.name}</div>
-                      <div className="text-xs text-muted-foreground">{user.email}</div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="outline" className={user.role === 'admin' ? 'border-primary text-primary' : ''}>{user.role}</Badge>
-                      <Badge variant={user.active ? "outline" : "destructive"} className={user.active ? 'text-green-400' : ''}>
-                        {user.active ? 'Active' : 'Inactive'}
-                      </Badge>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+        {!isSuperAdmin && (
+          <>
+            <TabsContent value="fleet" className="mt-5">
+              <FleetTab />
+            </TabsContent>
 
-        <TabsContent value="audit" className="mt-5">
-          <Card className="border-border">
-            <CardHeader><CardTitle className="text-base">System Audit Trail</CardTitle></CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {logsLoading ? (
-                  [...Array(5)].map((_, i) => <Skeleton key={i} className="h-16" />)
-                ) : logs?.map((log) => (
-                  <div key={log.id} className="p-3 border border-border rounded-xl bg-background/50 text-sm">
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{log.operator_name || 'System'}</span>
-                        <Badge variant="secondary" className="text-[10px]">{log.action}</Badge>
-                        <span className="text-xs text-muted-foreground">{log.entity_type}</span>
+            <TabsContent value="users" className="mt-5">
+              <Card className="border-border">
+                <CardHeader>
+                  <CardTitle className="text-base">System Operators</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-1">To promote a user to super_admin, run the SQL migration in your Supabase dashboard.</p>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {usersLoading ? (
+                      [...Array(3)].map((_, i) => <Skeleton key={i} className="h-16" />)
+                    ) : users?.map((u) => (
+                      <div key={u.id} className="flex justify-between items-center p-3 border border-border rounded-xl bg-background/50">
+                        <div>
+                          <div className="font-semibold text-sm">{u.name}</div>
+                          <div className="text-xs text-muted-foreground">{u.email}</div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant="outline"
+                            className={
+                              u.role === "admin" ? "border-primary text-primary" :
+                              u.role === "super_admin" ? "border-amber-500 text-amber-500" : ""
+                            }
+                          >
+                            {u.role}
+                          </Badge>
+                          <Badge variant={u.active ? "outline" : "destructive"} className={u.active ? "text-green-400" : ""}>
+                            {u.active ? "Active" : "Inactive"}
+                          </Badge>
+                        </div>
                       </div>
-                      <span className="text-xs text-muted-foreground">{format(new Date(log.created_at), 'dd MMM · HH:mm')}</span>
-                    </div>
-                    {log.detail && <p className="text-xs text-muted-foreground mt-1">{log.detail}</p>}
+                    ))}
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            <TabsContent value="audit" className="mt-5">
+              <Card className="border-border">
+                <CardHeader><CardTitle className="text-base">System Audit Trail</CardTitle></CardHeader>
+                <CardContent>
+                  <div className="space-y-3">
+                    {logsLoading ? (
+                      [...Array(5)].map((_, i) => <Skeleton key={i} className="h-16" />)
+                    ) : logs?.map((log) => (
+                      <div key={log.id} className="p-3 border border-border rounded-xl bg-background/50 text-sm">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-medium">{log.operator_name || "System"}</span>
+                            <Badge variant="secondary" className="text-[10px]">{log.action}</Badge>
+                            <span className="text-xs text-muted-foreground">{log.entity_type}</span>
+                          </div>
+                          <span className="text-xs text-muted-foreground">{format(new Date(log.created_at), "dd MMM · HH:mm")}</span>
+                        </div>
+                        {log.detail && <p className="text-xs text-muted-foreground mt-1">{log.detail}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+          </>
+        )}
       </Tabs>
     </div>
   );

@@ -465,17 +465,29 @@ export default function NewBooking() {
                     )} />
                     <FormField control={bookingForm.control} name="vehicle_type" render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Vehicle</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl><SelectTrigger><SelectValue placeholder="Vehicle" /></SelectTrigger></FormControl>
-                          <SelectContent>
-                            <SelectItem value="Saloon">Saloon</SelectItem>
-                            <SelectItem value="Estate">Estate</SelectItem>
-                            <SelectItem value="MPV">MPV</SelectItem>
-                            <SelectItem value="Minibus">Minibus</SelectItem>
-                            <SelectItem value="Luxury">Luxury</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <FormLabel>Vehicle <span className="text-xs text-muted-foreground font-normal">(make &amp; model)</span></FormLabel>
+                        <FormControl>
+                          <Input
+                            list="fleet-vehicles-list"
+                            placeholder="e.g. MB V-Class, Range Rover"
+                            {...field}
+                          />
+                        </FormControl>
+                        <datalist id="fleet-vehicles-list">
+                          {drivers?.map((d: any) => d.vehicle_model && (
+                            <option key={d.id} value={d.vehicle_model} />
+                          ))}
+                          <option value="MB V-Class" />
+                          <option value="MB S-Class" />
+                          <option value="MB E-Class" />
+                          <option value="MB GLS" />
+                          <option value="BMW 7 Series" />
+                          <option value="Range Rover" />
+                          <option value="Rolls-Royce Ghost" />
+                          <option value="Bentley Flying Spur" />
+                          <option value="Toyota Alphard" />
+                          <option value="VW Caravelle" />
+                        </datalist>
                         <FormMessage />
                       </FormItem>
                     )} />
@@ -674,14 +686,27 @@ export default function NewBooking() {
 
                   <FormField control={bookingForm.control} name="driver_id" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Assign Driver <span className="text-muted-foreground font-normal text-xs">(optional — can assign later)</span></FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormLabel>Assign Driver <span className="text-muted-foreground font-normal text-xs">(optional)</span></FormLabel>
+                      <Select
+                        onValueChange={(val) => {
+                          field.onChange(val);
+                          // Auto-fill vehicle from selected driver's vehicle_model
+                          if (val && val !== "unassigned") {
+                            const selected = drivers?.find((d: any) => d.id === val);
+                            if (selected?.vehicle_model) {
+                              bookingForm.setValue("vehicle_type", selected.vehicle_model);
+                            }
+                          }
+                        }}
+                        defaultValue={field.value}
+                      >
                         <FormControl><SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger></FormControl>
                         <SelectContent>
                           <SelectItem value="unassigned">Unassigned</SelectItem>
                           {drivers?.map((driver: any) => (
                             <SelectItem key={driver.id} value={driver.id}>
-                              {driver.name} · {driver.vehicle_type}
+                              {driver.name} · {driver.vehicle_model || driver.vehicle_type}
+                              {driver.plate ? ` (${driver.plate})` : ""}
                             </SelectItem>
                           ))}
                         </SelectContent>
