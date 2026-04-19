@@ -13,8 +13,9 @@ import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
+import { supabase } from "@/lib/supabase";
 
 export default function BookingDetail() {
   const params = useParams();
@@ -25,6 +26,18 @@ export default function BookingDetail() {
   const { data: booking, isLoading, refetch } = useGetBooking(id, {
     query: { enabled: !!id, queryKey: getGetBookingQueryKey(id) }
   });
+
+  const [orderLines, setOrderLines] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!id) return;
+    supabase
+      .from("booking_products")
+      .select("*")
+      .eq("booking_id", id)
+      .order("created_at")
+      .then(({ data }) => setOrderLines(data ?? []));
+  }, [id]);
 
   const updateStatus = useUpdateBookingStatus();
   const cancelBooking = useCancelBooking();
@@ -492,6 +505,36 @@ export default function BookingDetail() {
           )}
         </CardContent>
       </Card>
+
+      {/* Order Lines */}
+      {orderLines.length > 0 && (
+        <Card className="border-primary/10 bg-card">
+          <CardHeader className="pb-2"><CardTitle className="text-base">Order Lines</CardTitle></CardHeader>
+          <CardContent className="pt-0">
+            <div className="divide-y divide-border">
+              {orderLines.map((line: any) => (
+                <div key={line.id} className="flex items-center justify-between py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-foreground">{line.name}</div>
+                    <div className="text-xs text-muted-foreground">
+                      £{(line.unit_price ?? 0).toLocaleString()} × {line.quantity}
+                    </div>
+                  </div>
+                  <span className="text-sm font-semibold text-foreground ml-4">
+                    £{(line.total ?? line.unit_price * line.quantity ?? 0).toLocaleString()}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-between items-center pt-3 border-t border-border mt-1">
+              <span className="text-sm text-muted-foreground">Products Subtotal</span>
+              <span className="font-bold text-primary">
+                £{orderLines.reduce((s: number, l: any) => s + (l.total ?? l.unit_price * l.quantity ?? 0), 0).toLocaleString()}
+              </span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Financials */}
       <Card className="border-primary/10 bg-card">

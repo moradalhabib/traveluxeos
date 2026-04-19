@@ -858,6 +858,207 @@ function IntegrationTab() {
   );
 }
 
+// ─── Products Management tab ──────────────────────────────────────────────────
+const PRODUCT_CATEGORIES = ["Vehicle", "Meet & Greet", "Tour", "Add-on", "Accommodation"];
+const CATEGORY_ICONS: Record<string, string> = {
+  "Vehicle": "🚘", "Meet & Greet": "✨", "Tour": "🗺", "Add-on": "➕", "Accommodation": "🏠",
+};
+
+function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
+  const { toast } = useToast();
+  const [products, setProducts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeCategory, setActiveCategory] = useState("Vehicle");
+  const [editing, setEditing] = useState<any | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const fetchProducts = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("products").select("*").order("category").order("sort_order");
+    setProducts(data ?? []);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchProducts(); }, []);
+
+  const filtered = products.filter(p => p.category === activeCategory);
+  const categories = PRODUCT_CATEGORIES.filter(c => products.some(p => p.category === c));
+
+  const startNew = () => setEditing({
+    id: null, name: "", category: activeCategory, description: "", unit_price: 0, active: true, sort_order: filtered.length * 10 + 10,
+  });
+
+  const startEdit = (p: any) => setEditing({ ...p });
+
+  const saveProduct = async () => {
+    if (!editing?.name) return;
+    setSaving(true);
+    const payload = {
+      name: editing.name,
+      category: editing.category,
+      description: editing.description || null,
+      unit_price: editing.unit_price ?? 0,
+      active: editing.active ?? true,
+      sort_order: editing.sort_order ?? 0,
+      updated_at: new Date().toISOString(),
+    };
+    let error;
+    if (editing.id) {
+      ({ error } = await supabase.from("products").update(payload).eq("id", editing.id));
+    } else {
+      ({ error } = await supabase.from("products").insert(payload));
+    }
+    if (error) {
+      toast({ title: "Failed: " + error.message, variant: "destructive" });
+    } else {
+      toast({ title: editing.id ? "Product updated" : "Product added" });
+      setEditing(null);
+      fetchProducts();
+    }
+    setSaving(false);
+  };
+
+  const deleteProduct = async (id: string, name: string) => {
+    if (!confirm(`Delete "${name}"?`)) return;
+    await supabase.from("products").delete().eq("id", id);
+    toast({ title: `${name} removed` });
+    fetchProducts();
+  };
+
+  const toggleActive = async (p: any) => {
+    await supabase.from("products").update({ active: !p.active }).eq("id", p.id);
+    fetchProducts();
+  };
+
+  if (loading) return <div className="space-y-3">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16" />)}</div>;
+
+  if (editing) {
+    return (
+      <div className="space-y-5">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={() => setEditing(null)} className="-ml-2">← Back</Button>
+          <h2 className="font-semibold">{editing.id ? "Edit Product" : "New Product"}</h2>
+        </div>
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1.5">Name *</label>
+            <input className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-primary"
+              value={editing.name} onChange={e => setEditing((v: any) => ({ ...v, name: e.target.value }))} placeholder="e.g. Mercedes Benz E Class" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1.5">Category</label>
+            <Select value={editing.category} onValueChange={v => setEditing((e: any) => ({ ...e, category: v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {PRODUCT_CATEGORIES.map(c => <SelectItem key={c} value={c}>{CATEGORY_ICONS[c]} {c}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1.5">Description</label>
+            <textarea className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-primary resize-none"
+              rows={3} value={editing.description ?? ""} onChange={e => setEditing((v: any) => ({ ...v, description: e.target.value }))} placeholder="Description visible to operators" />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1.5">Unit Price (£)</label>
+            <input type="number" step="0.01" className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-primary"
+              value={editing.unit_price} onChange={e => setEditing((v: any) => ({ ...v, unit_price: Number(e.target.value) }))} />
+          </div>
+          <div className="flex items-center gap-3 pt-2 border-t border-border">
+            <label className="text-sm text-foreground flex-1">Active</label>
+            <button onClick={() => setEditing((v: any) => ({ ...v, active: !v.active }))}
+              className={`relative w-11 h-6 rounded-full transition-colors ${editing.active ? 'bg-primary' : 'bg-border'}`}>
+              <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all" style={{ left: editing.active ? '22px' : '2px' }} />
+            </button>
+          </div>
+        </div>
+        <Button className="w-full h-12 font-semibold" onClick={saveProduct} disabled={saving || !editing.name}>
+          {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+          {saving ? "Saving..." : "Save Product"}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-semibold text-foreground">Products Catalogue</h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Vehicles, Meet &amp; Greet tiers, tours and add-ons — selectable during booking creation.
+            {!isSuperAdmin && " Admins can view and add. Only Super Admin can delete."}
+          </p>
+        </div>
+        {(isSuperAdmin || true) && (
+          <Button size="sm" onClick={startNew} className="text-xs h-8 flex-shrink-0">
+            <Plus className="w-3 h-3 mr-1" /> Add
+          </Button>
+        )}
+      </div>
+
+      {products.length === 0 ? (
+        <div className="text-center py-10 border border-dashed border-border rounded-xl text-muted-foreground">
+          <p className="text-sm">No products found. Run migration-products.sql in Supabase first.</p>
+        </div>
+      ) : (
+        <>
+          {/* Category filter */}
+          <div className="flex overflow-x-auto gap-2 pb-1">
+            {categories.map(cat => (
+              <button key={cat}
+                onClick={() => setActiveCategory(cat)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all flex-shrink-0 border ${
+                  activeCategory === cat ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
+                }`}
+              >
+                {CATEGORY_ICONS[cat]} {cat} ({products.filter(p => p.category === cat).length})
+              </button>
+            ))}
+          </div>
+
+          {/* Product list */}
+          <div className="space-y-2">
+            {filtered.length === 0 && (
+              <div className="text-center py-8 text-sm text-muted-foreground border border-dashed border-border rounded-xl">
+                No products in this category
+              </div>
+            )}
+            {filtered.map(product => (
+              <div key={product.id} className={`flex items-center gap-3 p-3 rounded-xl border ${product.active ? 'border-border bg-card' : 'border-border/40 bg-card opacity-50'}`}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-sm text-foreground">{product.name}</span>
+                    {!product.active && <Badge variant="outline" className="text-[10px] text-muted-foreground">Inactive</Badge>}
+                  </div>
+                  {product.description && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{product.description}</p>}
+                </div>
+                <div className="text-right flex-shrink-0">
+                  <div className="font-bold text-primary">{product.unit_price > 0 ? `£${product.unit_price.toLocaleString()}` : 'Incl.'}</div>
+                </div>
+                {isSuperAdmin && (
+                  <div className="flex gap-1 flex-shrink-0">
+                    <Button size="sm" variant="ghost" onClick={() => startEdit(product)} className="h-7 w-7 p-0">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => toggleActive(product)}
+                      className={`h-7 w-7 p-0 ${product.active ? 'text-amber-500' : 'text-green-500'}`}>
+                      {product.active ? <XCircle className="w-3.5 h-3.5" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => deleteProduct(product.id, product.name)} className="h-7 w-7 p-0 text-destructive">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 // ─── Services Management tab (super_admin) ────────────────────────────────────
 const DEFAULT_ADD_ON = { name: "", description: "", price: 0 };
 
@@ -1206,30 +1407,23 @@ export default function Admin() {
         </Link>
       </div>
 
-      <Tabs defaultValue="services" className="w-full">
-        <TabsList className="grid w-full grid-cols-7">
-          <TabsTrigger value="services" className="text-xs px-1">
-            Services
-          </TabsTrigger>
-          <TabsTrigger value="import" className="text-xs px-1">
-            Import
-          </TabsTrigger>
-          <TabsTrigger value="export" className="text-xs px-1">
-            Export
-          </TabsTrigger>
-          <TabsTrigger value="fleet" className="text-xs px-1">
-            Fleet
-          </TabsTrigger>
-          <TabsTrigger value="users" className="text-xs px-1">
-            Users
-          </TabsTrigger>
-          <TabsTrigger value="audit" className="text-xs px-1">
-            Audit
-          </TabsTrigger>
-          <TabsTrigger value="api" className="text-xs px-1">
-            API
-          </TabsTrigger>
-        </TabsList>
+      <Tabs defaultValue="products" className="w-full">
+        <div className="overflow-x-auto">
+          <TabsList className="inline-flex w-auto min-w-full">
+            <TabsTrigger value="products" className="text-xs px-3 whitespace-nowrap">Products</TabsTrigger>
+            <TabsTrigger value="services" className="text-xs px-3 whitespace-nowrap">Services</TabsTrigger>
+            <TabsTrigger value="import" className="text-xs px-3 whitespace-nowrap">Import</TabsTrigger>
+            <TabsTrigger value="export" className="text-xs px-3 whitespace-nowrap">Export</TabsTrigger>
+            <TabsTrigger value="fleet" className="text-xs px-3 whitespace-nowrap">Fleet</TabsTrigger>
+            <TabsTrigger value="users" className="text-xs px-3 whitespace-nowrap">Users</TabsTrigger>
+            <TabsTrigger value="audit" className="text-xs px-3 whitespace-nowrap">Audit</TabsTrigger>
+            <TabsTrigger value="api" className="text-xs px-3 whitespace-nowrap">API</TabsTrigger>
+          </TabsList>
+        </div>
+
+        <TabsContent value="products" className="mt-5">
+          <ProductsTab isSuperAdmin={isSuperAdmin} />
+        </TabsContent>
 
         <TabsContent value="services" className="mt-5">
           <ServicesTab isSuperAdmin={isSuperAdmin} />

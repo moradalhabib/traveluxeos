@@ -70,8 +70,17 @@ pnpm workspace monorepo with TypeScript throughout.
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks from OpenAPI spec
 - `pnpm run typecheck` — check all TypeScript across packages
 
+## Products & Order Lines
+- **Products catalogue** (`products` table): Vehicles, Meet & Greet (Silver/Gold/Diamond), Tours, Add-ons, Accommodation — all with unit prices
+- **Booking order lines** (`booking_products` table): each booking can have multiple products with quantity; `total` is a GENERATED column (unit_price × quantity)
+- **ProductPicker** component in new booking form lets operators pick products by category; auto-calculates total price
+- **Booking detail** shows order lines with subtotal above the Financials card
+- **Admin → Products tab** (scrollable): full CRUD for super_admin; operators can view. Category tabs: Vehicle, Meet & Greet, Tour, Add-on, Accommodation
+- Run `migration-products.sql` in Supabase SQL editor to set up tables + seed data
+
 ## Supabase Setup
 Run `artifacts/traveluxe-os/supabase-schema.sql` in the Supabase SQL editor to create all tables, RLS policies, triggers, and indexes.
+Then run `artifacts/traveluxe-os/migration-service-types.sql` and `artifacts/traveluxe-os/migration-products.sql` for the Services and Products modules.
 
 Auto-features in schema:
 - TVL-XXXX booking reference auto-generated via PostgreSQL sequence

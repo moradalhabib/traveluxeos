@@ -16,6 +16,7 @@ import { Loader2, Search, Check, UserPlus, AlertTriangle, ArrowLeft, Phone } fro
 import { supabase } from "@/lib/supabase";
 import { format } from "date-fns";
 import { Label } from "@/components/ui/label";
+import ProductPicker, { type OrderLine } from "@/components/booking/ProductPicker";
 
 type Phase = "lookup" | "found" | "register" | "booking";
 
@@ -86,6 +87,7 @@ export default function NewBooking() {
   const [foundClient, setFoundClient] = useState<FoundClient | null>(null);
   const [confirmedClient, setConfirmedClient] = useState<FoundClient | null>(null);
   const [nameDuplicateWarning, setNameDuplicateWarning] = useState<string | null>(null);
+  const [orderLines, setOrderLines] = useState<OrderLine[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const createBooking = useCreateBooking();
@@ -127,6 +129,14 @@ export default function NewBooking() {
       loadClientById(clientId);
     }
   }, []);
+
+  // Auto-update price when order lines change (if total > 0)
+  useEffect(() => {
+    if (orderLines.length > 0) {
+      const total = orderLines.reduce((s, l) => s + l.unit_price * l.quantity, 0);
+      bookingForm.setValue("price", total);
+    }
+  }, [orderLines]);
 
   const loadClientById = async (clientId: string) => {
     const { data } = await supabase
@@ -248,13 +258,26 @@ export default function NewBooking() {
     );
   };
 
-  const onBookingSubmit = (values: z.infer<typeof bookingSchema>) => {
+  const onBookingSubmit = async (values: z.infer<typeof bookingSchema>) => {
     const payload = { ...values };
     if (values.driver_id === "unassigned") delete (payload as any).driver_id;
+
     createBooking.mutate(
       { data: payload },
       {
-        onSuccess: (booking: any) => {
+        onSuccess: async (booking: any) => {
+          // Save order lines if any
+          if (orderLines.length > 0) {
+            const lines = orderLines.map(l => ({
+              booking_id: booking.id,
+              product_id: l.product_id,
+              name: l.name,
+              unit_price: l.unit_price,
+              quantity: l.quantity,
+              notes: l.notes ?? null,
+            }));
+            await supabase.from("booking_products").insert(lines);
+          }
           toast({ title: "Booking created" });
           setLocation(`/bookings/${booking.id}`);
         },
@@ -723,6 +746,20 @@ export default function NewBooking() {
                       <FormMessage />
                     </FormItem>
                   )} />
+                </CardContent>
+              </Card>
+
+              {/* Products / Order Lines */}
+              <Card className="border-primary/10">
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">Products &amp; Order Lines</CardTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">Add vehicles, Meet &amp; Greet tiers, tours, and add-ons. Price auto-calculates from selected products.</p>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <ProductPicker
+                    orderLines={orderLines}
+                    onChange={(lines) => setOrderLines(lines)}
+                  />
                 </CardContent>
               </Card>
 

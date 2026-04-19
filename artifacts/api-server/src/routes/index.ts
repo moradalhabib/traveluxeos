@@ -16,6 +16,7 @@ import searchRouter from "./search";
 import financeRouter from "./finance";
 import flightRouter from "./flight";
 import serviceTypesRouter from "./serviceTypes";
+import productsRouter from "./products";
 
 const router: IRouter = Router();
 
@@ -37,5 +38,6 @@ router.use("/finance", financeRouter);
 router.use("/flight-status", flightRouter);
 router.use("/flight-tracker", flightRouter);
 router.use("/service-types", serviceTypesRouter);
+router.use("/products", productsRouter);
 
 export default router;
