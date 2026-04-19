@@ -66,8 +66,9 @@ async function sendPaymentReceiptEmail(booking: any) {
 
 router.get("/", async (req, res) => {
   const { status, service_type, date_from, date_to, driver_id, operator_id, payment_status } = req.query;
+  const db = getDbClient(req.headers.authorization);
 
-  let query = supabase
+  let query = db
     .from("bookings")
     .select("*, clients(name, vip_tier), drivers(name, vehicle_type, vehicle_model), users!bookings_operator_id_fkey(name)")
     .order("date_time", { ascending: true });
@@ -170,7 +171,8 @@ router.post("/", async (req, res) => {
 });
 
 router.get("/:id", async (req, res) => {
-  const { data: booking, error } = await supabase
+  const db = getDbClient(req.headers.authorization);
+  const { data: booking, error } = await db
     .from("bookings")
     .select("*, clients(name, vip_tier, whatsapp), drivers(name, vehicle_type, vehicle_model, whatsapp), users!bookings_operator_id_fkey(name)")
     .eq("id", req.params.id)
@@ -178,7 +180,7 @@ router.get("/:id", async (req, res) => {
 
   if (error || !booking) return res.status(404).json({ error: "Booking not found" });
 
-  const { data: auditEntries } = await supabase
+  const { data: auditEntries } = await db
     .from("audit_log")
     .select("*, users(name)")
     .eq("entity_id", req.params.id)
