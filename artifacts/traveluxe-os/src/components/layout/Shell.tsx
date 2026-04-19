@@ -133,34 +133,9 @@ export function Shell({ children }: { children: ReactNode }) {
   // Inactivity lock screen overlay
   if (isLocked) return <LockScreen />;
 
-  // super_admin sees a stripped-down shell — data only
-  if (isSuperAdmin) {
-    return (
-      <div className="min-h-screen bg-background flex flex-col">
-        <header className="bg-card border-b border-border px-4 py-3 flex items-center justify-between sticky top-0 z-40">
-          <div className="flex items-center gap-3">
-            <div className="w-7 h-7 rounded bg-primary flex items-center justify-center">
-              <span className="text-primary-foreground font-bold text-sm">T</span>
-            </div>
-            <span className="font-bold text-sm tracking-wide uppercase text-foreground">TRAVELUXE OS</span>
-            <span className="text-xs text-muted-foreground border border-border rounded px-2 py-0.5">Data Access Only</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <span className="text-xs text-muted-foreground hidden sm:block">{user.name}</span>
-            <Button variant="outline" size="sm" onClick={logout} className="text-muted-foreground">
-              <LogOut className="w-3.5 h-3.5 mr-1.5" /> Sign Out
-            </Button>
-          </div>
-        </header>
-        <main className="flex-1 p-4 md:p-8 max-w-3xl mx-auto w-full">
-          {children}
-        </main>
-      </div>
-    );
-  }
-
-  const filteredSidebar = SIDEBAR_ITEMS.filter(item => !item.reqAdmin || user.role === "admin");
-  const filteredMore = MORE_ITEMS.filter(item => !item.reqAdmin || user.role === "admin");
+  // super_admin gets full access — same nav as admin
+  const filteredSidebar = SIDEBAR_ITEMS.filter(item => !item.reqAdmin || user.role === "admin" || isSuperAdmin);
+  const filteredMore = MORE_ITEMS.filter(item => !item.reqAdmin || user.role === "admin" || isSuperAdmin);
 
   return (
     <div className="min-h-screen bg-background flex flex-col md:flex-row">

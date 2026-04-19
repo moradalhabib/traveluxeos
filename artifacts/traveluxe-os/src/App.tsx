@@ -36,12 +36,8 @@ function ProtectedRoute({ component: Component, reqAdmin = false, ...rest }: any
   if (!user) return <Redirect to="/login" />;
   // Locked sessions show an overlay inside Shell — not a redirect
 
-  // super_admin is locked to /admin only — they can only import/export/backup
-  if (user.role === "super_admin" && rest.path !== "/admin") {
-    return <Redirect to="/admin" />;
-  }
-
-  // Admin-only routes block operators (but allow super_admin through to /admin)
+  // super_admin has full unrestricted access to all modules
+  // Admin-only routes block operators, but both admin and super_admin can access
   if (reqAdmin && user.role !== "admin" && user.role !== "super_admin") {
     return <Redirect to="/" />;
   }
