@@ -12,6 +12,7 @@ import { format, differenceInMonths } from "date-fns";
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase";
 
 // ── Recognition tier (operator-only, never shown to client) ────────────────
 type Tier = "Guest" | "Patron" | "Ambassador" | "Maison";
@@ -103,11 +104,13 @@ export default function ClientDetail() {
   const handleSave = async () => {
     setSaving(true);
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const authToken = session?.access_token;
       const res = await fetch(`/api/clients/${id}`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
         body: JSON.stringify({
           name: editName,
@@ -137,9 +140,11 @@ export default function ClientDetail() {
     setDeleting(true);
     setDeleteError("");
     try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const authToken = session?.access_token;
       const res = await fetch(`/api/clients/${id}`, {
         method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
       });
       if (!res.ok) {
         const err = await res.json();
@@ -157,11 +162,13 @@ export default function ClientDetail() {
 
   const handleToggleInactive = async () => {
     if (!client) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const authToken = session?.access_token;
     const res = await fetch(`/api/clients/${id}`, {
       method: "PUT",
       headers: {
         "Content-Type": "application/json",
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       },
       body: JSON.stringify({ inactive: !(client as any).inactive }),
     });
