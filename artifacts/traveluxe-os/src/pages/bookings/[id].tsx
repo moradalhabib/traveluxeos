@@ -1,14 +1,14 @@
 import { useParams, useLocation } from "wouter";
-import { 
-  useGetBooking, getGetBookingQueryKey, 
-  useUpdateBookingStatus, useCancelBooking, 
+import {
+  useGetBooking, getGetBookingQueryKey,
+  useUpdateBookingStatus, useCancelBooking,
   useAddWaitingTime, useGenerateInvoice, useRateDriver
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane } from "lucide-react";
+import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
@@ -23,10 +23,7 @@ export default function BookingDetail() {
   const { toast } = useToast();
 
   const { data: booking, isLoading, refetch } = useGetBooking(id, {
-    query: {
-      enabled: !!id,
-      queryKey: getGetBookingQueryKey(id)
-    }
+    query: { enabled: !!id, queryKey: getGetBookingQueryKey(id) }
   });
 
   const updateStatus = useUpdateBookingStatus();
@@ -40,374 +37,450 @@ export default function BookingDetail() {
   const [waitingAmount, setWaitingAmount] = useState(0);
   const [rating, setRating] = useState(5);
   const [ratingNote, setRatingNote] = useState("");
-
   const [isCancelOpen, setIsCancelOpen] = useState(false);
   const [isWaitingOpen, setIsWaitingOpen] = useState(false);
   const [isRateOpen, setIsRateOpen] = useState(false);
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-5">
         <Skeleton className="h-10 w-48" />
         <Skeleton className="h-[300px] w-full" />
       </div>
     );
   }
 
-  if (!booking) {
-    return <div>Booking not found</div>;
-  }
+  if (!booking) return <div className="p-6 text-muted-foreground">Booking not found</div>;
 
   const getStatusColor = (s: string) => {
     switch (s) {
-      case 'Confirmed': return 'bg-blue-500/20 text-blue-500 border-blue-500/50';
+      case 'Confirmed': return 'bg-blue-500/20 text-blue-400 border-blue-500/50';
       case 'Driver Assigned': return 'bg-primary/20 text-primary border-primary/50';
-      case 'Active': return 'bg-green-500/20 text-green-500 border-green-500/50';
-      case 'Completed': return 'bg-gray-500/20 text-gray-500 border-gray-500/50';
+      case 'Active': return 'bg-green-500/20 text-green-400 border-green-500/50';
+      case 'Completed': return 'bg-gray-500/20 text-gray-400 border-gray-500/50';
       case 'Cancelled': return 'bg-destructive/20 text-destructive border-destructive/50';
-      case 'Invoiced': return 'bg-purple-500/20 text-purple-500 border-purple-500/50';
+      case 'Invoiced': return 'bg-purple-500/20 text-purple-400 border-purple-500/50';
       default: return 'bg-secondary text-secondary-foreground border-border';
     }
   };
 
   const getVipBadgeColor = (tier?: string) => {
-    switch (tier) {
-      case 'VVIP': return 'bg-purple-500/20 text-purple-400 border-purple-500/50';
-      case 'VIP': return 'bg-primary/20 text-primary border-primary/50';
-      default: return 'bg-secondary text-secondary-foreground border-border';
-    }
+    if (tier === 'VVIP') return 'bg-purple-500/20 text-purple-400 border-purple-500/50';
+    if (tier === 'VIP') return 'bg-primary/20 text-primary border-primary/50';
+    return 'bg-secondary text-secondary-foreground border-border';
   };
 
   const handleUpdateStatus = (status: string) => {
     updateStatus.mutate({ id, data: { status } }, {
-      onSuccess: () => {
-        toast({ title: `Booking marked as ${status}` });
-        refetch();
-      }
+      onSuccess: () => { toast({ title: `Booking marked as ${status}` }); refetch(); }
     });
   };
 
   const handleCancel = () => {
     cancelBooking.mutate({ id, data: { reason: cancelReason, cancellation_fee: cancelFee } }, {
-      onSuccess: () => {
-        toast({ title: "Booking cancelled" });
-        setIsCancelOpen(false);
-        refetch();
-      }
+      onSuccess: () => { toast({ title: "Booking cancelled" }); setIsCancelOpen(false); refetch(); }
     });
   };
 
   const handleAddWaiting = () => {
     addWaiting.mutate({ id, data: { amount: waitingAmount } }, {
-      onSuccess: () => {
-        toast({ title: "Waiting time added" });
-        setIsWaitingOpen(false);
-        refetch();
-      }
+      onSuccess: () => { toast({ title: "Waiting time added" }); setIsWaitingOpen(false); refetch(); }
     });
   };
 
   const handleRate = () => {
     if (!booking.driver_id) return;
     rateDriver.mutate({ id: booking.driver_id, data: { booking_id: id, rating, note: ratingNote } }, {
-      onSuccess: () => {
-        toast({ title: "Driver rated" });
-        setIsRateOpen(false);
-      }
+      onSuccess: () => { toast({ title: "Driver rated" }); setIsRateOpen(false); }
     });
   };
 
   const handleInvoice = () => {
     generateInvoice.mutate({ data: { booking_id: id } }, {
-      onSuccess: () => {
-        toast({ title: "Invoice generated" });
-        refetch();
-      }
+      onSuccess: () => { toast({ title: "Invoice generated" }); refetch(); }
     });
   };
 
   const flightStatusColor = (status?: string) => {
-    switch(status?.toLowerCase()) {
-      case 'landed': return 'text-blue-500';
-      case 'delayed': return 'text-amber-500';
+    switch (status?.toLowerCase()) {
+      case 'landed': return 'text-blue-400';
+      case 'delayed': return 'text-amber-400';
       case 'cancelled': return 'text-destructive';
-      case 'on time': return 'text-green-500';
+      case 'on time': return 'text-green-400';
       default: return 'text-muted-foreground';
     }
   };
 
-  // Messaging functions would be here... generating whatsapp links based on rules
-  const messageClientUrl = `https://wa.me/something`;
-  const messageDriverUrl = `https://wa.me/something`;
+  // Build pre-filled WhatsApp messages
+  const dateStr = booking.date_time ? format(new Date(booking.date_time), "EEEE d MMMM yyyy") : "TBC";
+  const timeStr = booking.date_time ? format(new Date(booking.date_time), "HH:mm") : "TBC";
+  const extras = (booking as any).extras;
+
+  const buildClientMessage = () => {
+    const lines: string[] = [
+      `Dear ${booking.client_name},`,
+      ``,
+      `Your Traveluxe London booking is confirmed.`,
+      ``,
+      `Ref: *${booking.tvl_ref}*`,
+      `Service: ${booking.service_type}`,
+      `Date: ${dateStr}`,
+      `Time: ${timeStr}`,
+    ];
+    if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
+    if (booking.dropoff || (booking as any).destination) lines.push(`Drop-off: ${booking.dropoff || (booking as any).destination}`);
+    if ((booking as any).direction) lines.push(`Direction: ${(booking as any).direction}`);
+    if (booking.flight_number) lines.push(`Flight: ${booking.flight_number}`);
+    if (booking.nameboard) lines.push(``, `Your driver will be waiting with a name board: *"${booking.nameboard}"*`);
+    if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
+    if (extras) lines.push(`Extras: ${extras}`);
+    if (booking.driver_name) lines.push(``, `Your driver: *${booking.driver_name}*`);
+    lines.push(``, `Any questions? We are always here for you.`, `Traveluxe London — Mayfair`);
+    return lines.join('\n');
+  };
+
+  const buildDriverMessage = () => {
+    const lines: string[] = [
+      `Hi ${booking.driver_name || 'Driver'},`,
+      ``,
+      `Please confirm receipt of your upcoming job:`,
+      ``,
+      `Ref: *${booking.tvl_ref}*`,
+      `Service: ${booking.service_type}`,
+      `Date: ${dateStr}`,
+      `Time: ${timeStr}`,
+    ];
+    if ((booking as any).direction) lines.push(`Direction: ${(booking as any).direction}`);
+    if (booking.flight_number) lines.push(`Flight: ${booking.flight_number}`);
+    if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
+    if (booking.dropoff || (booking as any).destination) lines.push(`Drop-off: ${booking.dropoff || (booking as any).destination}`);
+    if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
+    if (booking.luggage) lines.push(`Luggage: ${booking.luggage}`);
+    if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
+    if (booking.nameboard) lines.push(`Name Board: *"${booking.nameboard}"*`);
+    if (extras) lines.push(`Extras: ${extras}`);
+    if ((booking as any).special_requests) lines.push(`Notes: ${(booking as any).special_requests}`);
+    lines.push(``, `Please confirm. Thank you.`, `Traveluxe London`);
+    // Privacy: NEVER include client whatsapp
+    return lines.join('\n');
+  };
+
+  const clientWa = (booking as any).client_whatsapp?.replace(/\D/g, '') || '';
+  const driverWa = (booking as any).driver_whatsapp?.replace(/\D/g, '') || '';
+
+  const clientMsgUrl = `https://wa.me/${clientWa}?text=${encodeURIComponent(buildClientMessage())}`;
+  const driverMsgUrl = driverWa
+    ? `https://wa.me/${driverWa}?text=${encodeURIComponent(buildDriverMessage())}`
+    : null;
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
-        <Button variant="ghost" onClick={() => setLocation("/bookings")} className="self-start">
-          <ArrowLeft className="w-4 h-4 mr-2" /> Back to Bookings
+    <div className="space-y-5 max-w-3xl mx-auto pb-10">
+      {/* Header */}
+      <div className="flex items-center gap-3">
+        <Button variant="ghost" size="icon" onClick={() => setLocation("/jobs")} className="-ml-2">
+          <ArrowLeft className="w-5 h-5" />
         </Button>
-        <div className="flex gap-2">
-          <a href={messageClientUrl} target="_blank" rel="noopener noreferrer">
-            <Button className="bg-green-900/20 text-green-500 hover:bg-green-900/40 border border-green-900/50">
-              <MessageSquare className="w-4 h-4 mr-2" /> Message Client
-            </Button>
-          </a>
-          <a href={messageDriverUrl} target="_blank" rel="noopener noreferrer">
-            <Button className="bg-green-900/20 text-green-500 hover:bg-green-900/40 border border-green-900/50">
-              <MessageSquare className="w-4 h-4 mr-2" /> Message Driver
-            </Button>
-          </a>
-        </div>
-      </div>
-
-      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">{booking.tvl_ref}</h1>
-            <Badge variant="outline" className={getStatusColor(booking.status)}>
-              {booking.status}
-            </Badge>
+        <div className="flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-xl font-bold tracking-tight font-mono">{booking.tvl_ref}</h1>
+            <Badge variant="outline" className={getStatusColor(booking.status)}>{booking.status}</Badge>
             {booking.is_amended && (
-              <Badge variant="outline" className="bg-amber-500/20 text-amber-500 border-amber-500/50">Amended</Badge>
+              <Badge variant="outline" className="bg-amber-500/20 text-amber-400 border-amber-500/50">Amended</Badge>
             )}
           </div>
-          <p className="text-muted-foreground text-lg">{booking.service_type} • {booking.date_time ? format(new Date(booking.date_time), 'PPp') : ''}</p>
+          <p className="text-sm text-muted-foreground mt-0.5">{booking.service_type} · {dateStr} · {timeStr}</p>
         </div>
+      </div>
+
+      {/* WHATSAPP BUTTONS — Large and prominent */}
+      <div className="grid grid-cols-1 gap-3">
+        {clientWa ? (
+          <a href={clientMsgUrl} target="_blank" rel="noopener noreferrer">
+            <div className="flex items-center gap-4 p-4 rounded-2xl bg-green-900/20 border border-green-700/40 hover:bg-green-900/30 hover:border-green-600/60 transition-all cursor-pointer">
+              <div className="w-12 h-12 rounded-xl bg-green-500/20 flex items-center justify-center flex-shrink-0">
+                <MessageSquare className="w-6 h-6 text-green-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-green-400 text-base">Message Client</p>
+                <p className="text-xs text-green-600 truncate">{booking.client_name} — booking confirmation pre-filled</p>
+              </div>
+            </div>
+          </a>
+        ) : (
+          <div className="flex items-center gap-4 p-4 rounded-2xl bg-muted/20 border border-border opacity-50">
+            <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
+              <MessageSquare className="w-6 h-6 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="font-semibold text-muted-foreground">Message Client</p>
+              <p className="text-xs text-muted-foreground">No WhatsApp number on file</p>
+            </div>
+          </div>
+        )}
+
+        {driverMsgUrl ? (
+          <a href={driverMsgUrl} target="_blank" rel="noopener noreferrer">
+            <div className="flex items-center gap-4 p-4 rounded-2xl bg-blue-900/20 border border-blue-700/40 hover:bg-blue-900/30 hover:border-blue-600/60 transition-all cursor-pointer">
+              <div className="w-12 h-12 rounded-xl bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                <Car className="w-6 h-6 text-blue-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-blue-400 text-base">Message Driver</p>
+                <p className="text-xs text-blue-600 truncate">{booking.driver_name} — job sheet pre-filled (no client number)</p>
+              </div>
+            </div>
+          </a>
+        ) : (
+          <div className="flex items-center gap-4 p-4 rounded-2xl bg-muted/20 border border-border opacity-50">
+            <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
+              <Car className="w-6 h-6 text-muted-foreground" />
+            </div>
+            <div>
+              <p className="font-semibold text-muted-foreground">Message Driver</p>
+              <p className="text-xs text-muted-foreground">{booking.driver_name ? "No driver WhatsApp on file" : "No driver assigned yet"}</p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Status actions */}
+      {booking.status !== 'Completed' && booking.status !== 'Cancelled' && (
         <div className="flex gap-2 flex-wrap">
-          {booking.status !== 'Completed' && booking.status !== 'Cancelled' && (
-            <>
-              {booking.status !== 'Active' && (
-                <Button variant="outline" onClick={() => handleUpdateStatus('Active')} className="text-green-500 hover:bg-green-500/10">
-                  Mark Active
-                </Button>
-              )}
-              <Button variant="outline" onClick={() => handleUpdateStatus('Completed')} className="text-gray-400 hover:bg-gray-500/10">
-                Mark Completed
+          {booking.status !== 'Active' && (
+            <Button variant="outline" size="sm" onClick={() => handleUpdateStatus('Active')} className="text-green-400 hover:bg-green-500/10 border-green-500/30">
+              Mark Active
+            </Button>
+          )}
+          <Button variant="outline" size="sm" onClick={() => handleUpdateStatus('Completed')} className="text-gray-400 hover:bg-gray-500/10">
+            Mark Completed
+          </Button>
+          <Dialog open={isWaitingOpen} onOpenChange={setIsWaitingOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="text-amber-400 hover:bg-amber-500/10 border-amber-500/30">
+                <Clock className="w-3.5 h-3.5 mr-1.5" /> Add Waiting
               </Button>
-              
-              <Dialog open={isWaitingOpen} onOpenChange={setIsWaitingOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" className="text-amber-500 hover:bg-amber-500/10">
-                    <Clock className="w-4 h-4 mr-2" /> Add Waiting
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader><DialogTitle>Add Waiting Time Charge</DialogTitle></DialogHeader>
-                  <div className="py-4">
-                    <Input type="number" placeholder="Amount in GBP" value={waitingAmount || ''} onChange={e => setWaitingAmount(Number(e.target.value))} />
-                  </div>
-                  <DialogFooter>
-                    <Button onClick={handleAddWaiting}>Save Charge</Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-
-              <Dialog open={isCancelOpen} onOpenChange={setIsCancelOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" className="text-destructive hover:bg-destructive/10">
-                    <XCircle className="w-4 h-4 mr-2" /> Cancel
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader><DialogTitle>Cancel Booking</DialogTitle></DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <Textarea placeholder="Reason for cancellation" value={cancelReason} onChange={e => setCancelReason(e.target.value)} />
-                    <Input type="number" placeholder="Cancellation fee (if applicable)" value={cancelFee || ''} onChange={e => setCancelFee(Number(e.target.value))} />
-                  </div>
-                  <DialogFooter>
-                    <Button variant="destructive" onClick={handleCancel}>Confirm Cancellation</Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </>
-          )}
-          
-          {booking.status === 'Completed' && (
-            <>
-              <Button variant="outline" onClick={handleInvoice}>
-                <FileText className="w-4 h-4 mr-2" /> Generate Invoice
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Add Waiting Time Charge</DialogTitle></DialogHeader>
+              <div className="py-4">
+                <Input type="number" placeholder="Amount in GBP" value={waitingAmount || ''} onChange={e => setWaitingAmount(Number(e.target.value))} />
+              </div>
+              <DialogFooter><Button onClick={handleAddWaiting}>Save Charge</Button></DialogFooter>
+            </DialogContent>
+          </Dialog>
+          <Dialog open={isCancelOpen} onOpenChange={setIsCancelOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="text-destructive hover:bg-destructive/10 border-destructive/30">
+                <XCircle className="w-3.5 h-3.5 mr-1.5" /> Cancel
               </Button>
-              <Dialog open={isRateOpen} onOpenChange={setIsRateOpen}>
-                <DialogTrigger asChild>
-                  <Button variant="outline" className="text-primary hover:bg-primary/10">
-                    <Star className="w-4 h-4 mr-2" /> Rate Driver
-                  </Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader><DialogTitle>Rate Driver</DialogTitle></DialogHeader>
-                  <div className="space-y-4 py-4">
-                    <Input type="number" min="1" max="5" placeholder="Rating (1-5)" value={rating} onChange={e => setRating(Number(e.target.value))} />
-                    <Textarea placeholder="Notes" value={ratingNote} onChange={e => setRatingNote(e.target.value)} />
-                  </div>
-                  <DialogFooter>
-                    <Button onClick={handleRate}>Submit Rating</Button>
-                  </DialogFooter>
-                </DialogContent>
-              </Dialog>
-            </>
-          )}
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Cancel Booking</DialogTitle></DialogHeader>
+              <div className="space-y-4 py-4">
+                <Textarea placeholder="Reason for cancellation" value={cancelReason} onChange={e => setCancelReason(e.target.value)} />
+                <Input type="number" placeholder="Cancellation fee (if applicable)" value={cancelFee || ''} onChange={e => setCancelFee(Number(e.target.value))} />
+              </div>
+              <DialogFooter><Button variant="destructive" onClick={handleCancel}>Confirm Cancellation</Button></DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
-      </div>
+      )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          {booking.flight_status && (
-            <Card className="border-blue-500/30 bg-blue-500/5">
-              <CardContent className="p-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Plane className="w-5 h-5 text-blue-500" />
-                  <div>
-                    <div className="font-bold">{booking.flight_number}</div>
-                    <div className="text-sm text-muted-foreground">{booking.flight_status.origin} → {booking.flight_status.destination}</div>
-                  </div>
-                </div>
-                <div className="text-right">
-                  <div className={`font-bold ${flightStatusColor(booking.flight_status.status)}`}>{booking.flight_status.status}</div>
-                  {booking.flight_status.delay_minutes ? (
-                    <div className="text-sm text-amber-500">Delayed {booking.flight_status.delay_minutes} mins</div>
-                  ) : null}
-                </div>
-              </CardContent>
-            </Card>
-          )}
+      {booking.status === 'Completed' && (
+        <div className="flex gap-2 flex-wrap">
+          <Button variant="outline" size="sm" onClick={handleInvoice}>
+            <FileText className="w-3.5 h-3.5 mr-1.5" /> Generate Invoice
+          </Button>
+          <Dialog open={isRateOpen} onOpenChange={setIsRateOpen}>
+            <DialogTrigger asChild>
+              <Button variant="outline" size="sm" className="text-primary hover:bg-primary/10 border-primary/30">
+                <Star className="w-3.5 h-3.5 mr-1.5" /> Rate Driver
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader><DialogTitle>Rate Driver</DialogTitle></DialogHeader>
+              <div className="space-y-4 py-4">
+                <Input type="number" min="1" max="5" placeholder="Rating (1-5)" value={rating} onChange={e => setRating(Number(e.target.value))} />
+                <Textarea placeholder="Notes" value={ratingNote} onChange={e => setRatingNote(e.target.value)} />
+              </div>
+              <DialogFooter><Button onClick={handleRate}>Submit Rating</Button></DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
+      )}
 
-          <Card className="border-primary/10 bg-card">
-            <CardHeader><CardTitle>Client & Driver</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* Flight live status */}
+      {booking.flight_status && (
+        <Card className="border-blue-500/30 bg-blue-500/5">
+          <CardContent className="p-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <Plane className="w-5 h-5 text-blue-400" />
               <div>
-                <div className="text-sm text-muted-foreground uppercase mb-2">Client</div>
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-lg">{booking.client_name}</span>
-                  {booking.client_vip_tier && (
-                    <Badge variant="outline" className={getVipBadgeColor(booking.client_vip_tier)}>{booking.client_vip_tier}</Badge>
-                  )}
-                </div>
+                <div className="font-bold">{booking.flight_number}</div>
+                <div className="text-sm text-muted-foreground">{booking.flight_status.origin} → {booking.flight_status.destination}</div>
               </div>
-              <div>
-                <div className="text-sm text-muted-foreground uppercase mb-2">Driver</div>
-                {booking.driver_name ? (
-                  <div>
-                    <span className="font-bold text-lg block">{booking.driver_name}</span>
-                    <span className="text-sm text-muted-foreground">{booking.driver_vehicle}</span>
-                  </div>
-                ) : (
-                  <span className="text-destructive font-medium">Unassigned</span>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+            </div>
+            <div className="text-right">
+              <div className={`font-bold ${flightStatusColor(booking.flight_status.status)}`}>{booking.flight_status.status}</div>
+              {booking.flight_status.delay_minutes ? (
+                <div className="text-sm text-amber-400">Delayed {booking.flight_status.delay_minutes} mins</div>
+              ) : null}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-          <Card className="border-primary/10 bg-card">
-            <CardHeader><CardTitle>Journey Details</CardTitle></CardHeader>
-            <CardContent className="grid grid-cols-2 gap-4 text-sm">
-              <div className="col-span-2 md:col-span-1">
-                <span className="text-muted-foreground block mb-1">Pickup</span>
-                <span className="font-medium">{booking.pickup || '-'}</span>
-              </div>
-              <div className="col-span-2 md:col-span-1">
-                <span className="text-muted-foreground block mb-1">Dropoff / Destination</span>
-                <span className="font-medium">{booking.dropoff || booking.destination || '-'}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground block mb-1">Vehicle Requested</span>
-                <span className="font-medium">{booking.vehicle_type || '-'}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground block mb-1">Passengers / Luggage</span>
-                <span className="font-medium">{booking.passengers || 0} / {booking.luggage || 0}</span>
-              </div>
-              {booking.nameboard && (
-                <div className="col-span-2">
-                  <span className="text-muted-foreground block mb-1">Nameboard</span>
-                  <span className="font-medium">{booking.nameboard}</span>
-                </div>
+      {/* Client + Driver */}
+      <Card className="border-primary/10 bg-card">
+        <CardContent className="p-4 grid grid-cols-2 gap-4">
+          <div>
+            <p className="text-xs text-muted-foreground uppercase mb-2 font-medium">Client</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-bold">{booking.client_name}</span>
+              {booking.client_vip_tier && booking.client_vip_tier !== 'Standard' && (
+                <Badge variant="outline" className={getVipBadgeColor(booking.client_vip_tier)}>{booking.client_vip_tier}</Badge>
               )}
-              {booking.special_requests && (
-                <div className="col-span-2">
-                  <span className="text-muted-foreground block mb-1">Special Requests</span>
-                  <span className="font-medium">{booking.special_requests}</span>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground uppercase mb-2 font-medium">Driver</p>
+            {booking.driver_name ? (
+              <>
+                <span className="font-bold block">{booking.driver_name}</span>
+                <span className="text-xs text-muted-foreground">{booking.driver_vehicle}</span>
+              </>
+            ) : (
+              <span className="text-destructive font-medium text-sm">Unassigned</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
-          {booking.audit_log && booking.audit_log.length > 0 && (
-            <Card className="border-primary/10 bg-card">
-              <CardHeader><CardTitle>Audit Log</CardTitle></CardHeader>
-              <CardContent className="space-y-4">
-                {booking.audit_log.map(log => (
-                  <div key={log.id} className="text-sm border-b border-border pb-2 last:border-0">
-                    <span className="font-medium">{log.operator_name || 'System'}</span>
-                    <span className="text-muted-foreground mx-2">{log.action}</span>
-                    <span className="text-xs text-muted-foreground block mt-1">{format(new Date(log.created_at), 'PPp')}</span>
-                    {log.detail && <span className="text-xs mt-1 block">{log.detail}</span>}
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
-        </div>
+      {/* Journey details */}
+      <Card className="border-primary/10 bg-card">
+        <CardHeader className="pb-2"><CardTitle className="text-base">Journey</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> Pickup</p>
+              <p className="font-medium">{booking.pickup || '—'}</p>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><MapPin className="w-3 h-3" /> Drop-off</p>
+              <p className="font-medium">{booking.dropoff || (booking as any).destination || '—'}</p>
+            </div>
+            {booking.vehicle_type && (
+              <div>
+                <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Car className="w-3 h-3" /> Vehicle</p>
+                <p className="font-medium">{booking.vehicle_type}</p>
+              </div>
+            )}
+            <div>
+              <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Users className="w-3 h-3" /> Pax / Luggage</p>
+              <p className="font-medium">{booking.passengers || 0} pax · {booking.luggage || 0} bags</p>
+            </div>
+            {booking.flight_number && (
+              <div>
+                <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Plane className="w-3 h-3" /> Flight</p>
+                <p className="font-medium">{booking.flight_number} · {(booking as any).direction}</p>
+              </div>
+            )}
+            {booking.nameboard && (
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground mb-1">Meet &amp; Greet Board</p>
+                <p className="font-bold text-primary text-lg">"{booking.nameboard}"</p>
+              </div>
+            )}
+          </div>
 
-        <div className="space-y-6">
-          <Card className="border-primary/10 bg-card">
-            <CardHeader><CardTitle>Financials</CardTitle></CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex justify-between items-center pb-2 border-b border-border">
-                <span className="text-muted-foreground">Total Fare</span>
-                <span className="font-bold text-lg text-primary">£{(booking.price || 0).toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground">Additional Charges</span>
-                <span className="font-medium">£{(booking.additional_charges || 0).toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground">TVL Commission</span>
-                <span className="font-medium">£{(booking.tvl_commission || 0).toLocaleString()}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
-                <span className="text-muted-foreground">Driver Receives</span>
-                <span className="font-medium">£{(booking.driver_receives || 0).toLocaleString()}</span>
-              </div>
-              
-              <div className="pt-4 mt-4 border-t border-border space-y-3">
-                <div>
-                  <span className="text-xs text-muted-foreground uppercase block mb-1">Payment Status</span>
-                  <Badge variant="outline" className={booking.payment_status === 'Paid' ? 'text-green-500' : 'text-amber-500'}>
-                    {booking.payment_status}
-                  </Badge>
-                </div>
-                <div>
-                  <span className="text-xs text-muted-foreground uppercase block mb-1">Payment Method</span>
-                  <span className="text-sm font-medium">{booking.payment_method || '-'}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-          
-          {booking.invoice && (
-            <Card className="border-purple-500/30 bg-purple-500/5">
-              <CardContent className="p-4 flex justify-between items-center">
-                <div>
-                  <div className="font-bold text-purple-400">Invoice {booking.invoice.invoice_number}</div>
-                  <div className="text-xs text-muted-foreground">{booking.invoice.status}</div>
-                </div>
-                <Button variant="ghost" size="icon" className="text-purple-400 hover:text-purple-300 hover:bg-purple-500/20">
-                  <FileText className="w-5 h-5" />
-                </Button>
-              </CardContent>
-            </Card>
+          {extras && (
+            <div className="pt-3 border-t border-border">
+              <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Gift className="w-3 h-3" /> Extras</p>
+              <p className="font-medium">{extras}</p>
+            </div>
           )}
 
-          {booking.notes && (
-            <Card className="border-primary/10 bg-card">
-              <CardHeader><CardTitle className="text-sm">Internal Notes</CardTitle></CardHeader>
-              <CardContent>
-                <p className="text-sm">{booking.notes}</p>
-              </CardContent>
-            </Card>
+          {(booking as any).special_requests && (
+            <div className="pt-3 border-t border-border">
+              <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><ClipboardList className="w-3 h-3" /> Special Requests</p>
+              <p className="font-medium">{(booking as any).special_requests}</p>
+            </div>
           )}
-        </div>
-      </div>
+        </CardContent>
+      </Card>
+
+      {/* Financials */}
+      <Card className="border-primary/10 bg-card">
+        <CardHeader className="pb-2"><CardTitle className="text-base">Financials</CardTitle></CardHeader>
+        <CardContent className="space-y-3">
+          <div className="flex justify-between items-center pb-2 border-b border-border">
+            <span className="text-muted-foreground">Total Fare</span>
+            <span className="font-bold text-xl text-primary">£{(booking.price || 0).toLocaleString()}</span>
+          </div>
+          {(booking.additional_charges || 0) > 0 && (
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground">Additional Charges</span>
+              <span className="font-medium">£{(booking.additional_charges || 0).toLocaleString()}</span>
+            </div>
+          )}
+          <div className="flex justify-between items-center text-sm">
+            <span className="text-muted-foreground">TVL Commission</span>
+            <span className="font-medium">£{(booking.tvl_commission || 0).toLocaleString()}</span>
+          </div>
+          <div className="flex justify-between items-center text-sm">
+            <span className="text-muted-foreground">Driver Receives</span>
+            <span className="font-medium text-blue-400">£{(booking.driver_receives || 0).toLocaleString()}</span>
+          </div>
+          <div className="flex gap-3 pt-2">
+            <Badge variant="outline" className={booking.payment_status === 'Paid' ? 'text-green-400 border-green-500/30' : 'text-amber-400 border-amber-500/30'}>
+              {booking.payment_status}
+            </Badge>
+            {booking.payment_method && (
+              <Badge variant="outline">{booking.payment_method}</Badge>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Invoice */}
+      {booking.invoice && (
+        <Card className="border-purple-500/30 bg-purple-500/5">
+          <CardContent className="p-4 flex justify-between items-center">
+            <div>
+              <div className="font-bold text-purple-400">Invoice {booking.invoice.invoice_number}</div>
+              <div className="text-xs text-muted-foreground">{booking.invoice.status}</div>
+            </div>
+            <Button variant="ghost" size="icon" className="text-purple-400">
+              <FileText className="w-5 h-5" />
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Internal notes */}
+      {booking.notes && (
+        <Card className="border-border bg-card">
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Internal Notes</CardTitle></CardHeader>
+          <CardContent><p className="text-sm">{booking.notes}</p></CardContent>
+        </Card>
+      )}
+
+      {/* Audit log */}
+      {booking.audit_log && booking.audit_log.length > 0 && (
+        <Card className="border-border bg-card">
+          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Audit Log</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            {booking.audit_log.map((log: any) => (
+              <div key={log.id} className="text-xs border-b border-border pb-2 last:border-0">
+                <span className="font-medium text-foreground">{log.operator_name || 'System'}</span>
+                <span className="text-muted-foreground mx-2">{log.action}</span>
+                <span className="text-muted-foreground block mt-0.5">{format(new Date(log.created_at), 'PPp')}</span>
+                {log.detail && <span className="text-muted-foreground mt-0.5 block">{log.detail}</span>}
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
