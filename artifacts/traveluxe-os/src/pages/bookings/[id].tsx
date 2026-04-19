@@ -141,6 +141,17 @@ export default function BookingDetail() {
   const timeStr = booking.date_time ? format(new Date(booking.date_time), "HH:mm") : "TBC";
   const extras = (booking as any).extras;
 
+  // Service-type-specific message templates.
+  // CRITICAL: each booking is for ONE service type only. Hotel/Apartment
+  // bookings have NO driver, NO vehicle, NO name board. If the client also
+  // wants an airport transfer it is created as a SEPARATE Airport Transfer
+  // booking — never mix transport fields into accommodation messages.
+  const svc = booking.service_type;
+  const isTransport = svc === "Airport Transfer" || svc === "Tour" || svc === "As Directed";
+  const isAccommodation = svc === "Hotel" || svc === "Apartment";
+  const fmtDT = (s: string | null | undefined) =>
+    s ? format(new Date(s), "EEE d MMM yyyy 'at' HH:mm") : "";
+
   const buildClientMessage = () => {
     const lines: string[] = [
       `Dear ${booking.client_name},`,
@@ -148,57 +159,115 @@ export default function BookingDetail() {
       `Your Traveluxe London booking is confirmed.`,
       ``,
       `Ref: *${booking.tvl_ref}*`,
-      `Service: ${booking.service_type}`,
-      `Date: ${dateStr}`,
-      `Time: ${timeStr}`,
+      `Service: ${svc}`,
     ];
-    if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
-    if (booking.dropoff || (booking as any).destination) lines.push(`Drop-off: ${booking.dropoff || (booking as any).destination}`);
-    if ((booking as any).direction) lines.push(`Direction: ${(booking as any).direction}`);
-    if (booking.flight_number) lines.push(`Flight: ${booking.flight_number}`);
-    if (booking.nameboard) lines.push(``, `Your driver will be waiting with a name board: *"${booking.nameboard}"*`);
-    if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
-    if (extras) lines.push(`Extras: ${extras}`);
-    if ((booking as any).tour_name) lines.push(`Tour: ${(booking as any).tour_name}`);
-    if ((booking as any).meeting_point) lines.push(`Meeting point: ${(booking as any).meeting_point}`);
-    if ((booking as any).property_name) lines.push(`Property: ${(booking as any).property_name}`);
-    if ((booking as any).property_address) lines.push(`Address: ${(booking as any).property_address}`);
-    if ((booking as any).check_in_date) lines.push(`Check-in: ${format(new Date((booking as any).check_in_date), "dd MMM yyyy HH:mm")}`);
-    if ((booking as any).check_out_date) lines.push(`Check-out: ${format(new Date((booking as any).check_out_date), "dd MMM yyyy HH:mm")}`);
-    if (booking.driver_name) lines.push(``, `Your driver: *${booking.driver_name}*`);
+
+    if (svc === "Airport Transfer") {
+      lines.push(`Date: ${dateStr}`, `Time: ${timeStr}`);
+      if ((booking as any).direction) lines.push(`Direction: ${(booking as any).direction}`);
+      if (booking.flight_number) lines.push(`Flight: ${booking.flight_number}`);
+      if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
+      if (booking.dropoff || (booking as any).destination) lines.push(`Drop-off: ${booking.dropoff || (booking as any).destination}`);
+      if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
+      if (booking.luggage) lines.push(`Luggage: ${booking.luggage}`);
+      if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
+      if (booking.nameboard) lines.push(``, `Your driver will be waiting with a name board: *"${booking.nameboard}"*`);
+      if (booking.driver_name) lines.push(`Your driver: *${booking.driver_name}*`);
+    } else if (svc === "Tour") {
+      lines.push(`Date: ${dateStr}`, `Time: ${timeStr}`);
+      if ((booking as any).tour_name) lines.push(`Tour: ${(booking as any).tour_name}`);
+      if ((booking as any).meeting_point) lines.push(`Meeting point: ${(booking as any).meeting_point}`);
+      if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
+      if ((booking as any).destination) lines.push(`Destination: ${(booking as any).destination}`);
+      if ((booking as any).itinerary) lines.push(``, `Itinerary:`, `${(booking as any).itinerary}`);
+      if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
+      if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
+      if (booking.driver_name) lines.push(`Your driver: *${booking.driver_name}*`);
+    } else if (svc === "As Directed") {
+      lines.push(`Date: ${dateStr}`, `Start time: ${timeStr}`);
+      if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
+      if ((booking as any).duration) lines.push(`Duration: ${(booking as any).duration}`);
+      if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
+      if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
+      if (booking.driver_name) lines.push(`Your chauffeur: *${booking.driver_name}*`);
+    } else if (svc === "Hotel") {
+      // NO driver, NO vehicle, NO name board for hotel bookings.
+      if ((booking as any).hotel_name) lines.push(`Hotel: ${(booking as any).hotel_name}`);
+      if ((booking as any).room_type) lines.push(`Room: ${(booking as any).room_type}`);
+      if ((booking as any).check_in_date) lines.push(`Check-in: ${fmtDT((booking as any).check_in_date)}`);
+      if ((booking as any).check_out_date) lines.push(`Check-out: ${fmtDT((booking as any).check_out_date)}`);
+      if ((booking as any).num_nights) lines.push(`Nights: ${(booking as any).num_nights}`);
+      if ((booking as any).num_guests) lines.push(`Guests: ${(booking as any).num_guests}`);
+      if ((booking as any).breakfast_included) lines.push(`Breakfast: Included`);
+      if ((booking as any).hotel_booking_ref) lines.push(`Hotel ref: ${(booking as any).hotel_booking_ref}`);
+    } else if (svc === "Apartment") {
+      // NO driver, NO vehicle, NO name board for apartment bookings.
+      if ((booking as any).property_name) lines.push(`Property: ${(booking as any).property_name}`);
+      if ((booking as any).property_address) lines.push(`Address: ${(booking as any).property_address}`);
+      if ((booking as any).check_in_date) lines.push(`Check-in: ${fmtDT((booking as any).check_in_date)}`);
+      if ((booking as any).check_out_date) lines.push(`Check-out: ${fmtDT((booking as any).check_out_date)}`);
+      if ((booking as any).nights) lines.push(`Nights: ${(booking as any).nights}`);
+      if ((booking as any).property_contact) lines.push(`Contact: ${(booking as any).property_contact}`);
+    } else {
+      // Fallback for unknown types — keep it minimal and safe.
+      lines.push(`Date: ${dateStr}`, `Time: ${timeStr}`);
+    }
+
+    if (extras) lines.push(``, `Extras: ${extras}`);
     lines.push(``, `Any questions? We are always here for you.`, `Traveluxe London — Mayfair`);
     return lines.join('\n');
   };
 
   const buildDriverMessage = () => {
+    // Driver messages only make sense for transport service types.
+    // For Hotel/Apartment we still produce a brief notice in case a driver
+    // was somehow assigned, but no transport fields will be invented.
     const lines: string[] = [
       `Hi ${booking.driver_name || 'Driver'},`,
       ``,
       `Please confirm receipt of your upcoming job:`,
       ``,
       `Ref: *${booking.tvl_ref}*`,
-      `Service: ${booking.service_type}`,
-      `Date: ${dateStr}`,
-      `Time: ${timeStr}`,
+      `Service: ${svc}`,
     ];
-    if ((booking as any).direction) lines.push(`Direction: ${(booking as any).direction}`);
-    if (booking.flight_number) lines.push(`Flight: ${booking.flight_number}`);
-    if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
-    if (booking.dropoff || (booking as any).destination) lines.push(`Drop-off: ${booking.dropoff || (booking as any).destination}`);
-    if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
-    if (booking.luggage) lines.push(`Luggage: ${booking.luggage}`);
-    if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
-    if (booking.nameboard) lines.push(`Name Board: *"${booking.nameboard}"*`);
+
+    if (svc === "Airport Transfer") {
+      lines.push(`Date: ${dateStr}`, `Time: ${timeStr}`);
+      if ((booking as any).direction) lines.push(`Direction: ${(booking as any).direction}`);
+      if (booking.flight_number) lines.push(`Flight: ${booking.flight_number}`);
+      if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
+      if (booking.dropoff || (booking as any).destination) lines.push(`Drop-off: ${booking.dropoff || (booking as any).destination}`);
+      if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
+      if (booking.luggage) lines.push(`Luggage: ${booking.luggage}`);
+      if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
+      if (booking.nameboard) lines.push(`Name Board: *"${booking.nameboard}"*`);
+    } else if (svc === "Tour") {
+      lines.push(`Date: ${dateStr}`, `Time: ${timeStr}`);
+      if ((booking as any).tour_name) lines.push(`Tour: ${(booking as any).tour_name}`);
+      if ((booking as any).meeting_point) lines.push(`Meeting point: ${(booking as any).meeting_point}`);
+      if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
+      if ((booking as any).destination) lines.push(`Destination: ${(booking as any).destination}`);
+      if ((booking as any).itinerary) lines.push(`Itinerary:\n${(booking as any).itinerary}`);
+      if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
+      if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
+    } else if (svc === "As Directed") {
+      lines.push(`Date: ${dateStr}`, `Start time: ${timeStr}`);
+      if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
+      if ((booking as any).duration) lines.push(`Duration: ${(booking as any).duration}`);
+      if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
+      if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
+    } else {
+      lines.push(`Date: ${dateStr}`);
+    }
+
     if (extras) lines.push(`Extras: ${extras}`);
     if ((booking as any).special_requests) lines.push(`Notes: ${(booking as any).special_requests}`);
-    if ((booking as any).tour_name) lines.push(`Tour: ${(booking as any).tour_name}`);
-    if ((booking as any).meeting_point) lines.push(`Meeting point: ${(booking as any).meeting_point}`);
-    if ((booking as any).itinerary) lines.push(`Itinerary:\n${(booking as any).itinerary}`);
-    if ((booking as any).property_name) lines.push(`Property: ${(booking as any).property_name} — ${(booking as any).property_address || ""}`);
     lines.push(``, `Please confirm. Thank you.`, `Traveluxe London`);
     // Privacy: NEVER include client whatsapp
     return lines.join('\n');
   };
+  // suppress unused-var warning for helper flags
+  void isTransport; void isAccommodation;
 
   const clientWa = (booking as any).client_whatsapp?.replace(/\D/g, '') || '';
   const driverWa = (booking as any).driver_whatsapp?.replace(/\D/g, '') || '';

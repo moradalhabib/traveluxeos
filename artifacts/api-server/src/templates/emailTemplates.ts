@@ -100,9 +100,94 @@ function formatDate(dt: string | null | undefined): string {
 export function bookingConfirmationHtml(booking: any, invoiceNumber?: string): string {
   const clientName = booking.client_name || booking.clients?.name || "Valued Guest";
   const firstName = esc(clientName.split(" ")[0]);
-  const isAirport = booking.service_type === "Airport Transfer";
-  const isTour = ["Tour", "City Tour", "Chauffeur Tour"].includes(booking.service_type);
-  const isAccommodation = booking.service_type === "Apartment / Accommodation";
+  const svc = booking.service_type;
+  const isAirport = svc === "Airport Transfer";
+  const isTour = svc === "Tour";
+  const isAsDirected = svc === "As Directed";
+  const isHotel = svc === "Hotel";
+  const isApartment = svc === "Apartment";
+  const isTransport = isAirport || isTour || isAsDirected;
+
+  // Build the per-service-type details block.
+  // Hotel & Apartment bookings MUST NOT show driver, vehicle or name board —
+  // those are only relevant to chauffeur-driven services.
+  let detailsRows = "";
+  if (isAirport) {
+    detailsRows = `
+      ${row("Service", esc(svc))}
+      ${row("Date &amp; Time", formatDateTime(booking.date_time))}
+      ${booking.direction ? row("Direction", esc(booking.direction)) : ""}
+      ${booking.flight_number ? row("Flight", esc(booking.flight_number)) : ""}
+      ${booking.pickup ? row("Pickup", esc(booking.pickup)) : ""}
+      ${booking.dropoff || booking.destination ? row("Drop-off", esc(booking.dropoff || booking.destination)) : ""}
+      ${booking.passengers ? row("Passengers", esc(String(booking.passengers))) : ""}
+      ${booking.luggage ? row("Luggage", esc(booking.luggage)) : ""}
+      ${booking.vehicle_type ? row("Vehicle", esc(booking.vehicle_type)) : ""}
+      ${booking.nameboard ? row("Name Board", `<em>&ldquo;${esc(booking.nameboard)}&rdquo;</em>`) : ""}
+    `;
+  } else if (isTour) {
+    detailsRows = `
+      ${row("Service", esc(svc))}
+      ${row("Date &amp; Time", formatDateTime(booking.date_time))}
+      ${booking.tour_name ? row("Tour", esc(booking.tour_name)) : ""}
+      ${booking.meeting_point ? row("Meeting Point", esc(booking.meeting_point)) : ""}
+      ${booking.pickup ? row("Pickup", esc(booking.pickup)) : ""}
+      ${booking.destination ? row("Destination", esc(booking.destination)) : ""}
+      ${booking.guide_included ? row("Guide", "Included") : ""}
+      ${booking.itinerary ? row("Itinerary", `<span style="white-space:pre-line">${esc(booking.itinerary)}</span>`) : ""}
+      ${booking.passengers ? row("Passengers", esc(String(booking.passengers))) : ""}
+      ${booking.vehicle_type ? row("Vehicle", esc(booking.vehicle_type)) : ""}
+    `;
+  } else if (isAsDirected) {
+    detailsRows = `
+      ${row("Service", esc(svc))}
+      ${row("Date &amp; Start Time", formatDateTime(booking.date_time))}
+      ${booking.duration ? row("Duration", esc(String(booking.duration))) : ""}
+      ${booking.pickup ? row("Pickup", esc(booking.pickup)) : ""}
+      ${booking.passengers ? row("Passengers", esc(String(booking.passengers))) : ""}
+      ${booking.vehicle_type ? row("Vehicle", esc(booking.vehicle_type)) : ""}
+    `;
+  } else if (isHotel) {
+    detailsRows = `
+      ${row("Service", esc(svc))}
+      ${booking.hotel_name ? row("Hotel", esc(booking.hotel_name)) : ""}
+      ${booking.room_type ? row("Room", esc(booking.room_type)) : ""}
+      ${booking.check_in_date ? row("Check-in", formatDateTime(booking.check_in_date)) : ""}
+      ${booking.check_out_date ? row("Check-out", formatDateTime(booking.check_out_date)) : ""}
+      ${booking.num_nights ? row("Nights", esc(String(booking.num_nights))) : ""}
+      ${booking.num_guests ? row("Guests", esc(String(booking.num_guests))) : ""}
+      ${booking.breakfast_included ? row("Breakfast", "Included") : ""}
+      ${booking.hotel_booking_ref ? row("Hotel Reference", esc(booking.hotel_booking_ref)) : ""}
+    `;
+  } else if (isApartment) {
+    detailsRows = `
+      ${row("Service", esc(svc))}
+      ${booking.property_name ? row("Property", esc(booking.property_name)) : ""}
+      ${booking.property_address ? row("Address", esc(booking.property_address)) : ""}
+      ${booking.check_in_date ? row("Check-in", formatDateTime(booking.check_in_date)) : ""}
+      ${booking.check_out_date ? row("Check-out", formatDateTime(booking.check_out_date)) : ""}
+      ${booking.nights ? row("Nights", esc(String(booking.nights))) : ""}
+      ${booking.property_contact ? row("Contact", esc(booking.property_contact)) : ""}
+    `;
+  } else {
+    // Fallback — minimal safe details
+    detailsRows = `
+      ${row("Service", esc(svc))}
+      ${row("Date &amp; Time", formatDateTime(booking.date_time))}
+    `;
+  }
+
+  // Driver section — ONLY for transport service types and only when assigned.
+  const driverSection = isTransport && booking.driver_name ? `
+    <div class="section-title">Your Driver</div>
+    <table class="detail-grid">
+      ${row("Driver", esc(booking.driver_name))}
+      ${booking.vehicle_type ? row("Vehicle", esc(booking.vehicle_type)) : ""}
+    </table>
+    <p style="font-size:13px;color:#666;margin-top:8px">
+      Your driver will meet you at the agreed location. A Traveluxe representative will be in touch
+      with any updates closer to your journey.
+    </p>` : "";
 
   const content = `
     <div class="greeting">Dear ${firstName},</div>
@@ -115,47 +200,10 @@ export function bookingConfirmationHtml(booking: any, invoiceNumber?: string): s
 
     <div class="section-title">Booking Details</div>
     <table class="detail-grid">
-      ${row("Service", esc(booking.service_type))}
-      ${row("Date &amp; Time", formatDateTime(booking.date_time))}
-      ${isAirport && booking.flight_number ? row("Flight", esc(booking.flight_number)) : ""}
-      ${booking.direction ? row("Direction", esc(booking.direction)) : ""}
-      ${booking.pickup ? row("Pickup", esc(booking.pickup)) : ""}
-      ${booking.dropoff || booking.destination ? row("Drop-off", esc(booking.dropoff || booking.destination)) : ""}
-      ${booking.vehicle_type ? row("Vehicle", esc(booking.vehicle_type)) : ""}
-      ${booking.passengers ? row("Passengers", esc(String(booking.passengers))) : ""}
-      ${booking.nameboard ? row("Name Board", `<em>&ldquo;${esc(booking.nameboard)}&rdquo;</em>`) : ""}
-      ${booking.luggage ? row("Luggage", esc(booking.luggage)) : ""}
+      ${detailsRows}
     </table>
 
-    ${isTour && booking.tour_name ? `
-    <div class="section-title">Tour Details</div>
-    <table class="detail-grid">
-      ${row("Tour", esc(booking.tour_name))}
-      ${row("Meeting Point", esc(booking.meeting_point))}
-      ${booking.guide_included ? row("Guide", "Included") : ""}
-      ${booking.itinerary ? row("Itinerary", `<span style="white-space:pre-line">${esc(booking.itinerary)}</span>`) : ""}
-    </table>` : ""}
-
-    ${isAccommodation && booking.property_name ? `
-    <div class="section-title">Accommodation Details</div>
-    <table class="detail-grid">
-      ${row("Property", esc(booking.property_name))}
-      ${row("Address", esc(booking.property_address))}
-      ${row("Check-in", formatDateTime(booking.check_in_date))}
-      ${row("Check-out", formatDateTime(booking.check_out_date))}
-      ${booking.nights ? row("Nights", esc(String(booking.nights))) : ""}
-    </table>` : ""}
-
-    ${booking.driver_name ? `
-    <div class="section-title">Your Driver</div>
-    <table class="detail-grid">
-      ${row("Driver", esc(booking.driver_name))}
-      ${booking.vehicle_type ? row("Vehicle", esc(booking.vehicle_type)) : ""}
-    </table>
-    <p style="font-size:13px;color:#666;margin-top:8px">
-      Your driver will meet you at the agreed location. A Traveluxe representative will be in touch
-      with any updates closer to your journey.
-    </p>` : ""}
+    ${driverSection}
 
     <div class="price-box">
       <div class="price-label">Total Amount</div>
