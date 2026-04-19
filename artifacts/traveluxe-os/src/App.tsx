@@ -40,19 +40,39 @@ import Services from "@/pages/services/index";
 
 const queryClient = new QueryClient();
 
-function ProtectedRoute({ component: Component, reqAdmin = false, reqSuperAdmin = false, ...rest }: any) {
+// Routes the residence_manager cannot access
+const RESIDENCE_MANAGER_BLOCKED = [
+  "/", "/jobs", "/quotes", "/quotes/new", "/flights",
+  "/drivers", "/commissions", "/messages", "/finance",
+  "/invoices", "/search", "/services", "/admin",
+];
+
+function ProtectedRoute({
+  component: Component,
+  reqAdmin = false,
+  reqSuperAdmin = false,
+  blockResidenceManager = false,
+  ...rest
+}: any) {
   const { user } = useAuth();
 
   if (!user) return <Redirect to="/login" />;
 
+  const isResidenceManager = user.role === "residence_manager";
+
   // super_admin-only routes (e.g. Finance)
   if (reqSuperAdmin && user.role !== "super_admin") {
-    return <Redirect to="/" />;
+    return <Redirect to={isResidenceManager ? "/bookings" : "/"} />;
   }
 
-  // admin+ routes (admin or super_admin)
+  // admin+ routes
   if (reqAdmin && user.role !== "admin" && user.role !== "super_admin") {
-    return <Redirect to="/" />;
+    return <Redirect to={isResidenceManager ? "/bookings" : "/"} />;
+  }
+
+  // Routes blocked for residence_manager
+  if (blockResidenceManager && isResidenceManager) {
+    return <Redirect to="/bookings" />;
   }
 
   return (
@@ -69,28 +89,28 @@ function Router() {
     <Switch>
       <Route path="/login" component={Login} />
 
-      <ProtectedRoute path="/" component={Dashboard} />
+      <ProtectedRoute path="/" component={Dashboard} blockResidenceManager={true} />
       <ProtectedRoute path="/clients" component={Clients} />
-      <ProtectedRoute path="/clients/new" component={NewClient} />
+      <ProtectedRoute path="/clients/new" component={NewClient} blockResidenceManager={true} />
       <ProtectedRoute path="/clients/:id" component={ClientDetail} />
-      <ProtectedRoute path="/quotes" component={Quotes} />
-      <ProtectedRoute path="/quotes/new" component={NewQuote} />
-      <ProtectedRoute path="/quotes/:id" component={QuoteDetail} />
+      <ProtectedRoute path="/quotes" component={Quotes} blockResidenceManager={true} />
+      <ProtectedRoute path="/quotes/new" component={NewQuote} blockResidenceManager={true} />
+      <ProtectedRoute path="/quotes/:id" component={QuoteDetail} blockResidenceManager={true} />
       <ProtectedRoute path="/bookings" component={Bookings} />
-      <ProtectedRoute path="/bookings/new" component={NewBooking} />
+      <ProtectedRoute path="/bookings/new" component={NewBooking} blockResidenceManager={true} />
       <ProtectedRoute path="/bookings/:id" component={BookingDetail} />
-      <ProtectedRoute path="/jobs" component={Jobs} />
-      <ProtectedRoute path="/flights" component={Flights} />
-      <ProtectedRoute path="/drivers" component={Drivers} />
-      <ProtectedRoute path="/drivers/new" component={NewDriver} />
-      <ProtectedRoute path="/drivers/:id" component={DriverDetail} />
-      <ProtectedRoute path="/commissions" component={Commissions} />
-      <ProtectedRoute path="/messages" component={Messages} />
+      <ProtectedRoute path="/jobs" component={Jobs} blockResidenceManager={true} />
+      <ProtectedRoute path="/flights" component={Flights} blockResidenceManager={true} />
+      <ProtectedRoute path="/drivers" component={Drivers} blockResidenceManager={true} />
+      <ProtectedRoute path="/drivers/new" component={NewDriver} blockResidenceManager={true} />
+      <ProtectedRoute path="/drivers/:id" component={DriverDetail} blockResidenceManager={true} />
+      <ProtectedRoute path="/commissions" component={Commissions} blockResidenceManager={true} />
+      <ProtectedRoute path="/messages" component={Messages} blockResidenceManager={true} />
       <ProtectedRoute path="/finance" component={Finance} reqSuperAdmin={true} />
-      <ProtectedRoute path="/invoices" component={Invoices} />
-      <ProtectedRoute path="/invoices/:id" component={InvoiceDetail} />
-      <ProtectedRoute path="/search" component={Search} />
-      <ProtectedRoute path="/services" component={Services} />
+      <ProtectedRoute path="/invoices" component={Invoices} blockResidenceManager={true} />
+      <ProtectedRoute path="/invoices/:id" component={InvoiceDetail} blockResidenceManager={true} />
+      <ProtectedRoute path="/search" component={Search} blockResidenceManager={true} />
+      <ProtectedRoute path="/services" component={Services} blockResidenceManager={true} />
       <ProtectedRoute path="/admin" component={Admin} reqAdmin={true} />
 
       <Route component={NotFound} />

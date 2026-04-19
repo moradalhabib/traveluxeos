@@ -17,12 +17,12 @@ ALTER TABLE public.quotes
   ADD CONSTRAINT quotes_service_type_check
     CHECK (service_type IN ('Airport Transfer', 'Tour', 'Tours', 'As Directed', 'Apartment', 'Hotel'));
 
--- 2. Expand user role CHECK to include super_admin
+-- 2. Expand user role CHECK to include all roles
 ALTER TABLE public.users
   DROP CONSTRAINT IF EXISTS users_role_check;
 ALTER TABLE public.users
   ADD CONSTRAINT users_role_check
-    CHECK (role IN ('admin', 'operator', 'super_admin'));
+    CHECK (role IN ('admin', 'operator', 'super_admin', 'residence_manager'));
 
 -- 3. Expand invoice status CHECK to include full workflow
 ALTER TABLE public.invoices

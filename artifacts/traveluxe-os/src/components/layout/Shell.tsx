@@ -4,25 +4,16 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   LayoutDashboard, Users, FileText, CalendarRange,
   Briefcase, PlaneTakeoff, Car, Calculator, MessageSquare,
-  LineChart, Search, Settings, LogOut, Plus, X, Lock, Receipt, Layers
+  LineChart, Search, Settings, LogOut, Plus, X, Lock, Receipt, Layers, Home
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 
-const MORE_ITEMS = [
-  { href: "/quotes",       label: "Quotes",       icon: FileText },
-  { href: "/invoices",     label: "Invoices",     icon: Receipt },
-  { href: "/flights",      label: "Flights",      icon: PlaneTakeoff },
-  { href: "/drivers",      label: "Drivers",      icon: Car },
-  { href: "/commissions",  label: "Commissions",  icon: Calculator },
-  { href: "/messages",     label: "Messages",     icon: MessageSquare },
-  { href: "/finance",      label: "Finance",      icon: LineChart, reqSuperAdmin: true },
-  { href: "/admin",        label: "Admin",        icon: Settings, reqAdmin: true },
-];
+// ─── Nav definitions per role ───────────────────────────────────────────────
 
-const SIDEBAR_ITEMS = [
+const OPERATOR_SIDEBAR = [
   { href: "/",             label: "Dashboard",    icon: LayoutDashboard },
   { href: "/jobs",         label: "Jobs Board",   icon: Briefcase },
   { href: "/bookings",     label: "Bookings",     icon: CalendarRange },
@@ -38,6 +29,37 @@ const SIDEBAR_ITEMS = [
   { href: "/finance",      label: "Finance",      icon: LineChart, reqSuperAdmin: true },
   { href: "/admin",        label: "Admin",        icon: Settings, reqAdmin: true },
 ];
+
+const OPERATOR_MORE = [
+  { href: "/quotes",       label: "Quotes",       icon: FileText },
+  { href: "/invoices",     label: "Invoices",     icon: Receipt },
+  { href: "/flights",      label: "Flights",      icon: PlaneTakeoff },
+  { href: "/drivers",      label: "Drivers",      icon: Car },
+  { href: "/commissions",  label: "Commissions",  icon: Calculator },
+  { href: "/messages",     label: "Messages",     icon: MessageSquare },
+  { href: "/finance",      label: "Finance",      icon: LineChart, reqSuperAdmin: true },
+  { href: "/admin",        label: "Admin",        icon: Settings, reqAdmin: true },
+];
+
+// Residence Manager: only Apartment bookings + Clients (view)
+const RM_SIDEBAR = [
+  { href: "/bookings", label: "Apartments",  icon: Home },
+  { href: "/clients",  label: "Clients",     icon: Users },
+];
+
+// ─── Role helpers ────────────────────────────────────────────────────────────
+
+function formatRole(role: string) {
+  switch (role) {
+    case "super_admin":       return "Super Admin";
+    case "admin":             return "Admin";
+    case "operator":          return "Operator";
+    case "residence_manager": return "Residence Manager";
+    default:                  return role;
+  }
+}
+
+// ─── Lock screen ─────────────────────────────────────────────────────────────
 
 function LockScreen() {
   const { user, unlock, logout } = useAuth();
@@ -123,6 +145,8 @@ function LockScreen() {
   );
 }
 
+// ─── Shell ────────────────────────────────────────────────────────────────────
+
 export function Shell({ children }: { children: ReactNode }) {
   const { user, logout, isLocked } = useAuth();
   const [location, setLocation] = useLocation();
@@ -130,20 +154,32 @@ export function Shell({ children }: { children: ReactNode }) {
 
   if (!user) return <>{children}</>;
 
-  const isSuperAdmin = user.role === "super_admin";
+  const isSuperAdmin      = user.role === "super_admin";
+  const isAdmin           = user.role === "admin" || isSuperAdmin;
+  const isResidenceManager = user.role === "residence_manager";
 
   if (isLocked) return <LockScreen />;
 
-  const filteredSidebar = SIDEBAR_ITEMS.filter(item => {
+  // Pick the right nav set
+  const sidebarItems = isResidenceManager ? RM_SIDEBAR : OPERATOR_SIDEBAR.filter(item => {
     if ((item as any).reqSuperAdmin) return isSuperAdmin;
-    if (item.reqAdmin) return user.role === "admin" || isSuperAdmin;
+    if ((item as any).reqAdmin)      return isAdmin;
     return true;
   });
-  const filteredMore = MORE_ITEMS.filter(item => {
+
+  const moreItems = isResidenceManager ? [] : OPERATOR_MORE.filter(item => {
     if ((item as any).reqSuperAdmin) return isSuperAdmin;
-    if (item.reqAdmin) return user.role === "admin" || isSuperAdmin;
+    if ((item as any).reqAdmin)      return isAdmin;
     return true;
   });
+
+  // Mobile bottom nav tabs (5 max for operators, 2 for residence_manager)
+  const mobileBottomTabs = isResidenceManager
+    ? [
+        { href: "/bookings", label: "Apartments", icon: Home },
+        { href: "/clients",  label: "Clients",    icon: Users },
+      ]
+    : null; // null = use default operator bottom nav
 
   return (
     <div className="min-h-screen bg-background flex flex-col md:flex-row">
@@ -159,17 +195,29 @@ export function Shell({ children }: { children: ReactNode }) {
           <NotificationBell />
         </div>
 
-        <div className="px-4 mb-4">
-          <Link href="/bookings/new">
-            <Button className="w-full h-11 font-semibold shadow-[0_0_15px_rgba(201,168,76,0.25)] hover:shadow-[0_0_25px_rgba(201,168,76,0.4)] transition-all">
-              <Plus className="w-4 h-4 mr-2" />
-              New Booking
-            </Button>
-          </Link>
-        </div>
+        {/* New Booking button — hidden for Residence Manager */}
+        {!isResidenceManager && (
+          <div className="px-4 mb-4">
+            <Link href="/bookings/new">
+              <Button className="w-full h-11 font-semibold shadow-[0_0_15px_rgba(201,168,76,0.25)] hover:shadow-[0_0_25px_rgba(201,168,76,0.4)] transition-all">
+                <Plus className="w-4 h-4 mr-2" />
+                New Booking
+              </Button>
+            </Link>
+          </div>
+        )}
+
+        {isResidenceManager && (
+          <div className="px-4 mb-4">
+            <div className="px-3 py-2 rounded-md bg-primary/5 border border-primary/10 text-center">
+              <p className="text-xs text-primary font-medium">Apartments</p>
+              <p className="text-[10px] text-muted-foreground">View &amp; manage apartment bookings</p>
+            </div>
+          </div>
+        )}
 
         <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
-          {filteredSidebar.map((item) => {
+          {sidebarItems.map((item) => {
             const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
             return (
               <Link key={item.href} href={item.href} className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}`}>
@@ -187,7 +235,7 @@ export function Shell({ children }: { children: ReactNode }) {
             </div>
             <div>
               <p className="text-sm font-medium text-foreground">{user.name}</p>
-              <p className="text-xs text-muted-foreground capitalize">{user.role}</p>
+              <p className="text-xs text-muted-foreground">{formatRole(user.role)}</p>
             </div>
           </div>
           <Button variant="outline" className="w-full justify-start text-muted-foreground" onClick={logout}>
@@ -197,13 +245,15 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
       </aside>
 
-      {/* Mobile: sticky header with notification bell */}
+      {/* Mobile: sticky header */}
       <div className="md:hidden sticky top-0 z-40 flex items-center justify-between px-4 py-3 bg-card/95 backdrop-blur-sm border-b border-border">
         <div className="flex items-center gap-2.5">
           <div className="w-7 h-7 rounded bg-primary flex items-center justify-center">
             <span className="text-primary-foreground font-bold text-base">T</span>
           </div>
-          <span className="font-bold text-sm text-foreground tracking-wider uppercase">Traveluxe OS</span>
+          <span className="font-bold text-sm text-foreground tracking-wider uppercase">
+            {isResidenceManager ? "Apartments" : "Traveluxe OS"}
+          </span>
         </div>
         <NotificationBell />
       </div>
@@ -215,103 +265,127 @@ export function Shell({ children }: { children: ReactNode }) {
         </div>
       </main>
 
-      {/* Mobile Bottom Nav */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-card border-t border-border z-50 flex items-center justify-around px-1" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
-        <Link href="/" className={`flex flex-col items-center justify-center w-14 h-16 ${location === '/' ? 'text-primary' : 'text-muted-foreground'}`}>
-          <LayoutDashboard className="w-5 h-5 mb-1" />
-          <span className="text-[10px] font-medium">Home</span>
-        </Link>
-
-        <Link href="/jobs" className={`flex flex-col items-center justify-center w-14 h-16 ${location.startsWith('/jobs') ? 'text-primary' : 'text-muted-foreground'}`}>
-          <Briefcase className="w-5 h-5 mb-1" />
-          <span className="text-[10px] font-medium">Jobs</span>
-        </Link>
-
-        {/* Centre New Booking */}
-        <div className="flex flex-col items-center justify-center w-16 h-16 -mt-4">
-          <Link href="/bookings/new">
-            <button className="w-14 h-14 rounded-full bg-primary flex items-center justify-center shadow-[0_0_20px_rgba(201,168,76,0.5)] hover:shadow-[0_0_30px_rgba(201,168,76,0.7)] active:scale-95 transition-all">
-              <Plus className="w-7 h-7 text-primary-foreground" />
-            </button>
+      {/* ── Residence Manager: minimal 2-tab bottom nav ── */}
+      {isResidenceManager && (
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-card border-t border-border z-50 flex items-center justify-around px-1" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+          <Link href="/bookings" className={`flex flex-col items-center justify-center flex-1 h-16 ${location.startsWith('/bookings') ? 'text-primary' : 'text-muted-foreground'}`}>
+            <Home className="w-5 h-5 mb-1" />
+            <span className="text-[10px] font-medium">Apartments</span>
           </Link>
-          <span className="text-[9px] font-medium text-primary mt-0.5">Book</span>
-        </div>
+          <Link href="/clients" className={`flex flex-col items-center justify-center flex-1 h-16 ${location.startsWith('/clients') ? 'text-primary' : 'text-muted-foreground'}`}>
+            <Users className="w-5 h-5 mb-1" />
+            <span className="text-[10px] font-medium">Clients</span>
+          </Link>
+          <button
+            onClick={() => { logout(); }}
+            className="flex flex-col items-center justify-center flex-1 h-16 text-muted-foreground hover:text-destructive transition-colors"
+          >
+            <LogOut className="w-5 h-5 mb-1" />
+            <span className="text-[10px] font-medium">Sign Out</span>
+          </button>
+        </nav>
+      )}
 
-        <Link href="/services" className={`flex flex-col items-center justify-center w-14 h-16 ${location.startsWith('/services') ? 'text-primary' : 'text-muted-foreground'}`}>
-          <Layers className="w-5 h-5 mb-1" />
-          <span className="text-[10px] font-medium">Services</span>
-        </Link>
-
-        <button
-          onClick={() => setMoreOpen(true)}
-          className={`flex flex-col items-center justify-center w-14 h-16 ${moreOpen ? 'text-primary' : 'text-muted-foreground'}`}
-        >
-          <div className="grid grid-cols-2 gap-0.5 w-5 h-5 mb-1">
-            {[...Array(4)].map((_, i) => (
-              <div key={i} className="rounded-sm bg-current" />
-            ))}
-          </div>
-          <span className="text-[10px] font-medium">More</span>
-        </button>
-      </nav>
-
-      {/* More Drawer */}
-      {moreOpen && (
+      {/* ── Operator/Admin: full bottom nav ── */}
+      {!isResidenceManager && (
         <>
-          <div className="md:hidden fixed inset-0 bg-black/60 z-50 backdrop-blur-sm" onClick={() => setMoreOpen(false)} />
-          <div className="md:hidden fixed bottom-0 left-0 right-0 bg-card rounded-t-2xl z-50 border-t border-border shadow-2xl">
-            <div className="flex justify-center pt-3 pb-2">
-              <div className="w-10 h-1 rounded-full bg-border" />
+          <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-card border-t border-border z-50 flex items-center justify-around px-1" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+            <Link href="/" className={`flex flex-col items-center justify-center w-14 h-16 ${location === '/' ? 'text-primary' : 'text-muted-foreground'}`}>
+              <LayoutDashboard className="w-5 h-5 mb-1" />
+              <span className="text-[10px] font-medium">Home</span>
+            </Link>
+
+            <Link href="/jobs" className={`flex flex-col items-center justify-center w-14 h-16 ${location.startsWith('/jobs') ? 'text-primary' : 'text-muted-foreground'}`}>
+              <Briefcase className="w-5 h-5 mb-1" />
+              <span className="text-[10px] font-medium">Jobs</span>
+            </Link>
+
+            <div className="flex flex-col items-center justify-center w-16 h-16 -mt-4">
+              <Link href="/bookings/new">
+                <button className="w-14 h-14 rounded-full bg-primary flex items-center justify-center shadow-[0_0_20px_rgba(201,168,76,0.5)] hover:shadow-[0_0_30px_rgba(201,168,76,0.7)] active:scale-95 transition-all">
+                  <Plus className="w-7 h-7 text-primary-foreground" />
+                </button>
+              </Link>
+              <span className="text-[9px] font-medium text-primary mt-0.5">Book</span>
             </div>
-            <div className="flex items-center justify-between px-5 pb-4">
-              <span className="font-bold text-foreground text-lg">All Modules</span>
-              <button onClick={() => setMoreOpen(false)} className="text-muted-foreground p-1">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="mx-5 mb-4 p-3 rounded-xl bg-secondary/50 flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold uppercase">
-                {user.name.charAt(0)}
+
+            <Link href="/services" className={`flex flex-col items-center justify-center w-14 h-16 ${location.startsWith('/services') ? 'text-primary' : 'text-muted-foreground'}`}>
+              <Layers className="w-5 h-5 mb-1" />
+              <span className="text-[10px] font-medium">Services</span>
+            </Link>
+
+            <button
+              onClick={() => setMoreOpen(true)}
+              className={`flex flex-col items-center justify-center w-14 h-16 ${moreOpen ? 'text-primary' : 'text-muted-foreground'}`}
+            >
+              <div className="grid grid-cols-2 gap-0.5 w-5 h-5 mb-1">
+                {[...Array(4)].map((_, i) => (
+                  <div key={i} className="rounded-sm bg-current" />
+                ))}
               </div>
-              <div>
-                <p className="text-sm font-semibold text-foreground">{user.name}</p>
-                <p className="text-xs text-muted-foreground capitalize">{user.role}</p>
-              </div>
-            </div>
-            <div className="px-5 pb-3">
-              <button
-                onClick={() => { setLocation("/"); setMoreOpen(false); }}
-                className={`w-full flex items-center justify-center gap-2.5 py-3 rounded-xl border transition-all font-semibold text-sm ${location === '/' ? 'bg-primary/10 border-primary/50 text-primary' : 'bg-primary/5 border-primary/20 text-primary hover:bg-primary/15'}`}
-              >
-                <LayoutDashboard className="w-4 h-4" />
-                Return to Dashboard
-              </button>
-            </div>
-            <div className="px-5 pb-4 grid grid-cols-3 gap-3">
-              {filteredMore.map((item) => {
-                const isActive = location === item.href || (item.href !== '/' && location.startsWith(item.href));
-                return (
-                  <button
-                    key={item.href}
-                    onClick={() => { setLocation(item.href); setMoreOpen(false); }}
-                    className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-all ${isActive ? 'bg-primary/10 border-primary/50 text-primary' : 'bg-secondary/30 border-border text-muted-foreground hover:bg-secondary hover:text-foreground'}`}
-                  >
-                    <item.icon className="w-5 h-5" />
-                    <span className="text-[11px] font-medium">{item.label}</span>
+              <span className="text-[10px] font-medium">More</span>
+            </button>
+          </nav>
+
+          {/* More Drawer */}
+          {moreOpen && (
+            <>
+              <div className="md:hidden fixed inset-0 bg-black/60 z-50 backdrop-blur-sm" onClick={() => setMoreOpen(false)} />
+              <div className="md:hidden fixed bottom-0 left-0 right-0 bg-card rounded-t-2xl z-50 border-t border-border shadow-2xl">
+                <div className="flex justify-center pt-3 pb-2">
+                  <div className="w-10 h-1 rounded-full bg-border" />
+                </div>
+                <div className="flex items-center justify-between px-5 pb-4">
+                  <span className="font-bold text-foreground text-lg">All Modules</span>
+                  <button onClick={() => setMoreOpen(false)} className="text-muted-foreground p-1">
+                    <X className="w-5 h-5" />
                   </button>
-                );
-              })}
-            </div>
-            <div className="px-5 pb-6">
-              <button
-                onClick={() => { logout(); setMoreOpen(false); }}
-                className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-destructive/30 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors"
-              >
-                <LogOut className="w-4 h-4" />
-                Sign Out
-              </button>
-            </div>
-          </div>
+                </div>
+                <div className="mx-5 mb-4 p-3 rounded-xl bg-secondary/50 flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold uppercase">
+                    {user.name.charAt(0)}
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">{user.name}</p>
+                    <p className="text-xs text-muted-foreground">{formatRole(user.role)}</p>
+                  </div>
+                </div>
+                <div className="px-5 pb-3">
+                  <button
+                    onClick={() => { setLocation("/"); setMoreOpen(false); }}
+                    className={`w-full flex items-center justify-center gap-2.5 py-3 rounded-xl border transition-all font-semibold text-sm ${location === '/' ? 'bg-primary/10 border-primary/50 text-primary' : 'bg-primary/5 border-primary/20 text-primary hover:bg-primary/15'}`}
+                  >
+                    <LayoutDashboard className="w-4 h-4" />
+                    Return to Dashboard
+                  </button>
+                </div>
+                <div className="px-5 pb-4 grid grid-cols-3 gap-3">
+                  {moreItems.map((item) => {
+                    const isActive = location === item.href || (item.href !== '/' && location.startsWith(item.href));
+                    return (
+                      <button
+                        key={item.href}
+                        onClick={() => { setLocation(item.href); setMoreOpen(false); }}
+                        className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-all ${isActive ? 'bg-primary/10 border-primary/50 text-primary' : 'bg-secondary/30 border-border text-muted-foreground hover:bg-secondary hover:text-foreground'}`}
+                      >
+                        <item.icon className="w-5 h-5" />
+                        <span className="text-[11px] font-medium">{item.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className="px-5 pb-6">
+                  <button
+                    onClick={() => { logout(); setMoreOpen(false); }}
+                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-destructive/30 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Sign Out
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </>
       )}
     </div>

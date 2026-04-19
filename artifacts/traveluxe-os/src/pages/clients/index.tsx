@@ -7,8 +7,11 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Plus, MessageSquare } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function Clients() {
+  const { user } = useAuth();
+  const isResidenceManager = user?.role === "residence_manager";
   const [search, setSearch] = useState("");
   const { data: clients, isLoading } = useListClients(
     { search: search || undefined },
@@ -26,13 +29,20 @@ export default function Clients() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">Clients</h1>
-        <Link href="/clients/new">
-          <Button className="w-full sm:w-auto h-12 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
-            <Plus className="w-4 h-4 mr-2" />
-            Add Client
-          </Button>
-        </Link>
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Clients</h1>
+          {isResidenceManager && (
+            <p className="text-sm text-muted-foreground mt-0.5">View client information for apartment bookings</p>
+          )}
+        </div>
+        {!isResidenceManager && (
+          <Link href="/clients/new">
+            <Button className="w-full sm:w-auto h-12 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Client
+            </Button>
+          </Link>
+        )}
       </div>
 
       <div className="relative">

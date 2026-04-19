@@ -4,6 +4,7 @@ import {
   useUpdateBookingStatus, useCancelBooking,
   useAddWaitingTime, useGenerateInvoice, useRateDriver
 } from "@workspace/api-client-react";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -22,6 +23,8 @@ export default function BookingDetail() {
   const [, setLocation] = useLocation();
   const id = params.id as string;
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isResidenceManager = user?.role === "residence_manager";
 
   const { data: booking, isLoading, refetch } = useGetBooking(id, {
     query: { enabled: !!id, queryKey: getGetBookingQueryKey(id) }
@@ -545,41 +548,43 @@ export default function BookingDetail() {
         </Card>
       )}
 
-      {/* Financials */}
-      <Card className="border-primary/10 bg-card">
-        <CardHeader className="pb-2"><CardTitle className="text-base">Financials</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex justify-between items-center pb-2 border-b border-border">
-            <span className="text-muted-foreground">Total Fare</span>
-            <span className="font-bold text-xl text-primary">£{(booking.price || 0).toLocaleString()}</span>
-          </div>
-          {(booking.additional_charges || 0) > 0 && (
-            <div className="flex justify-between items-center text-sm">
-              <span className="text-muted-foreground">Additional Charges</span>
-              <span className="font-medium">£{(booking.additional_charges || 0).toLocaleString()}</span>
+      {/* Financials — hidden from Residence Managers */}
+      {!isResidenceManager && (
+        <Card className="border-primary/10 bg-card">
+          <CardHeader className="pb-2"><CardTitle className="text-base">Financials</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="flex justify-between items-center pb-2 border-b border-border">
+              <span className="text-muted-foreground">Total Fare</span>
+              <span className="font-bold text-xl text-primary">£{(booking.price || 0).toLocaleString()}</span>
             </div>
-          )}
-          <div className="flex justify-between items-center text-sm">
-            <span className="text-muted-foreground">TVL Commission</span>
-            <span className="font-medium">£{(booking.tvl_commission || 0).toLocaleString()}</span>
-          </div>
-          <div className="flex justify-between items-center text-sm">
-            <span className="text-muted-foreground">Driver Receives</span>
-            <span className="font-medium text-blue-400">£{(booking.driver_receives || 0).toLocaleString()}</span>
-          </div>
-          <div className="flex gap-3 pt-2">
-            <Badge variant="outline" className={booking.payment_status === 'Paid' ? 'text-green-400 border-green-500/30' : 'text-amber-400 border-amber-500/30'}>
-              {booking.payment_status}
-            </Badge>
-            {booking.payment_method && (
-              <Badge variant="outline">{booking.payment_method}</Badge>
+            {(booking.additional_charges || 0) > 0 && (
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-muted-foreground">Additional Charges</span>
+                <span className="font-medium">£{(booking.additional_charges || 0).toLocaleString()}</span>
+              </div>
             )}
-          </div>
-        </CardContent>
-      </Card>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground">TVL Commission</span>
+              <span className="font-medium">£{(booking.tvl_commission || 0).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between items-center text-sm">
+              <span className="text-muted-foreground">Driver Receives</span>
+              <span className="font-medium text-blue-400">£{(booking.driver_receives || 0).toLocaleString()}</span>
+            </div>
+            <div className="flex gap-3 pt-2">
+              <Badge variant="outline" className={booking.payment_status === 'Paid' ? 'text-green-400 border-green-500/30' : 'text-amber-400 border-amber-500/30'}>
+                {booking.payment_status}
+              </Badge>
+              {booking.payment_method && (
+                <Badge variant="outline">{booking.payment_method}</Badge>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
-      {/* Invoice */}
-      {booking.invoice && (
+      {/* Invoice — hidden from Residence Managers */}
+      {!isResidenceManager && booking.invoice && (
         <Card className="border-purple-500/30 bg-purple-500/5">
           <CardContent className="p-4 flex justify-between items-center">
             <div>
