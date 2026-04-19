@@ -118,6 +118,8 @@ const BOOKING_COLUMNS = new Set([
 
 router.post("/", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
+  // Use the user's JWT so RLS sees an authenticated request
+  const db = getDbClient(req.headers.authorization);
 
   // Strip any field not in the bookings table to prevent PostgREST 400s
   const raw: Record<string, any> = {};
@@ -144,7 +146,7 @@ router.post("/", async (req, res) => {
   if (!body.status) body.status = "Confirmed";
   if (!body.payment_status) body.payment_status = "Unpaid";
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("bookings")
     .insert(body)
     .select()
@@ -229,9 +231,10 @@ router.get("/:id", async (req, res) => {
 
 router.put("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
+  const db = getDbClient(req.headers.authorization);
 
   // Capture previous payment_status before update
-  const { data: prev } = await supabase.from("bookings").select("payment_status, status").eq("id", req.params.id).single();
+  const { data: prev } = await db.from("bookings").select("payment_status, status").eq("id", req.params.id).single();
   const prevPaymentStatus = prev?.payment_status;
 
   // Apply same whitelist as POST to avoid unknown-column errors on update
@@ -247,7 +250,7 @@ router.put("/:id", async (req, res) => {
   }
   const body = { ...raw, is_amended: true };
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from("bookings")
     .update(body)
     .eq("id", req.params.id)
