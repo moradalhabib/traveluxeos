@@ -3,8 +3,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator } from "lucide-react";
 import { Link } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
+
   const { data: summary, isLoading } = useGetDashboardSummary({
     query: { queryKey: getGetDashboardSummaryQueryKey() }
   });
@@ -88,9 +92,15 @@ export default function Dashboard() {
               <Calculator className="w-4 h-4 text-amber-400" />
             </CardHeader>
             <CardContent className="px-4 pb-4">
-              <div className="text-2xl font-bold text-amber-400">
-                £{(s?.outstanding_commissions ?? 0).toLocaleString()}
-              </div>
+              {isSuperAdmin ? (
+                <div className="text-2xl font-bold text-amber-400">
+                  £{(s?.outstanding_commissions ?? 0).toLocaleString()}
+                </div>
+              ) : (
+                <div className="text-2xl font-bold text-amber-400">
+                  {s?.outstanding_commissions > 0 ? "Outstanding" : "Clear"}
+                </div>
+              )}
               <p className="text-[11px] text-muted-foreground mt-0.5">Outstanding from cash jobs</p>
             </CardContent>
           </Card>
@@ -142,7 +152,11 @@ export default function Dashboard() {
                 {s.top_clients.map((client: any) => (
                   <div key={client.id} className="flex justify-between items-center">
                     <span className="font-medium text-sm">{client.name}</span>
-                    <span className="text-primary text-sm font-semibold">£{client.total_spent.toLocaleString()}</span>
+                    {isSuperAdmin ? (
+                      <span className="text-primary text-sm font-semibold">£{client.total_spent.toLocaleString()}</span>
+                    ) : (
+                      <span className="text-muted-foreground text-xs">{client.total_bookings} booking{client.total_bookings !== 1 ? "s" : ""}</span>
+                    )}
                   </div>
                 ))}
               </div>

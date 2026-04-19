@@ -13,6 +13,34 @@ router.get("/", async (_req, res) => {
   return res.json(data ?? []);
 });
 
+router.patch("/:id/status", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user) return res.status(401).json({ error: "Unauthorised" });
+
+  const { status } = req.body;
+  const allowed = ["Generated", "Sent", "Paid", "Overdue", "Cancelled"];
+  if (!allowed.includes(status)) {
+    return res.status(400).json({ error: `Invalid status. Must be one of: ${allowed.join(", ")}` });
+  }
+
+  const updates: Record<string, any> = { status };
+  if (status === "Paid") updates.paid_at = new Date().toISOString();
+
+  const { data, error } = await supabase
+    .from("invoices")
+    .update(updates)
+    .eq("id", req.params.id)
+    .select()
+    .single();
+
+  if (error) return res.status(400).json({ error: error.message });
+
+  await auditLog("update_invoice_status", "invoice", data.id, user.id,
+    `Invoice ${data.invoice_number} marked as ${status}`);
+
+  return res.json(data);
+});
+
 router.post("/generate", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
   const { booking_id } = req.body;

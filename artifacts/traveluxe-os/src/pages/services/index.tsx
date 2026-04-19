@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -91,6 +92,8 @@ function canonicalKey(raw: string): ServiceKey {
 }
 
 export default function Services() {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loadingBookings, setLoadingBookings] = useState(true);
   const [selectedKey, setSelectedKey] = useState<ServiceKey | null>(null);
@@ -157,13 +160,13 @@ export default function Services() {
         </div>
 
         {/* Stats strip */}
-        <div className="grid grid-cols-4 gap-3">
+        <div className={`grid gap-3 ${isSuperAdmin ? "grid-cols-4" : "grid-cols-3"}`}>
           {[
-            { label: "Total",     value: stats.total,                              icon: <CalendarRange className="w-4 h-4" /> },
-            { label: "Active",    value: stats.active,                             icon: <Clock className="w-4 h-4 text-amber-400" /> },
-            { label: "Completed", value: stats.completed,                          icon: <CheckCircle2 className="w-4 h-4 text-green-400" /> },
-            { label: "Revenue",   value: `£${stats.revenue.toLocaleString()}`,     icon: <TrendingUp className="w-4 h-4 text-primary" /> },
-          ].map(item => (
+            { label: "Total",     value: stats.total,                                                     icon: <CalendarRange className="w-4 h-4" />, show: true },
+            { label: "Active",    value: stats.active,                                                     icon: <Clock className="w-4 h-4 text-amber-400" />, show: true },
+            { label: "Completed", value: stats.completed,                                                  icon: <CheckCircle2 className="w-4 h-4 text-green-400" />, show: true },
+            { label: "Revenue",   value: `£${stats.revenue.toLocaleString()}`,                             icon: <TrendingUp className="w-4 h-4 text-primary" />, show: isSuperAdmin },
+          ].filter(item => item.show).map(item => (
             <div key={item.label} className="bg-card border border-border rounded-xl p-3 text-center">
               <div className="flex justify-center mb-1 text-muted-foreground">{item.icon}</div>
               <div className="text-lg font-bold text-foreground">{item.value}</div>
@@ -281,7 +284,7 @@ export default function Services() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Services</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {allStats.total} bookings · £{allStats.revenue.toLocaleString()} total revenue
+            {allStats.total} bookings{isSuperAdmin ? ` · £${allStats.revenue.toLocaleString()} total revenue` : ""}
           </p>
         </div>
         <Link href="/bookings/new">
@@ -314,7 +317,7 @@ export default function Services() {
 
                 <div className="font-bold text-lg text-foreground leading-tight">{svc.label}</div>
 
-                <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-white/10">
+                <div className={`grid gap-2 mt-4 pt-4 border-t border-white/10 ${isSuperAdmin ? "grid-cols-3" : "grid-cols-2"}`}>
                   <div>
                     <div className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Total</div>
                     <div className="font-bold text-foreground">{stats.total}</div>
@@ -325,12 +328,14 @@ export default function Services() {
                       {stats.active}
                     </div>
                   </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Revenue</div>
-                    <div className="font-bold text-primary">
-                      {stats.revenue > 0 ? `£${stats.revenue.toLocaleString()}` : "—"}
+                  {isSuperAdmin && (
+                    <div>
+                      <div className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Revenue</div>
+                      <div className="font-bold text-primary">
+                        {stats.revenue > 0 ? `£${stats.revenue.toLocaleString()}` : "—"}
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               </button>
             );

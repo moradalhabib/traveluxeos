@@ -1,14 +1,16 @@
 import { useParams, useLocation } from "wouter";
 import { useListInvoices, getListInvoicesQueryKey, useGetBooking, getGetBookingQueryKey } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
-import { ArrowLeft, Download, Printer, Receipt, Mail, Phone } from "lucide-react";
+import { ArrowLeft, Download, Printer, Receipt, Mail, Phone, CheckCircle2, Send, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
 import { useRef, useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
+import { useToast } from "@/hooks/use-toast";
 
 const COMPANY = {
   name: "TRAVELUXE LONDON",
@@ -24,6 +26,36 @@ export default function InvoiceDetail() {
   const [, setLocation] = useLocation();
   const id = params.id as string;
   const printRef = useRef<HTMLDivElement>(null);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const [statusUpdating, setStatusUpdating] = useState(false);
+
+  const updateStatus = async (newStatus: string) => {
+    setStatusUpdating(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+      const res = await fetch(`${base}/api/invoices/${id}/status`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error ?? "Failed to update status");
+      }
+      await queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
+      toast({ title: `Invoice marked as ${newStatus}`, description: "Status updated successfully." });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setStatusUpdating(false);
+    }
+  };
 
   const { data: invoices, isLoading: invLoading } = useListInvoices(
     { query: { enabled: true, queryKey: getListInvoicesQueryKey() } }
@@ -279,7 +311,32 @@ export default function InvoiceDetail() {
         <Button variant="ghost" onClick={() => setLocation("/invoices")} className="text-muted-foreground">
           <ArrowLeft className="w-4 h-4 mr-2" /> Back to Invoices
         </Button>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {/* Status actions — contextual to current status */}
+          {invoice.status === "Generated" && (
+            <Button variant="outline" size="sm" disabled={statusUpdating} onClick={() => updateStatus("Sent")}
+              className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10">
+              <Send className="w-3.5 h-3.5 mr-1.5" /> Mark Sent
+            </Button>
+          )}
+          {(invoice.status === "Sent" || invoice.status === "Overdue") && (
+            <Button variant="outline" size="sm" disabled={statusUpdating} onClick={() => updateStatus("Paid")}
+              className="border-green-500/30 text-green-400 hover:bg-green-500/10">
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Mark Paid
+            </Button>
+          )}
+          {invoice.status === "Sent" && (
+            <Button variant="outline" size="sm" disabled={statusUpdating} onClick={() => updateStatus("Overdue")}
+              className="border-destructive/30 text-destructive hover:bg-destructive/10">
+              <AlertTriangle className="w-3.5 h-3.5 mr-1.5" /> Mark Overdue
+            </Button>
+          )}
+          {invoice.status === "Paid" && (
+            <Button variant="outline" size="sm" disabled={statusUpdating} onClick={() => updateStatus("Generated")}
+              className="border-border text-muted-foreground hover:bg-secondary/50 text-xs">
+              Reset
+            </Button>
+          )}
           <Button variant="outline" onClick={handlePrint} className="border-primary/20 hover:bg-primary/10">
             <Printer className="w-4 h-4 mr-2" /> Print
           </Button>
