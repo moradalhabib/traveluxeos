@@ -59,65 +59,123 @@ export default function BookingDetail() {
   const [isWaitingOpen, setIsWaitingOpen] = useState(false);
   const [isRateOpen, setIsRateOpen] = useState(false);
 
-  // Edit Stay dialog (Apartment / Hotel) — for stay extensions, rate
-  // adjustments, or correcting a date the operator entered wrong. The state
-  // is initialised lazily from the booking when the dialog opens so we never
-  // overwrite user input while they're typing.
-  const [isEditStayOpen, setIsEditStayOpen] = useState(false);
+  // Edit Booking dialog — works for ALL service types.
+  // Clients change flight dates, swap vehicles, extend stays, adjust tour
+  // itineraries — every one of those needs to be amendable from the job
+  // sheet without recreating the booking. Fields shown are conditional on
+  // the booking's service_type (see the dialog body below).
+  // State is hydrated lazily from the booking when the dialog opens so we
+  // never overwrite the operator's input mid-typing.
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  // Accommodation fields
   const [editCheckIn, setEditCheckIn] = useState("");
   const [editCheckOut, setEditCheckOut] = useState("");
-  const [editPrice, setEditPrice] = useState<number>(0);
-  const [editCommission, setEditCommission] = useState<number>(0);
   const [editNights, setEditNights] = useState<number>(0);
+  const [editCommission, setEditCommission] = useState<number>(0);
+  // Transport / tour fields
+  const [editDateTime, setEditDateTime] = useState("");
+  const [editPickup, setEditPickup] = useState("");
+  const [editDropoff, setEditDropoff] = useState("");
+  const [editVehicle, setEditVehicle] = useState("");
+  const [editFlight, setEditFlight] = useState("");
+  const [editDirection, setEditDirection] = useState<"Arrival" | "Departure" | "">("");
+  const [editPax, setEditPax] = useState<number>(0);
+  const [editLuggage, setEditLuggage] = useState<number>(0);
+  const [editDuration, setEditDuration] = useState<number>(0);
+  const [editTourName, setEditTourName] = useState("");
+  const [editMeetingPoint, setEditMeetingPoint] = useState("");
+  // Common
+  const [editPrice, setEditPrice] = useState<number>(0);
+  const [editTvlCommission, setEditTvlCommission] = useState<number>(0);
 
-  const openEditStay = () => {
+  const openEdit = () => {
     if (!booking) return;
-    const ci = (booking as any).check_in_date;
-    const co = (booking as any).check_out_date;
-    setEditCheckIn(ci ? String(ci).slice(0, 10) : "");
-    setEditCheckOut(co ? String(co).slice(0, 10) : "");
-    setEditPrice(Number(booking.price || 0));
-    setEditCommission(Number((booking as any).commission_amount || 0));
-    setEditNights(
-      Number((booking as any).nights || (booking as any).num_nights || 0)
-    );
-    setIsEditStayOpen(true);
+    const b = booking as any;
+    // Hotel/Apartment
+    setEditCheckIn(b.check_in_date ? String(b.check_in_date).slice(0, 10) : "");
+    setEditCheckOut(b.check_out_date ? String(b.check_out_date).slice(0, 10) : "");
+    setEditNights(Number(b.nights || b.num_nights || 0));
+    setEditCommission(Number(b.commission_amount || 0));
+    // Transport — datetime-local needs YYYY-MM-DDTHH:mm
+    setEditDateTime(b.date_time ? String(b.date_time).slice(0, 16) : "");
+    setEditPickup(b.pickup || "");
+    setEditDropoff(b.dropoff || b.destination || "");
+    setEditVehicle(b.vehicle_type || "");
+    setEditFlight(b.flight_number || "");
+    setEditDirection((b.direction as any) || "");
+    setEditPax(Number(b.passengers || 0));
+    setEditLuggage(Number(b.luggage || 0));
+    setEditDuration(Number(b.duration || 0));
+    setEditTourName(b.tour_name || "");
+    setEditMeetingPoint(b.meeting_point || "");
+    // Common
+    setEditPrice(Number(b.price || 0));
+    setEditTvlCommission(Number(b.tvl_commission || 0));
+    setIsEditOpen(true);
   };
 
-  // Recompute nights when edit dates change
+  // Recompute nights for accommodation when dates change
   useEffect(() => {
     if (editCheckIn && editCheckOut) {
       const a = new Date(editCheckIn);
-      const b = new Date(editCheckOut);
-      const diff = Math.max(0, Math.ceil((b.getTime() - a.getTime()) / 86400000));
+      const c = new Date(editCheckOut);
+      const diff = Math.max(0, Math.ceil((c.getTime() - a.getTime()) / 86400000));
       setEditNights(diff);
     }
   }, [editCheckIn, editCheckOut]);
 
-  const handleEditStaySave = () => {
+  const handleEditSave = () => {
     if (!booking) return;
-    const isHotel = booking.service_type === "Hotel";
+    const svcType = booking.service_type;
+    const isHotel = svcType === "Hotel";
+    const isApt = svcType === "Apartment";
+    const isAccommodationEdit = isHotel || isApt;
+
     const payload: Record<string, any> = {
-      check_in_date: editCheckIn || undefined,
-      check_out_date: editCheckOut || undefined,
       price: Number.isFinite(editPrice) ? editPrice : undefined,
-      commission_amount: Number.isFinite(editCommission) ? editCommission : undefined,
-      // Hotels store nights as num_nights, Apartments use nights.
-      ...(isHotel
-        ? { num_nights: editNights || undefined }
-        : { nights: editNights || undefined }),
-      // Keep date_time aligned with check-in so list/calendar sorting stays
-      // consistent after an extension.
-      date_time: editCheckIn ? `${editCheckIn}T12:00:00` : undefined,
       is_amended: true,
     };
+
+    if (isAccommodationEdit) {
+      // Hotel/Apartment: dates + commission. NO transport fields.
+      payload.check_in_date = editCheckIn || undefined;
+      payload.check_out_date = editCheckOut || undefined;
+      payload.commission_amount = Number.isFinite(editCommission) ? editCommission : undefined;
+      if (isHotel) payload.num_nights = editNights || undefined;
+      else payload.nights = editNights || undefined;
+      // Keep date_time aligned with check-in for sorting
+      payload.date_time = editCheckIn ? `${editCheckIn}T12:00:00` : undefined;
+    } else {
+      // Transport / Tour / As Directed.
+      payload.date_time = editDateTime || undefined;
+      payload.pickup = editPickup || undefined;
+      payload.dropoff = editDropoff || undefined;
+      payload.vehicle_type = editVehicle || undefined;
+      payload.passengers = Number.isFinite(editPax) ? editPax : undefined;
+      payload.luggage = Number.isFinite(editLuggage) ? editLuggage : undefined;
+      payload.tvl_commission = Number.isFinite(editTvlCommission) ? editTvlCommission : undefined;
+      if (svcType === "Airport Transfer") {
+        payload.flight_number = editFlight ? editFlight.toUpperCase() : undefined;
+        payload.direction = editDirection || undefined;
+      }
+      if (svcType === "Tour") {
+        payload.tour_name = editTourName || undefined;
+        payload.meeting_point = editMeetingPoint || undefined;
+        payload.duration = editDuration || undefined;
+      }
+      if (svcType === "As Directed") {
+        payload.duration = editDuration || undefined;
+      }
+    }
+
     updateBooking.mutate({ id, data: payload as any }, {
       onSuccess: () => {
         toast({ title: "Booking updated" });
-        setIsEditStayOpen(false);
+        setIsEditOpen(false);
         refetch();
       },
-      onError: (e: any) => toast({ title: "Update failed", description: e?.message, variant: "destructive" }),
+      onError: (e: any) =>
+        toast({ title: "Update failed", description: e?.message, variant: "destructive" }),
     });
   };
 
@@ -475,12 +533,12 @@ export default function BookingDetail() {
           <Button variant="outline" size="sm" onClick={() => handleUpdateStatus('Completed')} className="text-gray-400 hover:bg-gray-500/10">
             Mark Completed
           </Button>
-          {(svc === "Apartment" || svc === "Hotel") && (
-            <Button variant="outline" size="sm" onClick={openEditStay} className="text-primary hover:bg-primary/10 border-primary/30">
-              <CalendarRange className="w-3.5 h-3.5 mr-1.5" />
-              {svc === "Apartment" ? "Extend / Edit Stay" : "Edit Stay"}
-            </Button>
-          )}
+          {/* Edit available for every service type — clients change flight
+              dates, swap vehicles, extend stays, and tweak tour itineraries. */}
+          <Button variant="outline" size="sm" onClick={openEdit} className="text-primary hover:bg-primary/10 border-primary/30">
+            <CalendarRange className="w-3.5 h-3.5 mr-1.5" />
+            {svc === "Apartment" ? "Extend / Edit" : "Edit Booking"}
+          </Button>
           <Dialog open={isWaitingOpen} onOpenChange={setIsWaitingOpen}>
             <DialogTrigger asChild>
               <Button variant="outline" size="sm" className="text-amber-400 hover:bg-amber-500/10 border-amber-500/30">
@@ -513,49 +571,149 @@ export default function BookingDetail() {
         </div>
       )}
 
-      {/* Edit Stay dialog (Hotel / Apartment).
+      {/* Edit Booking dialog — works for every service type.
           Mounted outside the conditional status-actions block so it can be
           opened from either Confirmed or Active states without being torn
-          down between renders. */}
-      <Dialog open={isEditStayOpen} onOpenChange={setIsEditStayOpen}>
-        <DialogContent>
+          down between renders. The fields shown are conditional on the
+          booking's service_type so each amendment matches its service. */}
+      <Dialog open={isEditOpen} onOpenChange={setIsEditOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>{svc === "Apartment" ? "Extend / Edit Stay" : "Edit Stay"}</DialogTitle>
+            <DialogTitle>
+              {svc === "Apartment" ? "Extend / Edit Booking" : `Edit ${svc} Booking`}
+            </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Check-in</p>
-                <Input type="date" value={editCheckIn} onChange={e => setEditCheckIn(e.target.value)} />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Check-out</p>
-                <Input type="date" value={editCheckOut} onChange={e => setEditCheckOut(e.target.value)} />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Nights (auto)</p>
-                <Input type="number" value={editNights || ""} onChange={e => setEditNights(Number(e.target.value))} />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Total Charged (£)</p>
-                <Input type="number" value={editPrice || ""} onChange={e => setEditPrice(Number(e.target.value))} />
-              </div>
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground mb-1">Commission Earned (£)</p>
-              <Input type="number" value={editCommission || ""} onChange={e => setEditCommission(Number(e.target.value))} />
-            </div>
+            {/* Hotel + Apartment: dates only, no transport */}
+            {(svc === "Hotel" || svc === "Apartment") && (
+              <>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Check-in</p>
+                    <Input type="date" value={editCheckIn} onChange={e => setEditCheckIn(e.target.value)} />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Check-out</p>
+                    <Input type="date" value={editCheckOut} onChange={e => setEditCheckOut(e.target.value)} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Nights (auto)</p>
+                    <Input type="number" value={editNights || ""} onChange={e => setEditNights(Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Total Charged (£)</p>
+                    <Input type="number" value={editPrice || ""} onChange={e => setEditPrice(Number(e.target.value))} />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Commission Earned (£)</p>
+                  <Input type="number" value={editCommission || ""} onChange={e => setEditCommission(Number(e.target.value))} />
+                </div>
+              </>
+            )}
+
+            {/* Transport, Tour, As Directed: full operational fields */}
+            {(svc === "Airport Transfer" || svc === "Tour" || svc === "As Directed") && (
+              <>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Date &amp; Time</p>
+                  <Input type="datetime-local" value={editDateTime} onChange={e => setEditDateTime(e.target.value)} />
+                </div>
+
+                {svc === "Airport Transfer" && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Direction</p>
+                      <select
+                        value={editDirection}
+                        onChange={e => setEditDirection(e.target.value as any)}
+                        className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                      >
+                        <option value="">—</option>
+                        <option value="Arrival">Arrival</option>
+                        <option value="Departure">Departure</option>
+                      </select>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Flight No.</p>
+                      <Input value={editFlight} onChange={e => setEditFlight(e.target.value.toUpperCase())} placeholder="BA123" />
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Pickup</p>
+                  <Input value={editPickup} onChange={e => setEditPickup(e.target.value)} placeholder="Pickup address" />
+                </div>
+                {svc !== "As Directed" && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">
+                      {svc === "Tour" ? "Drop-off / End point" : "Drop-off"}
+                    </p>
+                    <Input value={editDropoff} onChange={e => setEditDropoff(e.target.value)} placeholder="Drop-off address" />
+                  </div>
+                )}
+
+                {svc === "Tour" && (
+                  <>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Tour Name</p>
+                      <Input value={editTourName} onChange={e => setEditTourName(e.target.value)} />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Meeting Point</p>
+                      <Input value={editMeetingPoint} onChange={e => setEditMeetingPoint(e.target.value)} />
+                    </div>
+                  </>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Vehicle</p>
+                    <Input value={editVehicle} onChange={e => setEditVehicle(e.target.value)} placeholder="Mercedes E-Class" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">
+                      {svc === "Tour" || svc === "As Directed" ? "Duration (hrs)" : "Pax"}
+                    </p>
+                    {svc === "Tour" || svc === "As Directed" ? (
+                      <Input type="number" value={editDuration || ""} onChange={e => setEditDuration(Number(e.target.value))} />
+                    ) : (
+                      <Input type="number" value={editPax || ""} onChange={e => setEditPax(Number(e.target.value))} />
+                    )}
+                  </div>
+                </div>
+
+                {svc === "Airport Transfer" && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Luggage</p>
+                    <Input type="number" value={editLuggage || ""} onChange={e => setEditLuggage(Number(e.target.value))} />
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Total Fare (£)</p>
+                    <Input type="number" value={editPrice || ""} onChange={e => setEditPrice(Number(e.target.value))} />
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">TVL Commission (£)</p>
+                    <Input type="number" value={editTvlCommission || ""} onChange={e => setEditTvlCommission(Number(e.target.value))} />
+                  </div>
+                </div>
+              </>
+            )}
+
             <p className="text-xs text-muted-foreground pt-1">
-              {svc === "Apartment"
-                ? "Use this to extend a stay, adjust the weekly rate, or correct dates. The booking will be marked Amended."
-                : "Use this to correct dates or adjust the per-night totals. The booking will be marked Amended."}
+              The booking will be marked <strong>Amended</strong> and the audit log
+              will record the change.
             </p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setIsEditStayOpen(false)}>Cancel</Button>
-            <Button onClick={handleEditStaySave} disabled={updateBooking.isPending}>
+            <Button variant="outline" onClick={() => setIsEditOpen(false)}>Cancel</Button>
+            <Button onClick={handleEditSave} disabled={updateBooking.isPending}>
               {updateBooking.isPending ? "Saving…" : "Save Changes"}
             </Button>
           </DialogFooter>
