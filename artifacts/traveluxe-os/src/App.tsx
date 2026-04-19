@@ -40,14 +40,17 @@ import Services from "@/pages/services/index";
 
 const queryClient = new QueryClient();
 
-function ProtectedRoute({ component: Component, reqAdmin = false, ...rest }: any) {
-  const { user, isLocked } = useAuth();
+function ProtectedRoute({ component: Component, reqAdmin = false, reqSuperAdmin = false, ...rest }: any) {
+  const { user } = useAuth();
 
   if (!user) return <Redirect to="/login" />;
-  // Locked sessions show an overlay inside Shell — not a redirect
 
-  // super_admin has full unrestricted access to all modules
-  // Admin-only routes block operators, but both admin and super_admin can access
+  // super_admin-only routes (e.g. Finance)
+  if (reqSuperAdmin && user.role !== "super_admin") {
+    return <Redirect to="/" />;
+  }
+
+  // admin+ routes (admin or super_admin)
   if (reqAdmin && user.role !== "admin" && user.role !== "super_admin") {
     return <Redirect to="/" />;
   }
@@ -83,7 +86,7 @@ function Router() {
       <ProtectedRoute path="/drivers/:id" component={DriverDetail} />
       <ProtectedRoute path="/commissions" component={Commissions} />
       <ProtectedRoute path="/messages" component={Messages} />
-      <ProtectedRoute path="/finance" component={Finance} reqAdmin={true} />
+      <ProtectedRoute path="/finance" component={Finance} reqSuperAdmin={true} />
       <ProtectedRoute path="/invoices" component={Invoices} />
       <ProtectedRoute path="/invoices/:id" component={InvoiceDetail} />
       <ProtectedRoute path="/search" component={Search} />

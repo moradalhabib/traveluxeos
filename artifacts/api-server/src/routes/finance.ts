@@ -1,7 +1,16 @@
 import { Router } from "express";
-import { supabase } from "../lib/supabase";
+import { supabase, getUserFromToken } from "../lib/supabase";
 
 const router = Router();
+
+// Guard: all Finance endpoints are super_admin only
+router.use(async (req, res, next) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || user.role !== "super_admin") {
+    return res.status(403).json({ error: "Finance is restricted to super admins." });
+  }
+  return next();
+});
 
 router.get("/summary", async (req, res) => {
   const { date_from, date_to, service_type, operator_id } = req.query;

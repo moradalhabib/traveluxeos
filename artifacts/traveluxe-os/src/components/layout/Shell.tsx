@@ -18,7 +18,7 @@ const MORE_ITEMS = [
   { href: "/drivers",      label: "Drivers",      icon: Car },
   { href: "/commissions",  label: "Commissions",  icon: Calculator },
   { href: "/messages",     label: "Messages",     icon: MessageSquare },
-  { href: "/finance",      label: "Finance",      icon: LineChart, reqAdmin: true },
+  { href: "/finance",      label: "Finance",      icon: LineChart, reqSuperAdmin: true },
   { href: "/admin",        label: "Admin",        icon: Settings, reqAdmin: true },
 ];
 
@@ -35,7 +35,7 @@ const SIDEBAR_ITEMS = [
   { href: "/drivers",      label: "Drivers",      icon: Car },
   { href: "/commissions",  label: "Commissions",  icon: Calculator },
   { href: "/messages",     label: "Messages",     icon: MessageSquare },
-  { href: "/finance",      label: "Finance",      icon: LineChart, reqAdmin: true },
+  { href: "/finance",      label: "Finance",      icon: LineChart, reqSuperAdmin: true },
   { href: "/admin",        label: "Admin",        icon: Settings, reqAdmin: true },
 ];
 
@@ -134,8 +134,16 @@ export function Shell({ children }: { children: ReactNode }) {
 
   if (isLocked) return <LockScreen />;
 
-  const filteredSidebar = SIDEBAR_ITEMS.filter(item => !item.reqAdmin || user.role === "admin" || isSuperAdmin);
-  const filteredMore = MORE_ITEMS.filter(item => !item.reqAdmin || user.role === "admin" || isSuperAdmin);
+  const filteredSidebar = SIDEBAR_ITEMS.filter(item => {
+    if ((item as any).reqSuperAdmin) return isSuperAdmin;
+    if (item.reqAdmin) return user.role === "admin" || isSuperAdmin;
+    return true;
+  });
+  const filteredMore = MORE_ITEMS.filter(item => {
+    if ((item as any).reqSuperAdmin) return isSuperAdmin;
+    if (item.reqAdmin) return user.role === "admin" || isSuperAdmin;
+    return true;
+  });
 
   return (
     <div className="min-h-screen bg-background flex flex-col md:flex-row">
