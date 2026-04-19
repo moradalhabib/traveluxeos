@@ -25,6 +25,8 @@ import DriverDetail from "@/pages/drivers/[id]";
 import Commissions from "@/pages/commissions/index";
 import Messages from "@/pages/messages/index";
 import Finance from "@/pages/finance/index";
+import Invoices from "@/pages/invoices/index";
+import InvoiceDetail from "@/pages/invoices/[id]";
 import Search from "@/pages/search/index";
 import Admin from "@/pages/admin/index";
 
@@ -74,6 +76,8 @@ function Router() {
       <ProtectedRoute path="/commissions" component={Commissions} />
       <ProtectedRoute path="/messages" component={Messages} />
       <ProtectedRoute path="/finance" component={Finance} reqAdmin={true} />
+      <ProtectedRoute path="/invoices" component={Invoices} />
+      <ProtectedRoute path="/invoices/:id" component={InvoiceDetail} />
       <ProtectedRoute path="/search" component={Search} />
       <ProtectedRoute path="/admin" component={Admin} reqAdmin={true} />
 

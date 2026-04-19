@@ -1,11 +1,11 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useListBookings, getListBookingsQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
-import { format } from "date-fns";
+import { format, isToday, isTomorrow, startOfDay, endOfDay, addDays, isBefore, isAfter } from "date-fns";
 import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
@@ -29,7 +29,27 @@ export default function Jobs() {
     }
   };
 
-  const urgentJobs = bookings?.filter(b => !b.driver_id && b.status !== 'Completed' && b.status !== 'Cancelled') || [];
+  const filteredBookings = useMemo(() => {
+    if (!bookings) return [];
+    const now = new Date();
+    return bookings.filter(b => {
+      if (b.status === 'Cancelled') return false;
+      if (!b.date_time) return timeFilter === 'all';
+      const d = new Date(b.date_time);
+      switch (timeFilter) {
+        case 'today': return isToday(d);
+        case 'tomorrow': return isTomorrow(d);
+        case 'this_week': {
+          const weekEnd = endOfDay(addDays(now, 7));
+          return !isBefore(d, startOfDay(now)) && !isAfter(d, weekEnd);
+        }
+        case 'all':
+        default: return !isBefore(d, startOfDay(now));
+      }
+    });
+  }, [bookings, timeFilter]);
+
+  const urgentJobs = filteredBookings.filter(b => !b.driver_id && b.status !== 'Completed');
   const activeJobs = bookings?.filter(b => b.status !== 'Cancelled') || [];
 
   return (
@@ -38,7 +58,7 @@ export default function Jobs() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">Jobs Board</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">{activeJobs.length} active jobs</p>
+          <p className="text-sm text-muted-foreground mt-0.5">{filteredBookings.length} job{filteredBookings.length !== 1 ? 's' : ''} · {activeJobs.length} total active</p>
         </div>
         <Link href="/bookings/new">
           <Button className="shadow-[0_0_15px_rgba(201,168,76,0.25)] hover:shadow-[0_0_25px_rgba(201,168,76,0.4)]">
@@ -75,7 +95,7 @@ export default function Jobs() {
       <div className="space-y-3">
         {isLoading ? (
           [...Array(4)].map((_, i) => <Skeleton key={i} className="h-36" />)
-        ) : bookings && bookings.length > 0 ? bookings.map((job) => (
+        ) : filteredBookings.length > 0 ? filteredBookings.map((job) => (
           <Link key={job.id} href={`/bookings/${job.id}`}>
             <Card className="border-border hover:border-primary/40 hover:bg-secondary/10 transition-all cursor-pointer bg-card overflow-hidden">
               <CardContent className="p-4">

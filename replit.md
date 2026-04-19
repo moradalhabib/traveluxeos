@@ -39,21 +39,21 @@ pnpm workspace monorepo with TypeScript throughout.
 - Dark mode forced always — `#0a0a0a` background, `#C9A84C` gold primary
 - Inter font, mobile-first with desktop sidebar + mobile bottom navigation
 
-## Modules (14 total)
+## Modules (14 total) — All Complete
 1. Dashboard — KPI metrics, alerts, top clients/drivers
 2. Clients — CRM with duplicate detection, VIP tiers (Standard/VIP/VVIP), booking history
-3. Quotes — Create/send quotes, convert to booking, 48-hour auto-expire
-4. Bookings — Job sheets with TVL-XXXX refs, WhatsApp templates, cancel/amend/waiting-time
-5. Jobs Board — Live active jobs with driver status
+3. Quotes — Create/send quotes, convert to booking, accept/decline, WhatsApp share
+4. Bookings — Job sheets with TVL-XXXX refs, WhatsApp templates, cancel/amend/waiting-time, tours & apartments
+5. Jobs Board — Live jobs with real time-based filter (Today / Tomorrow / This Week / All Upcoming)
 6. Flight Tracker — Live arrival tracking with AviationStack for today/tomorrow
 7. Drivers — Directory with ratings, vehicle info, commission ledger
 8. Commissions — Cash vs Bank Transfer split, settlement tracking
-9. Invoices — Auto-generated INV-XXXX numbered invoices
+9. Invoices — INV-XXXX numbered invoices, generate from booking, downloadable HTML invoice
 10. Messages — Internal team chat (realtime) + task board
 11. Finance — Revenue reports, operator performance (admin only)
 12. Search — Global search across clients, bookings, drivers
-13. Admin — User management, audit log (admin only)
-14. Quotes — Detailed quote management with WhatsApp share
+13. Admin — User management, audit log, CRM API hub (admin only)
+14. Tours & Apartments — Extended booking types with full tour/accommodation details
 
 ## Privacy Rules
 - Client WhatsApp numbers are NEVER shared with drivers
