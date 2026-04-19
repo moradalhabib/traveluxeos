@@ -4,7 +4,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   LayoutDashboard, Users, FileText, CalendarRange,
   Briefcase, PlaneTakeoff, Car, Calculator, MessageSquare,
-  LineChart, Search, Settings, LogOut, Plus, X, Lock, Receipt
+  LineChart, Search, Settings, LogOut, Plus, X, Lock, Receipt, Layers
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,6 +12,7 @@ import { supabase } from "@/lib/supabase";
 
 const MORE_ITEMS = [
   { href: "/bookings", label: "Bookings", icon: CalendarRange },
+  { href: "/services", label: "Services", icon: Layers },
   { href: "/quotes", label: "Quotes", icon: FileText },
   { href: "/invoices", label: "Invoices", icon: Receipt },
   { href: "/flights", label: "Flights", icon: PlaneTakeoff },
@@ -27,6 +28,7 @@ const SIDEBAR_ITEMS = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/jobs", label: "Jobs Board", icon: Briefcase },
   { href: "/bookings", label: "Bookings", icon: CalendarRange },
+  { href: "/services", label: "Services", icon: Layers },
   { href: "/clients", label: "Clients", icon: Users },
   { href: "/quotes", label: "Quotes", icon: FileText },
   { href: "/invoices", label: "Invoices", icon: Receipt },

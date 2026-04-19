@@ -29,6 +29,7 @@ import Invoices from "@/pages/invoices/index";
 import InvoiceDetail from "@/pages/invoices/[id]";
 import Search from "@/pages/search/index";
 import Admin from "@/pages/admin/index";
+import Services from "@/pages/services/index";
 
 const queryClient = new QueryClient();
 
@@ -79,6 +80,7 @@ function Router() {
       <ProtectedRoute path="/invoices" component={Invoices} />
       <ProtectedRoute path="/invoices/:id" component={InvoiceDetail} />
       <ProtectedRoute path="/search" component={Search} />
+      <ProtectedRoute path="/services" component={Services} />
       <ProtectedRoute path="/admin" component={Admin} reqAdmin={true} />
 
       <Route component={NotFound} />
