@@ -275,7 +275,7 @@ router.put("/:id", async (req, res) => {
       raw[f] = isNaN(n) ? null : n;
     }
   }
-  const body = { ...raw, is_amended: true };
+  const body: Record<string, any> = { ...raw, is_amended: true };
 
   const { data, error } = await db
     .from("bookings")
@@ -289,15 +289,17 @@ router.put("/:id", async (req, res) => {
     return res.status(400).json({ error: error.message });
   }
 
+  const updated: any = data;
+
   // If driver assigned, update status
-  if (body.driver_id && data.status === "Confirmed") {
+  if (body.driver_id && updated.status === "Confirmed") {
     await supabase.from("bookings").update({ status: "Driver Assigned" }).eq("id", req.params.id);
   }
 
   await auditLog("amend_booking", "booking", req.params.id, user?.id ?? null,
-    `Booking ${data.tvl_ref} amended`);
+    `Booking ${updated.tvl_ref} amended`);
 
-  const enriched = await enrichBooking(data);
+  const enriched = await enrichBooking(updated);
 
   // On payment_status → Paid: auto-mark invoice Paid, complete booking, send receipt
   if (body.payment_status === "Paid" && prevPaymentStatus !== "Paid") {
@@ -309,13 +311,13 @@ router.put("/:id", async (req, res) => {
       .in("status", ["Generated", "Sent", "Overdue"]);
 
     // Auto-transition booking to Completed (unless already cancelled)
-    if (data.status !== "Cancelled" && data.status !== "Completed") {
+    if (updated.status !== "Cancelled" && updated.status !== "Completed") {
       await supabase
         .from("bookings")
         .update({ status: "Completed" })
         .eq("id", req.params.id);
       await auditLog("status_change", "booking", req.params.id, user?.id ?? null,
-        `Booking ${data.tvl_ref} auto-completed on payment`);
+        `Booking ${updated.tvl_ref} auto-completed on payment`);
     }
 
     sendPaymentReceiptEmail(enriched).catch(err =>
