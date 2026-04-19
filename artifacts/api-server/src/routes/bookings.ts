@@ -67,6 +67,7 @@ async function sendConfirmationEmail(booking: any, invoiceNumber: string | null)
     to: email,
     subject: `Booking Confirmed — ${booking.tvl_ref ?? ""} — ${booking.service_type}`,
     html: bookingConfirmationHtml(booking, invoiceNumber ?? undefined),
+    account: "invoice",
   });
 }
 
@@ -81,6 +82,7 @@ async function sendPaymentReceiptEmail(booking: any) {
     to: email,
     subject: `Payment Confirmed — ${booking.tvl_ref ?? ""} — Thank You`,
     html: paymentReceiptHtml(booking, inv?.invoice_number ?? undefined),
+    account: "invoice",
   });
 }
 
