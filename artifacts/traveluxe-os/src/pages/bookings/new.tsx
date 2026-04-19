@@ -752,13 +752,25 @@ export default function NewBooking() {
               {/* Products / Order Lines */}
               <Card className="border-primary/10">
                 <CardHeader className="pb-3">
-                  <CardTitle className="text-base">Products &amp; Order Lines</CardTitle>
-                  <p className="text-xs text-muted-foreground mt-0.5">Add vehicles, Meet &amp; Greet tiers, tours, and add-ons. Price auto-calculates from selected products.</p>
+                  <CardTitle className="text-base">
+                    {serviceType === "Airport Transfer" && "Vehicle · Meet & Greet · Extras"}
+                    {serviceType === "Tour" && "Tour · Vehicle · Extras"}
+                    {serviceType === "City Tour" && "Tour · Vehicle · Extras"}
+                    {serviceType === "Chauffeur Tour" && "Tour · Vehicle · Extras"}
+                    {serviceType === "As Directed" && "Vehicle · Extras"}
+                    {serviceType === "Event Transfer" && "Vehicle · Meet & Greet · Extras"}
+                    {serviceType === "Apartment / Accommodation" && "Accommodation · Extras"}
+                    {(!serviceType || !["Airport Transfer","Tour","City Tour","Chauffeur Tour","As Directed","Event Transfer","Apartment / Accommodation"].includes(serviceType)) && "Products & Order Lines"}
+                  </CardTitle>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    Select step by step — price totals automatically.
+                  </p>
                 </CardHeader>
                 <CardContent className="pt-0">
                   <ProductPicker
                     orderLines={orderLines}
                     onChange={(lines) => setOrderLines(lines)}
+                    serviceType={serviceType}
                   />
                 </CardContent>
               </Card>
