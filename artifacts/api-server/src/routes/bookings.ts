@@ -8,7 +8,7 @@ const router = Router();
 async function enrichBooking(booking: any) {
   const [{ data: client }, { data: driver }, { data: operator }] = await Promise.all([
     supabase.from("clients").select("name, vip_tier, email").eq("id", booking.client_id).single(),
-    supabase.from("drivers").select("name, vehicle_type, vehicle_model").eq("id", booking.driver_id).single(),
+    supabase.from("drivers").select("name, staff_no, vehicle_type, vehicle_model").eq("id", booking.driver_id).single(),
     supabase.from("users").select("name").eq("id", booking.operator_id).single(),
   ]);
 

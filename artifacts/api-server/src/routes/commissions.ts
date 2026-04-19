@@ -62,7 +62,7 @@ router.get("/", async (_req, res) => {
       .select("*, drivers(name)")
       .order("paid_at", { ascending: false })
       .limit(50),
-    supabase.from("drivers").select("id, name").eq("status", "Active"),
+    supabase.from("drivers").select("id, name, staff_no").eq("status", "Active"),
   ]);
 
   // Week/month totals include both driver commissions and arrangement fees
@@ -131,17 +131,22 @@ router.get("/", async (_req, res) => {
 
   const { data: driverDetails } = await supabase
     .from("drivers")
-    .select("id, name")
+    .select("id, name, staff_no")
     .in("id", Object.keys(driverMap));
 
   const driverNameMap: Record<string, string> = {};
-  (driverDetails ?? []).forEach((d: any) => { driverNameMap[d.id] = d.name; });
+  const driverStaffMap: Record<string, string | null> = {};
+  (driverDetails ?? []).forEach((d: any) => {
+    driverNameMap[d.id] = d.name;
+    driverStaffMap[d.id] = d.staff_no ?? null;
+  });
 
   const driver_breakdown = Object.entries(driverMap)
     .filter(([, v]) => v.outstanding > 0 || v.pending_payout > 0 || v.outstanding_jobs.length > 0 || v.payout_jobs.length > 0)
     .map(([driver_id, v]) => ({
       driver_id,
       driver_name: driverNameMap[driver_id] ?? "Unknown",
+      driver_staff_no: driverStaffMap[driver_id] ?? null,
       outstanding_amount: v.outstanding,
       pending_payout: v.pending_payout,
       jobs: [...v.outstanding_jobs, ...v.payout_jobs],

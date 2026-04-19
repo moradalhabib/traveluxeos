@@ -100,7 +100,14 @@ export default function Search() {
                     <Card className="border-border hover:border-primary/50 hover:bg-secondary/20 transition-colors cursor-pointer bg-card">
                       <CardContent className="p-4 flex justify-between items-center">
                         <div>
-                          <div className="font-bold">{driver.name}</div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-bold">{driver.name}</span>
+                            {(driver as any).staff_no && (
+                              <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30 font-semibold">
+                                {(driver as any).staff_no}
+                              </span>
+                            )}
+                          </div>
                           <div className="text-sm text-muted-foreground">{driver.vehicle_type}</div>
                         </div>
                       </CardContent>

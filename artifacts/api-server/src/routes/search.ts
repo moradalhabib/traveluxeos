@@ -17,7 +17,7 @@ router.get("/", async (req, res) => {
   ] = await Promise.all([
     supabase.from("clients").select("id, name, whatsapp, email, vip_tier, nationality, inactive").is("merged_into", null),
     supabase.from("bookings").select("id, tvl_ref, service_type, status, pickup, dropoff, flight_number, date_time, price, client_id, clients(name, vip_tier)").limit(1000),
-    supabase.from("drivers").select("id, name, whatsapp, vehicle_type, vehicle_model, plate, status, avg_rating:driver_ratings(rating)"),
+    supabase.from("drivers").select("id, name, staff_no, whatsapp, vehicle_type, vehicle_model, plate, status, avg_rating:driver_ratings(rating)"),
   ]);
 
   const clients = (allClients ?? []).filter(c =>
@@ -40,8 +40,12 @@ router.get("/", async (req, res) => {
     clients: undefined,
   }));
 
+  // Normalise the query so "TVL01", "tvl 01", "tvl-01" all match "TVL 01"
+  const qNorm = q.replace(/[\s\-]/g, "");
   const drivers = (allDrivers ?? []).filter((d: any) =>
     d.name?.toLowerCase().includes(q) ||
+    d.staff_no?.toLowerCase().includes(q) ||
+    (d.staff_no && d.staff_no.toLowerCase().replace(/[\s\-]/g, "").includes(qNorm)) ||
     d.whatsapp?.toLowerCase().includes(q) ||
     d.vehicle_model?.toLowerCase().includes(q) ||
     d.plate?.toLowerCase().includes(q)

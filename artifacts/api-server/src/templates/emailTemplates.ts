@@ -188,6 +188,7 @@ export function bookingConfirmationHtml(booking: any, invoiceNumber?: string): s
     <div class="section-title">Your Driver</div>
     <table class="detail-grid">
       ${row("Driver", esc(booking.driver_name))}
+      ${booking.driver_staff_no ? row("Staff Number", `<span style="font-family:monospace;color:${BRAND_GOLD};font-weight:700">${esc(booking.driver_staff_no)}</span>`) : ""}
       ${booking.vehicle_type ? row("Vehicle", esc(booking.vehicle_type)) : ""}
     </table>
     <p style="font-size:13px;color:#666;margin-top:8px">

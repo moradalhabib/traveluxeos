@@ -146,10 +146,17 @@ export default function Commissions() {
         {/* Owed to TVL — Cash jobs */}
         <TabsContent value="outstanding" className="mt-4 space-y-4">
           {s?.driver_breakdown?.filter((d: any) => d.outstanding_amount > 0).map((driver: any) => (
-            <Card key={driver.driver_id} className="border-amber-500/10">
+            <Card key={driver.driver_id} className="border-amber-500/10" data-staff-no={driver.driver_staff_no || ''}>
               <CardContent className="p-4 sm:p-6 flex flex-col sm:flex-row justify-between gap-4">
                 <div>
-                  <h3 className="font-bold text-lg mb-1">{driver.driver_name}</h3>
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <h3 className="font-bold text-lg">{driver.driver_name}</h3>
+                    {driver.driver_staff_no && (
+                      <span className="font-mono text-xs px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/30 font-semibold">
+                        {driver.driver_staff_no}
+                      </span>
+                    )}
+                  </div>
                   <div className="text-2xl font-bold text-amber-400">
                     {isSuperAdmin ? `£${driver.outstanding_amount.toLocaleString()}` : "Outstanding"}
                   </div>
@@ -178,10 +185,17 @@ export default function Commissions() {
         {/* Owed to Drivers — Bank/Card jobs */}
         <TabsContent value="payouts" className="mt-4 space-y-4">
           {s?.driver_breakdown?.filter((d: any) => d.pending_payout > 0).map((driver: any) => (
-            <Card key={`payout-${driver.driver_id}`} className="border-green-500/10">
+            <Card key={`payout-${driver.driver_id}`} className="border-green-500/10" data-staff-no={driver.driver_staff_no || ''}>
               <CardContent className="p-4 sm:p-6 flex flex-col sm:flex-row justify-between gap-4">
                 <div>
-                  <h3 className="font-bold text-lg mb-1">{driver.driver_name}</h3>
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <h3 className="font-bold text-lg">{driver.driver_name}</h3>
+                    {driver.driver_staff_no && (
+                      <span className="font-mono text-xs px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/30 font-semibold">
+                        {driver.driver_staff_no}
+                      </span>
+                    )}
+                  </div>
                   <div className="text-2xl font-bold text-green-400">
                     {isSuperAdmin ? `£${driver.pending_payout.toLocaleString()}` : "Pending"}
                   </div>

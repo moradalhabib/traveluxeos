@@ -172,7 +172,7 @@ export default function BookingDetail() {
       if (booking.luggage) lines.push(`Luggage: ${booking.luggage}`);
       if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
       if (booking.nameboard) lines.push(``, `Your driver will be waiting with a name board: *"${booking.nameboard}"*`);
-      if (booking.driver_name) lines.push(`Your driver: *${booking.driver_name}*`);
+      if (booking.driver_name) lines.push(`Your driver: *${booking.driver_name}*${(booking as any).driver_staff_no ? ` (Staff ${(booking as any).driver_staff_no})` : ''}`);
     } else if (svc === "Tour") {
       lines.push(`Date: ${dateStr}`, `Time: ${timeStr}`);
       if ((booking as any).tour_name) lines.push(`Tour: ${(booking as any).tour_name}`);
@@ -182,14 +182,14 @@ export default function BookingDetail() {
       if ((booking as any).itinerary) lines.push(``, `Itinerary:`, `${(booking as any).itinerary}`);
       if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
       if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
-      if (booking.driver_name) lines.push(`Your driver: *${booking.driver_name}*`);
+      if (booking.driver_name) lines.push(`Your driver: *${booking.driver_name}*${(booking as any).driver_staff_no ? ` (Staff ${(booking as any).driver_staff_no})` : ""}`);
     } else if (svc === "As Directed") {
       lines.push(`Date: ${dateStr}`, `Start time: ${timeStr}`);
       if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
       if ((booking as any).duration) lines.push(`Duration: ${(booking as any).duration}`);
       if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
       if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
-      if (booking.driver_name) lines.push(`Your chauffeur: *${booking.driver_name}*`);
+      if (booking.driver_name) lines.push(`Your chauffeur: *${booking.driver_name}*${(booking as any).driver_staff_no ? ` (Staff ${(booking as any).driver_staff_no})` : ""}`);
     } else if (svc === "Hotel") {
       // NO driver, NO vehicle, NO name board for hotel bookings.
       if ((booking as any).hotel_name) lines.push(`Hotel: ${(booking as any).hotel_name}`);
