@@ -65,6 +65,11 @@ function baseLayout(content: string, preheader: string): string {
         ${content}
       </div>
       <div class="footer">
+        <p style="background:#fff8e6;border:1px solid #e9d77a;border-radius:4px;padding:10px 14px;color:#5a4a10;font-size:12px;margin:0 0 14px 0">
+          <strong>Please do not reply to this email.</strong> This mailbox is unattended.<br>
+          For all enquiries, replies, or changes, please contact us at
+          <a href="mailto:info@traveluxelondon.com" style="color:#5a4a10;font-weight:600">info@traveluxelondon.com</a>.
+        </p>
         <p><strong style="color:#555">Traveluxe London</strong> &nbsp;·&nbsp; Mayfair, London</p>
         <p>Luxury Chauffeur &amp; Travel Concierge</p>
         <p><a href="mailto:info@traveluxelondon.com">info@traveluxelondon.com</a></p>

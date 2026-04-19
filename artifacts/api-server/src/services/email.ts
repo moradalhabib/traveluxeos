@@ -5,6 +5,7 @@ const SMTP_PORT = parseInt(process.env.SMTP_PORT ?? "587");
 const SMTP_USER = process.env.SMTP_USER ?? "info@traveluxelondon.com";
 const SMTP_PASS = process.env.SMTP_PASS ?? "";
 const SMTP_FROM = process.env.SMTP_FROM ?? "Traveluxe London <info@traveluxelondon.com>";
+const SMTP_REPLY_TO = process.env.SMTP_REPLY_TO ?? "info@traveluxelondon.com";
 
 function isConfigured(): boolean {
   return !!SMTP_PASS;
@@ -49,7 +50,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<{ sent: boolean
       to: opts.to,
       subject: opts.subject,
       html: opts.html,
-      replyTo: opts.replyTo ?? SMTP_USER,
+      replyTo: opts.replyTo ?? SMTP_REPLY_TO,
       attachments: opts.attachments,
     });
     console.info(`[Email] Sent "${opts.subject}" → ${opts.to}`);

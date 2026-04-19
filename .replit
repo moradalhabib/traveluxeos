@@ -54,6 +54,7 @@ SMTP_HOST = "server53.web-hosting.com"
 SMTP_PORT = "465"
 SMTP_USER = "notifications@traveluxelondon.com"
 SMTP_FROM = "Traveluxe London <notifications@traveluxelondon.com>"
+SMTP_REPLY_TO = "info@traveluxelondon.com"
 
 [nix]
 channel = "stable-25_05"
