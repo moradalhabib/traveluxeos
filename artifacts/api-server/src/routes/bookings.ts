@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { supabase, auditLog, getUserFromToken } from "../lib/supabase";
+import { supabase, auditLog, getUserFromToken, getDbClient } from "../lib/supabase";
 import { sendEmail } from "../services/email";
 import { bookingConfirmationHtml, paymentReceiptHtml } from "../templates/emailTemplates";
 
