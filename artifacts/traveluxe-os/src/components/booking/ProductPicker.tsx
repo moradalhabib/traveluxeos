@@ -22,6 +22,7 @@ interface Product {
   description: string | null;
   unit_price: number;
   active: boolean;
+  service_types?: string[] | null;
 }
 
 const SERVICE_CATEGORY_MAP: Record<string, string[]> = {
@@ -113,6 +114,18 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
   const categories = serviceType && SERVICE_CATEGORY_MAP[serviceType]
     ? SERVICE_CATEGORY_MAP[serviceType]
     : DEFAULT_CATEGORIES;
+
+  // Filter products: if service_types column exists, use it; otherwise fall back to category map
+  const getProductsForCategory = (cat: string) => {
+    return products.filter(p => {
+      if (p.category !== cat) return false;
+      // If the product has service_types data, use it for filtering
+      if (p.service_types && p.service_types.length > 0 && serviceType) {
+        return p.service_types.includes(serviceType);
+      }
+      return true;
+    });
+  };
 
   useEffect(() => {
     if (categories.length > 0) {
@@ -260,7 +273,7 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
   }
 
   const availableCategories = categories.filter(c =>
-    c === "Vehicle" || products.some(p => p.category === c)
+    c === "Vehicle" || getProductsForCategory(c).length > 0
   );
 
   if (availableCategories.length === 0) {
@@ -275,7 +288,7 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
     <div className="space-y-2">
       {availableCategories.map((cat, catIdx) => {
         const meta = CATEGORY_META[cat] ?? { icon: <Package className="w-4 h-4" />, label: cat, hint: "" };
-        const catProducts = products.filter(p => p.category === cat);
+        const catProducts = getProductsForCategory(cat);
         const selectedInCat = orderLines.filter(l => {
           if (l.key === OTHER_VEHICLE_KEY && cat === "Vehicle") return true;
           const p = products.find(p => p.id === l.product_id);
@@ -284,6 +297,8 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
         const isOpen = openSections.has(cat);
         const hasSelection = selectedInCat.length > 0;
         const isRadio = RADIO_CATEGORIES.has(cat);
+        // For "As Directed" chauffeuring: vehicles are billed by unit (hours/days) × rate, so enable qty
+        const vehicleQtyEnabled = cat === "Vehicle" && serviceType === "As Directed";
         const showVehicleOther = cat === "Vehicle";
 
         return (
@@ -387,25 +402,33 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
                       {/* Inline price editor + qty controls when selected (not for Tour labels) */}
                       {ordered && !(serviceType === "Tour" && cat === "Tour") && (
                         <div className="px-3 pb-3 space-y-2 border-t border-primary/10 pt-2">
+                          {vehicleQtyEnabled && (
+                            <p className="text-[10px] text-amber-400 font-medium">
+                              Chauffeuring billing: set the unit rate (£/hr or £/day) and quantity (units billed)
+                            </p>
+                          )}
                           <div className="flex items-center gap-2">
                             <div className="flex-1">
                               <Label className="text-[11px] text-muted-foreground mb-1 flex items-center gap-1">
-                                <Pencil className="w-3 h-3" /> Price for this booking (£)
+                                <Pencil className="w-3 h-3" />
+                                {vehicleQtyEnabled ? "Unit Rate (£/hr or £/day)" : "Price for this booking (£)"}
                               </Label>
                               <Input
                                 type="number"
                                 step="1"
                                 min="0"
                                 value={ordered.unit_price === 0 ? "" : ordered.unit_price}
-                                placeholder={`Catalogue: £${product.unit_price}`}
+                                placeholder={vehicleQtyEnabled ? `e.g. 16` : `Catalogue: £${product.unit_price}`}
                                 onChange={e => updateLinePrice(ordered.key, e.target.value)}
                                 onClick={e => e.stopPropagation()}
                                 className="h-8 text-sm font-semibold"
                               />
                             </div>
-                            {!isRadio && (
+                            {(!isRadio || vehicleQtyEnabled) && (
                               <div className="flex-shrink-0">
-                                <Label className="text-[11px] text-muted-foreground mb-1 block">Qty</Label>
+                                <Label className="text-[11px] text-muted-foreground mb-1 block">
+                                  {vehicleQtyEnabled ? "Units" : "Qty"}
+                                </Label>
                                 <div className="flex items-center gap-1">
                                   <button
                                     type="button"
@@ -414,7 +437,7 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
                                   >
                                     <Minus className="w-3 h-3" />
                                   </button>
-                                  <span className="text-sm font-bold w-5 text-center">{ordered.quantity}</span>
+                                  <span className="text-sm font-bold w-8 text-center">{ordered.quantity}</span>
                                   <button
                                     type="button"
                                     onClick={e => { e.stopPropagation(); updateQty(ordered.key, 1); }}
@@ -426,6 +449,12 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
                               </div>
                             )}
                           </div>
+                          {vehicleQtyEnabled && ordered.unit_price > 0 && ordered.quantity > 1 && (
+                            <div className="flex items-center justify-between text-xs pt-1 border-t border-primary/10">
+                              <span className="text-muted-foreground">£{ordered.unit_price} × {ordered.quantity} units</span>
+                              <span className="font-bold text-primary">= £{(ordered.unit_price * ordered.quantity).toLocaleString()}</span>
+                            </div>
+                          )}
                           {ordered.unit_price !== product.unit_price && ordered.unit_price > 0 && (
                             <p className="text-[10px] text-amber-400">
                               Catalogue price is £{product.unit_price.toLocaleString()} — you've set a custom price for this booking

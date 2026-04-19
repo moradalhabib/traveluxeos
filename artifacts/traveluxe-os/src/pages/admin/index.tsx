@@ -860,6 +860,14 @@ function IntegrationTab() {
 
 // ─── Products Management tab ──────────────────────────────────────────────────
 const PRODUCT_CATEGORIES = ["Vehicle", "Meet & Greet", "Tour", "Add-on", "Accommodation"];
+const ALL_SERVICE_TYPES = ["Airport Transfer", "As Directed", "Tour", "Hotel", "Apartment"];
+const CATEGORY_DEFAULT_SERVICE_TYPES: Record<string, string[]> = {
+  "Vehicle":       ["Airport Transfer", "As Directed", "Tour"],
+  "Meet & Greet":  ["Airport Transfer"],
+  "Tour":          ["Tour"],
+  "Add-on":        ["Airport Transfer", "As Directed", "Tour", "Hotel", "Apartment"],
+  "Accommodation": ["Apartment"],
+};
 const CATEGORY_ICONS: Record<string, string> = {
   "Vehicle": "🚘", "Meet & Greet": "✨", "Tour": "🗺", "Add-on": "➕", "Accommodation": "🏠",
 };
@@ -885,15 +893,26 @@ function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const categories = PRODUCT_CATEGORIES.filter(c => products.some(p => p.category === c));
 
   const startNew = () => setEditing({
-    id: null, name: "", category: activeCategory, description: "", unit_price: 0, active: true, sort_order: filtered.length * 10 + 10,
+    id: null, name: "", category: activeCategory, description: "", unit_price: 0, active: true,
+    sort_order: filtered.length * 10 + 10,
+    service_types: CATEGORY_DEFAULT_SERVICE_TYPES[activeCategory] ?? ALL_SERVICE_TYPES,
   });
+  
+  const toggleServiceType = (svc: string) => {
+    const current: string[] = editing?.service_types ?? [];
+    const next = current.includes(svc) ? current.filter((s: string) => s !== svc) : [...current, svc];
+    setEditing((v: any) => ({ ...v, service_types: next }));
+  };
 
-  const startEdit = (p: any) => setEditing({ ...p });
+  const startEdit = (p: any) => setEditing({
+    ...p,
+    service_types: p.service_types ?? CATEGORY_DEFAULT_SERVICE_TYPES[p.category] ?? ALL_SERVICE_TYPES,
+  });
 
   const saveProduct = async () => {
     if (!editing?.name) return;
     setSaving(true);
-    const payload = {
+    const payload: any = {
       name: editing.name,
       category: editing.category,
       description: editing.description || null,
@@ -902,6 +921,10 @@ function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
       sort_order: editing.sort_order ?? 0,
       updated_at: new Date().toISOString(),
     };
+    // Only include service_types if the column exists (graceful — won't fail if column missing)
+    if (editing.service_types !== undefined) {
+      payload.service_types = editing.service_types;
+    }
     let error;
     if (editing.id) {
       ({ error } = await supabase.from("products").update(payload).eq("id", editing.id));
@@ -960,9 +983,32 @@ function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
               rows={3} value={editing.description ?? ""} onChange={e => setEditing((v: any) => ({ ...v, description: e.target.value }))} placeholder="Description visible to operators" />
           </div>
           <div>
-            <label className="text-xs text-muted-foreground block mb-1.5">Unit Price (£)</label>
+            <label className="text-xs text-muted-foreground block mb-1.5">Unit Price (£) <span className="text-muted-foreground/60">(use 0 for "Included" items)</span></label>
             <input type="number" step="0.01" className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-primary"
               value={editing.unit_price} onChange={e => setEditing((v: any) => ({ ...v, unit_price: Number(e.target.value) }))} />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1.5">Available for Service Types</label>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {ALL_SERVICE_TYPES.map(svc => {
+                const active = (editing.service_types ?? CATEGORY_DEFAULT_SERVICE_TYPES[editing.category] ?? ALL_SERVICE_TYPES).includes(svc);
+                return (
+                  <button
+                    key={svc}
+                    type="button"
+                    onClick={() => toggleServiceType(svc)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+                      active
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-border text-muted-foreground hover:border-primary/50"
+                    }`}
+                  >
+                    {svc}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">Run migration-service-types.sql in Supabase to enable filtering</p>
           </div>
           <div className="flex items-center gap-3 pt-2 border-t border-border">
             <label className="text-sm text-foreground flex-1">Active</label>
@@ -1032,6 +1078,13 @@ function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
                     {!product.active && <Badge variant="outline" className="text-[10px] text-muted-foreground">Inactive</Badge>}
                   </div>
                   {product.description && <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{product.description}</p>}
+                  {product.service_types && product.service_types.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-1">
+                      {(product.service_types as string[]).map((s: string) => (
+                        <span key={s} className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary/70 border border-primary/20">{s}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="text-right flex-shrink-0">
                   <div className="font-bold text-primary">{product.unit_price > 0 ? `£${product.unit_price.toLocaleString()}` : 'Incl.'}</div>

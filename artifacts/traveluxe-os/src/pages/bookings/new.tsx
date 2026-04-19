@@ -63,6 +63,10 @@ const bookingSchema = z.object({
   driver_id: z.string().optional(),
   notes: z.string().optional(),
   duration: z.coerce.number().optional(),
+  // As Directed / Chauffeuring fields
+  driver2_name: z.string().optional(),
+  driver3_name: z.string().optional(),
+  chauffeuring_notes: z.string().optional(),
   // Tour fields
   tour_name: z.string().optional(),
   meeting_point: z.string().optional(),
@@ -142,7 +146,15 @@ export default function NewBooking() {
   const isTourType = serviceType === "Tour";
   const isAccommodation = serviceType === "Apartment";
   const isHotel = serviceType === "Hotel";
+  const isAsDirected = serviceType === "As Directed";
   const needsCommission = isHotel || isAccommodation;
+
+  // Clear order lines when switching to accommodation types (no vehicles)
+  useEffect(() => {
+    if (isHotel || isAccommodation) {
+      setOrderLines([]);
+    }
+  }, [serviceType]);
 
   // Auto-calculate nights when check-in/check-out change
   useEffect(() => {
@@ -332,6 +344,13 @@ export default function NewBooking() {
 
     // Fold service-specific details into notes so data is preserved
     const extraDetails: string[] = [];
+    if (values.service_type === "As Directed") {
+      if (values.check_in_date) extraDetails.push(`Rental Start: ${values.check_in_date}`);
+      if (values.check_out_date) extraDetails.push(`Rental Return: ${values.check_out_date}`);
+      if (values.driver2_name) extraDetails.push(`Driver 2: ${values.driver2_name}`);
+      if (values.driver3_name) extraDetails.push(`Driver 3: ${values.driver3_name}`);
+      if (values.chauffeuring_notes) extraDetails.push(`Service Notes: ${values.chauffeuring_notes}`);
+    }
     if (values.service_type === "Tour") {
       if (values.tour_name) extraDetails.push(`Tour: ${values.tour_name}`);
       if (values.meeting_point) extraDetails.push(`Meeting Point: ${values.meeting_point}`);
@@ -642,7 +661,7 @@ export default function NewBooking() {
               <Card className="border-primary/10">
                 <CardHeader className="pb-3">
                   <CardTitle className="text-base">
-                    {isAccommodation ? "Property Details" : isHotel ? "Property Details" : "Journey Details"}
+                    {(isAccommodation || isHotel) ? "Property Details" : isAsDirected ? "Chauffeuring Details" : "Journey Details"}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
@@ -748,6 +767,28 @@ export default function NewBooking() {
                           />
                           <label htmlFor="guide_included" className="text-sm font-medium cursor-pointer">Guide included</label>
                         </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {isAsDirected && (
+                    <div className="space-y-3 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5">
+                      <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Chauffeuring Period</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField control={bookingForm.control} name="check_in_date" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Rental Start Date</FormLabel>
+                            <FormControl><Input type="datetime-local" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="check_out_date" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Rental Return Date</FormLabel>
+                            <FormControl><Input type="datetime-local" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
                       </div>
                     </div>
                   )}
@@ -900,6 +941,42 @@ export default function NewBooking() {
                         </FormItem>
                       )} />
                     </div>
+                  )}
+
+                  {/* Second + Third driver — As Directed only */}
+                  {isAsDirected && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField control={bookingForm.control} name="driver2_name" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Second Driver <span className="text-xs text-muted-foreground font-normal">(optional)</span></FormLabel>
+                          <FormControl><Input placeholder="Driver name" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                      <FormField control={bookingForm.control} name="driver3_name" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Third Driver <span className="text-xs text-muted-foreground font-normal">(optional)</span></FormLabel>
+                          <FormControl><Input placeholder="Driver name" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    </div>
+                  )}
+
+                  {/* Chauffeuring service notes — As Directed only */}
+                  {isAsDirected && (
+                    <FormField control={bookingForm.control} name="chauffeuring_notes" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Service Notes <span className="text-xs text-muted-foreground font-normal">(visible on booking record)</span></FormLabel>
+                        <FormControl>
+                          <Textarea
+                            placeholder="e.g. Daily Chauffeuring. 10 Hours per day (in-city). Additional fuel charge for outside journeys."
+                            className="resize-none" rows={2} {...field}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
                   )}
 
                   {/* Passengers only (no pickup/dropoff) for Tour */}
@@ -1103,6 +1180,7 @@ export default function NewBooking() {
                           <SelectContent>
                             <SelectItem value="Card">Card / Link</SelectItem>
                             <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
+                            <SelectItem value="PayPal">PayPal</SelectItem>
                             <SelectItem value="Cash">Cash</SelectItem>
                             {isAccommodation && <SelectItem value="Cash Weekly">Cash (Weekly)</SelectItem>}
                           </SelectContent>
