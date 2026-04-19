@@ -2,7 +2,7 @@ import { useGetDashboardSummary, getGetDashboardSummaryQueryKey } from "@workspa
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertTriangle, Briefcase, PoundSterling, Users, Plus, ChevronRight, Layers } from "lucide-react";
+import { AlertTriangle, Briefcase, PoundSterling, Users, Plus, ChevronRight, Layers, CalendarRange, Search } from "lucide-react";
 import { Link } from "wouter";
 
 export default function Dashboard() {
@@ -110,32 +110,23 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      {/* Quick links */}
-      <div className="grid grid-cols-2 gap-3">
-        <Link href="/jobs">
-          <div className="rounded-xl border border-border bg-card p-4 text-center hover:border-primary/50 hover:bg-secondary/20 transition-all cursor-pointer">
-            <Briefcase className="w-5 h-5 text-primary mx-auto mb-2" />
-            <span className="text-xs font-medium text-foreground">Jobs Board</span>
-          </div>
-        </Link>
-        <Link href="/services">
-          <div className="rounded-xl border border-border bg-card p-4 text-center hover:border-primary/50 hover:bg-secondary/20 transition-all cursor-pointer">
-            <Layers className="w-5 h-5 text-primary mx-auto mb-2" />
-            <span className="text-xs font-medium text-foreground">Services</span>
-          </div>
-        </Link>
-        <Link href="/clients">
-          <div className="rounded-xl border border-border bg-card p-4 text-center hover:border-primary/50 hover:bg-secondary/20 transition-all cursor-pointer">
-            <Users className="w-5 h-5 text-primary mx-auto mb-2" />
-            <span className="text-xs font-medium text-foreground">Clients</span>
-          </div>
-        </Link>
-        <Link href="/drivers">
-          <div className="rounded-xl border border-border bg-card p-4 text-center hover:border-primary/50 hover:bg-secondary/20 transition-all cursor-pointer">
-            <svg className="w-5 h-5 text-primary mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>
-            <span className="text-xs font-medium text-foreground">Drivers</span>
-          </div>
-        </Link>
+      {/* Quick links — 3×2 grid */}
+      <div className="grid grid-cols-3 gap-3">
+        {[
+          { href: "/jobs",      icon: <Briefcase className="w-5 h-5 text-primary mx-auto mb-2" />,      label: "Jobs Board" },
+          { href: "/bookings",  icon: <CalendarRange className="w-5 h-5 text-primary mx-auto mb-2" />,  label: "Bookings" },
+          { href: "/services",  icon: <Layers className="w-5 h-5 text-primary mx-auto mb-2" />,         label: "Services" },
+          { href: "/clients",   icon: <Users className="w-5 h-5 text-primary mx-auto mb-2" />,          label: "Clients" },
+          { href: "/search",    icon: <Search className="w-5 h-5 text-primary mx-auto mb-2" />,         label: "Search" },
+          { href: "/drivers",   icon: <svg className="w-5 h-5 text-primary mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" /></svg>, label: "Drivers" },
+        ].map(({ href, icon, label }) => (
+          <Link key={href} href={href}>
+            <div className="rounded-xl border border-border bg-card p-3.5 text-center hover:border-primary/50 hover:bg-secondary/20 transition-all cursor-pointer">
+              {icon}
+              <span className="text-[11px] font-medium text-foreground">{label}</span>
+            </div>
+          </Link>
+        ))}
       </div>
 
       {/* Top Clients & Drivers */}

@@ -10,7 +10,7 @@ import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase } from "lucide-react
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export default function Jobs() {
-  const [timeFilter, setTimeFilter] = useState("today");
+  const [timeFilter, setTimeFilter] = useState("all");
 
   const { data: bookings, isLoading } = useListBookings(
     {},
@@ -117,9 +117,16 @@ export default function Jobs() {
                       {job.status}
                     </Badge>
                     {job.date_time && (
-                      <div className="flex items-center gap-1 text-sm font-semibold text-foreground">
-                        <Clock className="w-3 h-3 text-primary" />
-                        {format(new Date(job.date_time), 'HH:mm')}
+                      <div className="flex flex-col items-end gap-0.5">
+                        <div className="flex items-center gap-1 text-sm font-semibold text-foreground">
+                          <Clock className="w-3 h-3 text-primary" />
+                          {format(new Date(job.date_time), 'HH:mm')}
+                        </div>
+                        <span className="text-[10px] text-muted-foreground">
+                          {isToday(new Date(job.date_time)) ? "Today"
+                            : isTomorrow(new Date(job.date_time)) ? "Tomorrow"
+                            : format(new Date(job.date_time), "dd MMM")}
+                        </span>
                       </div>
                     )}
                   </div>

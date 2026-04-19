@@ -9,36 +9,34 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
+import { NotificationBell } from "@/components/notifications/NotificationBell";
 
 const MORE_ITEMS = [
-  { href: "/bookings", label: "Bookings", icon: CalendarRange },
-  { href: "/services", label: "Services", icon: Layers },
-  { href: "/quotes", label: "Quotes", icon: FileText },
-  { href: "/invoices", label: "Invoices", icon: Receipt },
-  { href: "/flights", label: "Flights", icon: PlaneTakeoff },
-  { href: "/drivers", label: "Drivers", icon: Car },
-  { href: "/commissions", label: "Commissions", icon: Calculator },
-  { href: "/messages", label: "Messages", icon: MessageSquare },
-  { href: "/finance", label: "Finance", icon: LineChart, reqAdmin: true },
-  { href: "/search", label: "Search", icon: Search },
-  { href: "/admin", label: "Admin", icon: Settings, reqAdmin: true },
+  { href: "/quotes",       label: "Quotes",       icon: FileText },
+  { href: "/invoices",     label: "Invoices",     icon: Receipt },
+  { href: "/flights",      label: "Flights",      icon: PlaneTakeoff },
+  { href: "/drivers",      label: "Drivers",      icon: Car },
+  { href: "/commissions",  label: "Commissions",  icon: Calculator },
+  { href: "/messages",     label: "Messages",     icon: MessageSquare },
+  { href: "/finance",      label: "Finance",      icon: LineChart, reqAdmin: true },
+  { href: "/admin",        label: "Admin",        icon: Settings, reqAdmin: true },
 ];
 
 const SIDEBAR_ITEMS = [
-  { href: "/", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/jobs", label: "Jobs Board", icon: Briefcase },
-  { href: "/bookings", label: "Bookings", icon: CalendarRange },
-  { href: "/services", label: "Services", icon: Layers },
-  { href: "/clients", label: "Clients", icon: Users },
-  { href: "/quotes", label: "Quotes", icon: FileText },
-  { href: "/invoices", label: "Invoices", icon: Receipt },
-  { href: "/flights", label: "Flights", icon: PlaneTakeoff },
-  { href: "/drivers", label: "Drivers", icon: Car },
-  { href: "/commissions", label: "Commissions", icon: Calculator },
-  { href: "/messages", label: "Messages", icon: MessageSquare },
-  { href: "/finance", label: "Finance", icon: LineChart, reqAdmin: true },
-  { href: "/search", label: "Search", icon: Search },
-  { href: "/admin", label: "Admin", icon: Settings, reqAdmin: true },
+  { href: "/",             label: "Dashboard",    icon: LayoutDashboard },
+  { href: "/jobs",         label: "Jobs Board",   icon: Briefcase },
+  { href: "/bookings",     label: "Bookings",     icon: CalendarRange },
+  { href: "/services",     label: "Services",     icon: Layers },
+  { href: "/clients",      label: "Clients",      icon: Users },
+  { href: "/search",       label: "Search",       icon: Search },
+  { href: "/quotes",       label: "Quotes",       icon: FileText },
+  { href: "/invoices",     label: "Invoices",     icon: Receipt },
+  { href: "/flights",      label: "Flights",      icon: PlaneTakeoff },
+  { href: "/drivers",      label: "Drivers",      icon: Car },
+  { href: "/commissions",  label: "Commissions",  icon: Calculator },
+  { href: "/messages",     label: "Messages",     icon: MessageSquare },
+  { href: "/finance",      label: "Finance",      icon: LineChart, reqAdmin: true },
+  { href: "/admin",        label: "Admin",        icon: Settings, reqAdmin: true },
 ];
 
 function LockScreen() {
@@ -134,10 +132,8 @@ export function Shell({ children }: { children: ReactNode }) {
 
   const isSuperAdmin = user.role === "super_admin";
 
-  // Inactivity lock screen overlay
   if (isLocked) return <LockScreen />;
 
-  // super_admin gets full access — same nav as admin
   const filteredSidebar = SIDEBAR_ITEMS.filter(item => !item.reqAdmin || user.role === "admin" || isSuperAdmin);
   const filteredMore = MORE_ITEMS.filter(item => !item.reqAdmin || user.role === "admin" || isSuperAdmin);
 
@@ -145,11 +141,14 @@ export function Shell({ children }: { children: ReactNode }) {
     <div className="min-h-screen bg-background flex flex-col md:flex-row">
       {/* Desktop Sidebar */}
       <aside className="hidden md:flex flex-col w-64 bg-card border-r border-border h-screen sticky top-0">
-        <div className="p-6 flex items-center gap-3">
-          <div className="w-8 h-8 rounded bg-primary flex items-center justify-center">
-            <span className="text-primary-foreground font-bold text-xl">T</span>
+        <div className="p-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded bg-primary flex items-center justify-center">
+              <span className="text-primary-foreground font-bold text-xl">T</span>
+            </div>
+            <span className="font-bold text-lg text-foreground tracking-wide uppercase">TRAVELUXE OS</span>
           </div>
-          <span className="font-bold text-lg text-foreground tracking-wide uppercase">TRAVELUXE OS</span>
+          <NotificationBell />
         </div>
 
         <div className="px-4 mb-4">
@@ -189,6 +188,17 @@ export function Shell({ children }: { children: ReactNode }) {
           </Button>
         </div>
       </aside>
+
+      {/* Mobile: sticky header with notification bell */}
+      <div className="md:hidden sticky top-0 z-40 flex items-center justify-between px-4 py-3 bg-card/95 backdrop-blur-sm border-b border-border">
+        <div className="flex items-center gap-2.5">
+          <div className="w-7 h-7 rounded bg-primary flex items-center justify-center">
+            <span className="text-primary-foreground font-bold text-base">T</span>
+          </div>
+          <span className="font-bold text-sm text-foreground tracking-wider uppercase">Traveluxe OS</span>
+        </div>
+        <NotificationBell />
+      </div>
 
       {/* Main Content */}
       <main className="flex-1 pb-24 md:pb-0 min-h-screen overflow-x-hidden relative">
