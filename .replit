@@ -34,3 +34,11 @@ externalPort = 80
 [[ports]]
 localPort = 18368
 externalPort = 3000
+
+[userenv]
+
+[userenv.shared]
+SMTP_HOST = "smtp.gmail.com"
+SMTP_PORT = "587"
+SMTP_USER = "info@traveluxelondon.com"
+SMTP_FROM = "Traveluxe London <info@traveluxelondon.com>"

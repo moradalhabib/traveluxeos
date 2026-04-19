@@ -1,11 +1,13 @@
 import { Router } from "express";
 import { supabase, auditLog, getUserFromToken } from "../lib/supabase";
+import { sendEmail } from "../services/email";
+import { bookingConfirmationHtml, paymentReceiptHtml } from "../templates/emailTemplates";
 
 const router = Router();
 
 async function enrichBooking(booking: any) {
   const [{ data: client }, { data: driver }, { data: operator }] = await Promise.all([
-    supabase.from("clients").select("name, vip_tier").eq("id", booking.client_id).single(),
+    supabase.from("clients").select("name, vip_tier, email").eq("id", booking.client_id).single(),
     supabase.from("drivers").select("name, vehicle_type, vehicle_model").eq("id", booking.driver_id).single(),
     supabase.from("users").select("name").eq("id", booking.operator_id).single(),
   ]);
@@ -14,10 +16,52 @@ async function enrichBooking(booking: any) {
     ...booking,
     client_name: client?.name ?? null,
     client_vip_tier: client?.vip_tier ?? null,
+    client_email: client?.email ?? null,
     driver_name: driver?.name ?? null,
     driver_vehicle: driver ? `${driver.vehicle_type} ${driver.vehicle_model ?? ""}`.trim() : null,
     operator_name: operator?.name ?? null,
   };
+}
+
+async function autoGenerateInvoice(bookingId: string, userId: string | null): Promise<string | null> {
+  const { data: existing } = await supabase.from("invoices").select("invoice_number").eq("booking_id", bookingId).single();
+  if (existing) return existing.invoice_number;
+
+  const { data, error } = await supabase
+    .from("invoices")
+    .insert({ booking_id: bookingId, generated_by: userId, status: "Generated" })
+    .select("invoice_number")
+    .single();
+
+  if (error) { console.error("[Invoice] Auto-generate failed:", error.message); return null; }
+  return data.invoice_number;
+}
+
+async function sendConfirmationEmail(booking: any, invoiceNumber: string | null) {
+  const email = booking.client_email;
+  if (!email) {
+    console.warn(`[Email] No email for client on booking ${booking.tvl_ref} — skipping`);
+    return;
+  }
+  await sendEmail({
+    to: email,
+    subject: `Booking Confirmed — ${booking.tvl_ref ?? ""} — ${booking.service_type}`,
+    html: bookingConfirmationHtml(booking, invoiceNumber ?? undefined),
+  });
+}
+
+async function sendPaymentReceiptEmail(booking: any) {
+  const email = booking.client_email;
+  if (!email) {
+    console.warn(`[Email] No email for client on booking ${booking.tvl_ref} — skipping receipt`);
+    return;
+  }
+  const { data: inv } = await supabase.from("invoices").select("invoice_number").eq("booking_id", booking.id).single();
+  await sendEmail({
+    to: email,
+    subject: `Payment Confirmed — ${booking.tvl_ref ?? ""} — Thank You`,
+    html: paymentReceiptHtml(booking, inv?.invoice_number ?? undefined),
+  });
 }
 
 router.get("/", async (req, res) => {
@@ -144,6 +188,11 @@ router.get("/:id", async (req, res) => {
 
 router.put("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
+
+  // Capture previous payment_status before update
+  const { data: prev } = await supabase.from("bookings").select("payment_status, status").eq("id", req.params.id).single();
+  const prevPaymentStatus = prev?.payment_status;
+
   const body = { ...req.body, is_amended: true };
 
   const { data, error } = await supabase
@@ -164,6 +213,14 @@ router.put("/:id", async (req, res) => {
     `Booking ${data.tvl_ref} amended`);
 
   const enriched = await enrichBooking(data);
+
+  // On payment_status → Paid: send payment receipt email
+  if (body.payment_status === "Paid" && prevPaymentStatus !== "Paid") {
+    sendPaymentReceiptEmail(enriched).catch(err =>
+      console.error("[Email] Receipt send error:", err?.message)
+    );
+  }
+
   return res.json(enriched);
 });
 
@@ -204,6 +261,16 @@ router.put("/:id/status", async (req, res) => {
     `Booking ${data.tvl_ref} status changed to ${status}`);
 
   const enriched = await enrichBooking(data);
+
+  // On Confirmed: auto-generate invoice + send booking confirmation email
+  if (status === "Confirmed") {
+    const invNumber = await autoGenerateInvoice(req.params.id, user?.id ?? null);
+    const bookingWithEmail = { ...enriched };
+    sendConfirmationEmail(bookingWithEmail, invNumber).catch(err =>
+      console.error("[Email] Confirmation send error:", err?.message)
+    );
+  }
+
   return res.json(enriched);
 });
 
