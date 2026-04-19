@@ -72,6 +72,10 @@ export default function BookingDetail() {
   const [editCheckOut, setEditCheckOut] = useState("");
   const [editNights, setEditNights] = useState<number>(0);
   const [editCommission, setEditCommission] = useState<number>(0);
+  const [editHotelName, setEditHotelName] = useState("");
+  const [editRoomType, setEditRoomType] = useState("");
+  const [editHotelBookingRef, setEditHotelBookingRef] = useState("");
+  const [editNumGuests, setEditNumGuests] = useState<number>(0);
   // Transport / tour fields
   const [editDateTime, setEditDateTime] = useState("");
   const [editPickup, setEditPickup] = useState("");
@@ -96,6 +100,10 @@ export default function BookingDetail() {
     setEditCheckOut(b.check_out_date ? String(b.check_out_date).slice(0, 10) : "");
     setEditNights(Number(b.nights || b.num_nights || 0));
     setEditCommission(Number(b.commission_amount || 0));
+    setEditHotelName(b.hotel_name || "");
+    setEditRoomType(b.room_type || "");
+    setEditHotelBookingRef(b.hotel_booking_ref || "");
+    setEditNumGuests(Number(b.num_guests || 0));
     // Transport — datetime-local needs YYYY-MM-DDTHH:mm
     setEditDateTime(b.date_time ? String(b.date_time).slice(0, 16) : "");
     setEditPickup(b.pickup || "");
@@ -145,6 +153,13 @@ export default function BookingDetail() {
       else payload.nights = editNights || undefined;
       // Keep date_time aligned with check-in for sorting
       payload.date_time = editCheckIn ? `${editCheckIn}T12:00:00` : undefined;
+      // Hotel-specific details
+      if (isHotel) {
+        payload.hotel_name = editHotelName || undefined;
+        payload.room_type = editRoomType || undefined;
+        payload.hotel_booking_ref = editHotelBookingRef || undefined;
+        payload.num_guests = editNumGuests || undefined;
+      }
     } else {
       // Transport / Tour / As Directed.
       payload.date_time = editDateTime || undefined;
@@ -584,9 +599,31 @@ export default function BookingDetail() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            {/* Hotel + Apartment: dates only, no transport */}
+            {/* Hotel + Apartment: dates + hotel-specific details */}
             {(svc === "Hotel" || svc === "Apartment") && (
               <>
+                {svc === "Hotel" && (
+                  <>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Hotel Name</p>
+                      <Input value={editHotelName} onChange={e => setEditHotelName(e.target.value)} placeholder="e.g. The Lanesborough" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Hotel Booking Reference</p>
+                      <Input value={editHotelBookingRef} onChange={e => setEditHotelBookingRef(e.target.value)} placeholder="External booking ref" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Room Type</p>
+                        <Input value={editRoomType} onChange={e => setEditRoomType(e.target.value)} placeholder="e.g. Deluxe Suite" />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Number of Guests</p>
+                        <Input type="number" min={1} value={editNumGuests || ""} onChange={e => setEditNumGuests(Number(e.target.value))} />
+                      </div>
+                    </div>
+                  </>
+                )}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <p className="text-xs text-muted-foreground mb-1">Check-in</p>
@@ -887,7 +924,63 @@ export default function BookingDetail() {
             </div>
           )}
 
-          {/* Accommodation details */}
+          {/* Hotel details */}
+          {svc === "Hotel" && (
+            <div className="pt-3 border-t border-border space-y-2">
+              <p className="text-xs text-muted-foreground uppercase font-semibold flex items-center gap-1"><Building2 className="w-3 h-3" /> Hotel</p>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                {(booking as any).hotel_name && (
+                  <div className="col-span-2">
+                    <p className="text-xs text-muted-foreground mb-1">Hotel Name</p>
+                    <p className="font-semibold text-foreground">{(booking as any).hotel_name}</p>
+                  </div>
+                )}
+                {(booking as any).hotel_booking_ref && (
+                  <div className="col-span-2">
+                    <p className="text-xs text-muted-foreground mb-1">Hotel Booking Reference</p>
+                    <p className="font-bold text-primary">{(booking as any).hotel_booking_ref}</p>
+                  </div>
+                )}
+                {(booking as any).room_type && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Room Type</p>
+                    <p className="font-medium">{(booking as any).room_type}</p>
+                  </div>
+                )}
+                {(booking as any).num_guests && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Users className="w-3 h-3" /> Guests</p>
+                    <p className="font-medium">{(booking as any).num_guests} guest{(booking as any).num_guests !== 1 ? "s" : ""}</p>
+                  </div>
+                )}
+                {(booking as any).check_in_date && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><CalendarRange className="w-3 h-3" /> Check-in</p>
+                    <p className="font-medium">{format(new Date((booking as any).check_in_date), "dd MMM yyyy")}</p>
+                  </div>
+                )}
+                {(booking as any).check_out_date && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><CalendarRange className="w-3 h-3" /> Check-out</p>
+                    <p className="font-medium">{format(new Date((booking as any).check_out_date), "dd MMM yyyy")}</p>
+                  </div>
+                )}
+                {(booking as any).num_nights && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Nights</p>
+                    <p className="font-medium">{(booking as any).num_nights} night{(booking as any).num_nights !== 1 ? "s" : ""}</p>
+                  </div>
+                )}
+                {(booking as any).breakfast_included && (
+                  <div>
+                    <Badge variant="outline" className="text-primary border-primary/30 text-xs">Breakfast Included</Badge>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Accommodation details (Apartment) */}
           {(booking as any).property_name && (
             <div className="pt-3 border-t border-border space-y-2">
               <p className="text-xs text-muted-foreground uppercase font-semibold flex items-center gap-1"><Building2 className="w-3 h-3" /> Accommodation</p>
