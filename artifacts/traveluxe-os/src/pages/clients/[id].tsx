@@ -4,8 +4,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MessageSquare, Edit, ArrowLeft, Ban } from "lucide-react";
+import { MessageSquare, Edit, ArrowLeft, Ban, Plus, CalendarRange } from "lucide-react";
 import { format } from "date-fns";
+import { Link } from "wouter";
 
 export default function ClientDetail() {
   const params = useParams();
@@ -40,111 +41,159 @@ export default function ClientDetail() {
     }
   };
 
+  const waNumber = client.whatsapp.replace(/\D/g, '');
+
   return (
-    <div className="space-y-6 max-w-4xl mx-auto">
-      <Button variant="ghost" onClick={() => setLocation("/clients")} className="mb-4">
-        <ArrowLeft className="w-4 h-4 mr-2" /> Back to Clients
+    <div className="space-y-5 max-w-4xl mx-auto">
+      <Button variant="ghost" onClick={() => setLocation("/clients")} className="mb-2 -ml-2">
+        <ArrowLeft className="w-4 h-4 mr-2" /> Back
       </Button>
 
-      <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <h1 className="text-3xl font-bold tracking-tight text-foreground">{client.name}</h1>
-            <Badge variant="outline" className={getVipBadgeColor(client.vip_tier)}>
-              {client.vip_tier}
-            </Badge>
-            {client.inactive && (
-              <Badge variant="destructive">Inactive</Badge>
-            )}
-          </div>
-          <p className="text-muted-foreground text-lg">{client.whatsapp}</p>
+      {/* Client header */}
+      <div>
+        <div className="flex items-center gap-3 mb-1">
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">{client.name}</h1>
+          <Badge variant="outline" className={getVipBadgeColor(client.vip_tier)}>
+            {client.vip_tier}
+          </Badge>
+          {client.inactive && (
+            <Badge variant="destructive">Inactive</Badge>
+          )}
         </div>
-        <div className="flex gap-2">
-          <a href={`https://wa.me/${client.whatsapp.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer">
-            <Button className="bg-green-900/20 text-green-500 hover:bg-green-900/40 border border-green-900/50">
-              <MessageSquare className="w-4 h-4 mr-2" />
-              WhatsApp
-            </Button>
-          </a>
-          <Button variant="outline">
-            <Edit className="w-4 h-4 mr-2" />
-            Edit
+        <p className="text-muted-foreground">{client.whatsapp}</p>
+      </div>
+
+      {/* PRIMARY ACTION — Book This Client */}
+      <Link href={`/bookings/new?client_id=${client.id}`}>
+        <div className="relative overflow-hidden rounded-2xl bg-primary p-5 cursor-pointer shadow-[0_0_20px_rgba(201,168,76,0.25)] hover:shadow-[0_0_35px_rgba(201,168,76,0.45)] transition-all active:scale-[0.99]">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-primary-foreground/80 text-sm font-medium mb-0.5">Ready to go?</p>
+              <p className="text-primary-foreground font-bold text-xl">Book {client.name.split(' ')[0]}</p>
+            </div>
+            <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center">
+              <Plus className="w-7 h-7 text-primary-foreground" />
+            </div>
+          </div>
+          <div className="absolute -right-4 -bottom-4 w-24 h-24 rounded-full bg-white/10" />
+        </div>
+      </Link>
+
+      {/* Action buttons */}
+      <div className="grid grid-cols-2 gap-3">
+        <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noopener noreferrer" className="col-span-1">
+          <Button className="w-full bg-green-900/20 text-green-500 hover:bg-green-900/40 border border-green-900/50">
+            <MessageSquare className="w-4 h-4 mr-2" />
+            WhatsApp
           </Button>
-          <Button variant="outline" className="text-destructive hover:bg-destructive/10">
-            <Ban className="w-4 h-4 mr-2" />
-            {client.inactive ? 'Mark Active' : 'Flag Inactive'}
-          </Button>
+        </a>
+        <Button variant="outline" className="col-span-1">
+          <Edit className="w-4 h-4 mr-2" />
+          Edit Client
+        </Button>
+      </div>
+
+      {/* Stats strip */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-xl border border-border bg-card p-4 text-center">
+          <div className="text-2xl font-bold text-foreground">{client.total_bookings || 0}</div>
+          <div className="text-xs text-muted-foreground mt-1">Bookings</div>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-4 text-center">
+          <div className="text-2xl font-bold text-primary">£{(client.total_spent || 0).toLocaleString()}</div>
+          <div className="text-xs text-muted-foreground mt-1">Total Spent</div>
+        </div>
+        <div className="rounded-xl border border-border bg-card p-4 text-center">
+          <div className="text-sm font-bold text-foreground">{client.language_preference || '—'}</div>
+          <div className="text-xs text-muted-foreground mt-1">Language</div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Card className="border-primary/10 bg-card">
-          <CardHeader>
-            <CardTitle>Client Details</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground block mb-1">Email</span>
-                <span className="font-medium">{client.email || 'N/A'}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground block mb-1">Nationality</span>
-                <span className="font-medium">{client.nationality || 'N/A'}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground block mb-1">Language</span>
-                <span className="font-medium">{client.language_preference || 'N/A'}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground block mb-1">Total Bookings</span>
-                <span className="font-medium">{client.total_bookings || 0}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground block mb-1">Total Spent</span>
-                <span className="font-medium text-primary">£{(client.total_spent || 0).toLocaleString()}</span>
-              </div>
-              <div>
-                <span className="text-muted-foreground block mb-1">Added On</span>
-                <span className="font-medium">{client.created_at ? format(new Date(client.created_at), 'PPP') : 'N/A'}</span>
-              </div>
+      {/* Client info */}
+      <Card className="border-primary/10 bg-card">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Client Details</CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          <div className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm">
+            <div>
+              <span className="text-muted-foreground block mb-1 text-xs">Email</span>
+              <span className="font-medium">{client.email || 'N/A'}</span>
             </div>
-            {client.notes && (
-              <div className="pt-4 border-t border-border mt-4">
-                <span className="text-muted-foreground block mb-1 text-sm">Notes</span>
-                <p className="text-sm">{client.notes}</p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+            <div>
+              <span className="text-muted-foreground block mb-1 text-xs">Nationality</span>
+              <span className="font-medium">{client.nationality || 'N/A'}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground block mb-1 text-xs">Client Since</span>
+              <span className="font-medium">{client.created_at ? format(new Date(client.created_at), 'PPP') : 'N/A'}</span>
+            </div>
+            <div>
+              <span className="text-muted-foreground block mb-1 text-xs">Status</span>
+              <span className={`font-medium ${client.inactive ? 'text-destructive' : 'text-green-400'}`}>
+                {client.inactive ? 'Inactive' : 'Active'}
+              </span>
+            </div>
+          </div>
+          {client.notes && (
+            <div className="pt-4 border-t border-border mt-4">
+              <span className="text-muted-foreground block mb-1 text-xs">Notes</span>
+              <p className="text-sm">{client.notes}</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
-        <Card className="border-primary/10 bg-card">
-          <CardHeader>
-            <CardTitle>Recent Bookings</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {client.bookings && client.bookings.length > 0 ? (
-              <div className="space-y-4">
-                {client.bookings.slice(0, 5).map(booking => (
-                  <div key={booking.id} className="flex justify-between items-center p-3 rounded-lg border border-border bg-background/50">
+      {/* Recent bookings */}
+      <Card className="border-primary/10 bg-card">
+        <CardHeader className="pb-3 flex flex-row items-center justify-between">
+          <CardTitle className="text-base">Recent Bookings</CardTitle>
+          <Link href={`/bookings/new?client_id=${client.id}`}>
+            <Button size="sm" variant="outline" className="text-xs h-8">
+              <Plus className="w-3 h-3 mr-1" /> New
+            </Button>
+          </Link>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {client.bookings && client.bookings.length > 0 ? (
+            <div className="space-y-3">
+              {client.bookings.slice(0, 5).map(booking => (
+                <Link key={booking.id} href={`/bookings/${booking.id}`}>
+                  <div className="flex justify-between items-center p-3 rounded-xl border border-border bg-background/50 hover:border-primary/30 transition-colors cursor-pointer">
                     <div>
-                      <div className="font-medium">{booking.tvl_ref}</div>
-                      <div className="text-xs text-muted-foreground">{booking.date_time ? format(new Date(booking.date_time), 'PPp') : ''}</div>
+                      <div className="font-semibold text-sm">{booking.tvl_ref}</div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {booking.date_time ? format(new Date(booking.date_time), 'dd MMM yyyy · HH:mm') : ''}
+                      </div>
                     </div>
                     <div className="text-right">
-                      <div className="font-medium">£{booking.price}</div>
-                      <Badge variant="outline">{booking.status}</Badge>
+                      <div className="font-semibold text-sm">£{booking.price}</div>
+                      <Badge variant="outline" className="text-[10px] mt-0.5">{booking.status}</Badge>
                     </div>
                   </div>
-                ))}
-              </div>
-            ) : (
-              <div className="text-center py-8 text-muted-foreground text-sm border border-dashed rounded-lg">
-                No booking history
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center py-8 text-center">
+              <CalendarRange className="w-10 h-10 text-muted-foreground/30 mb-3" />
+              <p className="text-sm text-muted-foreground">No booking history yet</p>
+              <Link href={`/bookings/new?client_id=${client.id}`}>
+                <Button size="sm" className="mt-4">
+                  <Plus className="w-3 h-3 mr-1" /> Create First Booking
+                </Button>
+              </Link>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Danger zone */}
+      <div className="pt-2">
+        <Button variant="outline" className="text-destructive hover:bg-destructive/10 border-destructive/30">
+          <Ban className="w-4 h-4 mr-2" />
+          {client.inactive ? 'Mark Active' : 'Flag Inactive'}
+        </Button>
       </div>
     </div>
   );
