@@ -226,22 +226,6 @@ export default function ClientDetail() {
         <p className="text-muted-foreground">{(client as any).whatsapp}</p>
       </div>
 
-      {/* PRIMARY ACTION — Book This Client */}
-      <Link href={`/bookings/new?client_id=${client.id}`}>
-        <div className="relative overflow-hidden rounded-2xl bg-primary p-5 cursor-pointer shadow-[0_0_20px_rgba(201,168,76,0.25)] hover:shadow-[0_0_35px_rgba(201,168,76,0.45)] transition-all active:scale-[0.99]">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-primary-foreground/80 text-sm font-medium mb-0.5">Ready to go?</p>
-              <p className="text-primary-foreground font-bold text-xl">Book {client.name.split(' ')[0]}</p>
-            </div>
-            <div className="w-14 h-14 rounded-full bg-white/20 flex items-center justify-center">
-              <Plus className="w-7 h-7 text-primary-foreground" />
-            </div>
-          </div>
-          <div className="absolute -right-4 -bottom-4 w-24 h-24 rounded-full bg-white/10" />
-        </div>
-      </Link>
-
       {/* Action buttons */}
       <div className="grid grid-cols-2 gap-3">
         <a href={`https://wa.me/${waNumber}`} target="_blank" rel="noopener noreferrer">
