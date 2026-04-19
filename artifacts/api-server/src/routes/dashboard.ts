@@ -25,6 +25,7 @@ router.get("/summary", async (_req, res) => {
     { data: allDrivers },
     { data: upcomingBookings },
     { data: unpaidInvoices },
+    { data: arrangementFeeBookings },
   ] = await Promise.all([
     supabase.from("bookings").select("price, additional_charges, status").gte("date_time", todayStart.toISOString()),
     supabase.from("bookings").select("price, additional_charges, status").gte("date_time", weekStart.toISOString()),
@@ -32,17 +33,22 @@ router.get("/summary", async (_req, res) => {
     supabase.from("bookings").select("id").eq("status", "Active"),
     supabase.from("bookings").select("id").in("status", ["Confirmed", "Driver Assigned"]).is("driver_id", null),
     supabase.from("bookings").select("id").in("payment_status", ["Unpaid", "Partial"]).neq("status", "Cancelled"),
-    supabase.from("bookings").select("driver_id, tvl_commission, driver_receives, payment_method, commission_status, payout_status").eq("payment_method", "Cash").eq("commission_status", "Outstanding"),
+    supabase.from("bookings").select("driver_id, tvl_commission, payment_method, commission_status").eq("payment_method", "Cash").eq("commission_status", "Outstanding"),
     supabase.from("bookings").select("client_id, price, additional_charges").neq("status", "Cancelled"),
     supabase.from("bookings").select("driver_id").neq("status", "Cancelled"),
     supabase.from("bookings").select("id").gte("date_time", todayStart.toISOString()).not("status", "in", '("Cancelled","Completed")'),
     supabase.from("invoices").select("id").not("status", "in", '("Paid","Cancelled")'),
+    supabase.from("bookings").select("commission_amount, arrangement_fee_status").in("service_type", ["Hotel", "Apartment"]).gt("commission_amount", 0).neq("status", "Cancelled"),
   ]);
 
   const calcRevenue = (bookings: { price: number; additional_charges: number; status: string }[] | null) =>
     (bookings ?? []).filter(b => !["Cancelled"].includes(b.status)).reduce((sum, b) => sum + (b.price || 0) + (b.additional_charges || 0), 0);
 
-  const outstandingCommissions = (allDriverBreakdown ?? []).reduce((sum, b) => sum + (b.tvl_commission || 0), 0);
+  const driverCommissionOutstanding = (allDriverBreakdown ?? []).reduce((sum: number, b: any) => sum + (b.tvl_commission || 0), 0);
+  const arrangementFeeOutstanding = (arrangementFeeBookings ?? [])
+    .filter((b: any) => (b.arrangement_fee_status ?? "Outstanding") === "Outstanding")
+    .reduce((sum: number, b: any) => sum + (b.commission_amount || 0), 0);
+  const outstandingCommissions = driverCommissionOutstanding + arrangementFeeOutstanding;
 
   const { data: pendingPayoutBookings } = await supabase
     .from("bookings")

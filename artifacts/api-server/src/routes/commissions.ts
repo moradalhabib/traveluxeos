@@ -7,47 +7,84 @@ router.get("/", async (_req, res) => {
   const now = new Date();
   const weekStart = new Date(now);
   weekStart.setDate(now.getDate() - 7);
-  const monthStart = new Date(now);
-  monthStart.setDate(1);
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
   const [
     { data: weekBookings },
     { data: monthBookings },
     { data: outstandingBookings },
     { data: pendingPayoutBookings },
+    { data: arrangementFeeBookings },
     { data: settlements },
     { data: payouts },
     { data: allDrivers },
   ] = await Promise.all([
-    supabase.from("bookings").select("tvl_commission").gte("date_time", weekStart.toISOString()).neq("status", "Cancelled"),
-    supabase.from("bookings").select("tvl_commission").gte("date_time", monthStart.toISOString()).neq("status", "Cancelled"),
-    supabase.from("bookings")
-      .select("id, tvl_ref, date_time, price, additional_charges, tvl_commission, driver_receives, payment_method, commission_status, payout_status, driver_id, clients(name)")
+    // Driver commissions this week
+    supabase
+      .from("bookings")
+      .select("tvl_commission, commission_amount, service_type")
+      .gte("date_time", weekStart.toISOString())
+      .neq("status", "Cancelled"),
+    // Driver commissions this month
+    supabase
+      .from("bookings")
+      .select("tvl_commission, commission_amount, service_type")
+      .gte("date_time", monthStart.toISOString())
+      .neq("status", "Cancelled"),
+    // Cash jobs: driver owes TVL
+    supabase
+      .from("bookings")
+      .select("id, tvl_ref, date_time, price, additional_charges, tvl_commission, driver_receives, payment_method, commission_status, payout_status, driver_id, service_type, clients(name)")
       .eq("payment_method", "Cash")
       .eq("commission_status", "Outstanding")
       .neq("status", "Cancelled"),
-    supabase.from("bookings")
-      .select("id, tvl_ref, date_time, price, additional_charges, tvl_commission, driver_receives, payment_method, commission_status, payout_status, driver_id, clients(name)")
-      .eq("payment_method", "Bank Transfer")
+    // Bank/Card jobs: TVL owes driver
+    supabase
+      .from("bookings")
+      .select("id, tvl_ref, date_time, price, additional_charges, tvl_commission, driver_receives, payment_method, commission_status, payout_status, driver_id, service_type, clients(name)")
+      .in("payment_method", ["Bank Transfer", "Card"])
       .eq("payout_status", "Pending")
       .neq("status", "Cancelled"),
-    supabase.from("commission_settlements")
+    // Hotel/Apartment arrangement fees outstanding
+    supabase
+      .from("bookings")
+      .select("id, tvl_ref, date_time, price, commission_amount, commission_notes, arrangement_fee_status, service_type, clients(name)")
+      .in("service_type", ["Hotel", "Apartment"])
+      .gt("commission_amount", 0)
+      .neq("status", "Cancelled"),
+    supabase
+      .from("commission_settlements")
       .select("*, drivers(name)")
       .order("settled_at", { ascending: false })
       .limit(50),
-    supabase.from("driver_payouts")
+    supabase
+      .from("driver_payouts")
       .select("*, drivers(name)")
       .order("paid_at", { ascending: false })
       .limit(50),
     supabase.from("drivers").select("id, name").eq("status", "Active"),
   ]);
 
-  const totalWeek = (weekBookings ?? []).reduce((s: number, b: any) => s + (b.tvl_commission ?? 0), 0);
-  const totalMonth = (monthBookings ?? []).reduce((s: number, b: any) => s + (b.tvl_commission ?? 0), 0);
+  // Week/month totals include both driver commissions and arrangement fees
+  const totalWeek = (weekBookings ?? []).reduce((s: number, b: any) => {
+    const driverComm = b.tvl_commission ?? 0;
+    const arrangement = ["Hotel", "Apartment"].includes(b.service_type) ? (b.commission_amount ?? 0) : 0;
+    return s + driverComm + arrangement;
+  }, 0);
+
+  const totalMonth = (monthBookings ?? []).reduce((s: number, b: any) => {
+    const driverComm = b.tvl_commission ?? 0;
+    const arrangement = ["Hotel", "Apartment"].includes(b.service_type) ? (b.commission_amount ?? 0) : 0;
+    return s + driverComm + arrangement;
+  }, 0);
+
   const totalOutstanding = (outstandingBookings ?? []).reduce((s: number, b: any) => s + (b.tvl_commission ?? 0), 0);
   const totalPendingPayouts = (pendingPayoutBookings ?? []).reduce((s: number, b: any) => s + (b.driver_receives ?? 0), 0);
+  const totalArrangementOutstanding = (arrangementFeeBookings ?? [])
+    .filter((b: any) => (b.arrangement_fee_status ?? "Outstanding") === "Outstanding")
+    .reduce((s: number, b: any) => s + (b.commission_amount ?? 0), 0);
 
-  // Build per-driver breakdown
+  // Per-driver breakdown
   const driverMap: Record<string, { outstanding: number; pending_payout: number; outstanding_jobs: any[]; payout_jobs: any[] }> = {};
 
   (allDrivers ?? []).forEach((d: any) => {
@@ -63,6 +100,7 @@ router.get("/", async (_req, res) => {
       tvl_ref: b.tvl_ref,
       date: b.date_time,
       client_name: b.clients?.name ?? null,
+      service_type: b.service_type,
       total_fare: (b.price ?? 0) + (b.additional_charges ?? 0),
       tvl_commission: b.tvl_commission ?? 0,
       driver_receives: b.driver_receives ?? 0,
@@ -81,6 +119,7 @@ router.get("/", async (_req, res) => {
       tvl_ref: b.tvl_ref,
       date: b.date_time,
       client_name: b.clients?.name ?? null,
+      service_type: b.service_type,
       total_fare: (b.price ?? 0) + (b.additional_charges ?? 0),
       tvl_commission: b.tvl_commission ?? 0,
       driver_receives: b.driver_receives ?? 0,
@@ -108,6 +147,19 @@ router.get("/", async (_req, res) => {
       jobs: [...v.outstanding_jobs, ...v.payout_jobs],
     }));
 
+  // Arrangement fees breakdown (Hotel + Apartment)
+  const arrangement_fees = (arrangementFeeBookings ?? []).map((b: any) => ({
+    booking_id: b.id,
+    tvl_ref: b.tvl_ref,
+    date: b.date_time,
+    client_name: b.clients?.name ?? null,
+    service_type: b.service_type,
+    commission_amount: b.commission_amount ?? 0,
+    commission_notes: b.commission_notes ?? null,
+    arrangement_fee_status: b.arrangement_fee_status ?? "Outstanding",
+    booking_price: b.price ?? 0,
+  }));
+
   const enrichedSettlements = (settlements ?? []).map((s: any) => ({
     ...s,
     driver_name: s.drivers?.name ?? null,
@@ -125,7 +177,9 @@ router.get("/", async (_req, res) => {
     total_earned_month: totalMonth,
     total_outstanding: totalOutstanding,
     total_pending_payouts: totalPendingPayouts,
+    total_arrangement_outstanding: totalArrangementOutstanding,
     driver_breakdown,
+    arrangement_fees,
     settlements: enrichedSettlements,
     payouts: enrichedPayouts,
   });
@@ -143,7 +197,6 @@ router.post("/settlements", async (req, res) => {
 
   if (error) return res.status(400).json({ error: error.message });
 
-  // Mark bookings as settled
   if (booking_ids?.length > 0) {
     await supabase.from("bookings").update({ commission_status: "Settled" }).in("id", booking_ids);
   }
@@ -173,7 +226,6 @@ router.post("/payouts", async (req, res) => {
 
   if (error) return res.status(400).json({ error: error.message });
 
-  // Mark bookings as paid
   if (booking_ids?.length > 0) {
     await supabase.from("bookings").update({ payout_status: "Paid" }).in("id", booking_ids);
   }
@@ -182,6 +234,30 @@ router.post("/payouts", async (req, res) => {
     `Payout £${total} made for ${week_start} to ${week_end}`);
 
   return res.status(201).json({ ...data, driver_name: data.drivers?.name ?? null, drivers: undefined });
+});
+
+// Mark a hotel/apartment arrangement fee as collected
+router.patch("/arrangement-fees/:bookingId", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  const { bookingId } = req.params;
+  const { status } = req.body;
+
+  if (!["Outstanding", "Collected"].includes(status)) {
+    return res.status(400).json({ error: "status must be Outstanding or Collected" });
+  }
+
+  const { error } = await supabase
+    .from("bookings")
+    .update({ arrangement_fee_status: status })
+    .eq("id", bookingId)
+    .in("service_type", ["Hotel", "Apartment"]);
+
+  if (error) return res.status(400).json({ error: error.message });
+
+  await auditLog("arrangement_fee_updated", "booking", bookingId, user?.id ?? null,
+    `Arrangement fee status set to ${status}`);
+
+  return res.json({ success: true });
 });
 
 export default router;
