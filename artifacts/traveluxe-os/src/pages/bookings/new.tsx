@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Check, UserPlus, AlertTriangle, ArrowLeft, Phone } from "lucide-react";
+import { Loader2, Search, Check, UserPlus, AlertTriangle, ArrowLeft, Phone, Pencil, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { format } from "date-fns";
 import { Label } from "@/components/ui/label";
@@ -111,6 +111,8 @@ export default function NewBooking() {
   const [isSearching, setIsSearching] = useState(false);
   const [foundClient, setFoundClient] = useState<FoundClient | null>(null);
   const [confirmedClient, setConfirmedClient] = useState<FoundClient | null>(null);
+  const [isEditingFound, setIsEditingFound] = useState(false);
+  const [savingFoundEdit, setSavingFoundEdit] = useState(false);
   const [nameDuplicateWarning, setNameDuplicateWarning] = useState<string | null>(null);
   const [orderLines, setOrderLines] = useState<OrderLine[]>([]);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -123,6 +125,62 @@ export default function NewBooking() {
     resolver: zodResolver(registerSchema),
     defaultValues: { name: "", email: "", nationality: "", vip_tier: "Standard" },
   });
+
+  const editFoundForm = useForm<z.infer<typeof registerSchema>>({
+    resolver: zodResolver(registerSchema),
+    defaultValues: { name: "", email: "", nationality: "", vip_tier: "Standard" },
+  });
+
+  const startEditFound = () => {
+    if (!foundClient) return;
+    editFoundForm.reset({
+      name: foundClient.name || "",
+      email: foundClient.email || "",
+      nationality: foundClient.nationality || "",
+      vip_tier: foundClient.vip_tier || "Standard",
+    });
+    setIsEditingFound(true);
+  };
+
+  const handleSaveFoundEdit = async (values: z.infer<typeof registerSchema>) => {
+    if (!foundClient) return;
+    setSavingFoundEdit(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const authToken = session?.access_token;
+      const res = await fetch(`/api/clients/${foundClient.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({
+          name: values.name,
+          email: values.email || null,
+          nationality: values.nationality || null,
+          vip_tier: values.vip_tier,
+        }),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || "Failed to update client");
+      }
+      const updated = await res.json();
+      setFoundClient({
+        ...foundClient,
+        name: updated.name,
+        email: updated.email,
+        nationality: updated.nationality,
+        vip_tier: updated.vip_tier,
+      });
+      setIsEditingFound(false);
+      toast({ title: "Client updated", description: `${updated.name}'s profile has been saved.` });
+    } catch (e: any) {
+      toast({ title: "Update failed", description: e.message, variant: "destructive" });
+    } finally {
+      setSavingFoundEdit(false);
+    }
+  };
 
   const bookingForm = useForm<z.infer<typeof bookingSchema>>({
     resolver: zodResolver(bookingSchema),
@@ -571,7 +629,7 @@ export default function NewBooking() {
             <p className="text-xs text-muted-foreground">Type the client's WhatsApp number — we'll check if they're already registered</p>
 
             {/* === Client FOUND === */}
-            {phase === "found" && foundClient && (
+            {phase === "found" && foundClient && !isEditingFound && (
               <div className="rounded-xl border border-green-500/40 bg-green-500/5 p-4 space-y-3">
                 <div className="flex items-start justify-between">
                   <div>
@@ -582,9 +640,25 @@ export default function NewBooking() {
                     {foundClient.nationality && (
                       <p className="text-sm text-muted-foreground">{foundClient.nationality}</p>
                     )}
+                    {foundClient.email && (
+                      <p className="text-xs text-muted-foreground">{foundClient.email}</p>
+                    )}
                   </div>
-                  <div className="w-9 h-9 rounded-full bg-green-500/20 flex items-center justify-center">
-                    <Check className="w-5 h-5 text-green-500" />
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 px-2 text-xs"
+                      onClick={startEditFound}
+                      title="Edit this client's profile"
+                    >
+                      <Pencil className="w-3.5 h-3.5 mr-1" />
+                      Edit
+                    </Button>
+                    <div className="w-9 h-9 rounded-full bg-green-500/20 flex items-center justify-center">
+                      <Check className="w-5 h-5 text-green-500" />
+                    </div>
                   </div>
                 </div>
                 {foundClient.lastBooking && (
@@ -601,6 +675,78 @@ export default function NewBooking() {
                 <button className="text-xs text-muted-foreground underline w-full text-center" onClick={() => { setFoundClient(null); setPhase("lookup"); setWaInput(""); }}>
                   Not this person? Clear and re-enter
                 </button>
+              </div>
+            )}
+
+            {/* === Client FOUND — EDIT MODE === */}
+            {phase === "found" && foundClient && isEditingFound && (
+              <div className="rounded-xl border border-amber-500/40 bg-amber-500/5 p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Pencil className="w-4 h-4 text-amber-500" />
+                    <span className="font-semibold text-sm text-foreground">Update profile for {foundClient.whatsapp}</span>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2"
+                    onClick={() => setIsEditingFound(false)}
+                    disabled={savingFoundEdit}
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </Button>
+                </div>
+                <Form {...editFoundForm}>
+                  <form onSubmit={editFoundForm.handleSubmit(handleSaveFoundEdit)} className="space-y-3">
+                    <FormField control={editFoundForm.control} name="name" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Full Name *</FormLabel>
+                        <FormControl><Input placeholder="e.g. Mohammed Al-Rashid" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField control={editFoundForm.control} name="email" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Email</FormLabel>
+                          <FormControl><Input type="email" placeholder="optional" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                      <FormField control={editFoundForm.control} name="nationality" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Nationality</FormLabel>
+                          <FormControl><Input placeholder="e.g. UAE" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    </div>
+                    <FormField control={editFoundForm.control} name="vip_tier" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>VIP Tier</FormLabel>
+                        <Select value={field.value} onValueChange={field.onChange}>
+                          <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                          <SelectContent>
+                            <SelectItem value="Standard">Standard</SelectItem>
+                            <SelectItem value="VIP">VIP</SelectItem>
+                            <SelectItem value="VVIP">VVIP</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    <div className="flex gap-2">
+                      <Button type="submit" className="flex-1 h-11" disabled={savingFoundEdit}>
+                        {savingFoundEdit ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Check className="w-4 h-4 mr-2" />}
+                        Save changes
+                      </Button>
+                      <Button type="button" variant="outline" className="h-11" onClick={() => setIsEditingFound(false)} disabled={savingFoundEdit}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </form>
+                </Form>
               </div>
             )}
 
