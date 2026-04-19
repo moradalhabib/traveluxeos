@@ -89,6 +89,10 @@ const bookingSchema = z.object({
   // Commission (Hotel / Apartment third-party)
   commission_amount: z.coerce.number().min(0).default(0),
   commission_notes: z.string().optional(),
+  // Hotel-only inputs (NOT persisted as columns — folded into price / commission_amount / notes)
+  hotel_cost_per_night: z.coerce.number().min(0).optional(),
+  hotel_sold_per_night: z.coerce.number().min(0).optional(),
+  hotel_third_party: z.string().optional(),
   // Apartment-specific financials
   weekly_rent: z.coerce.number().optional(),
   pre_deposit: z.coerce.number().optional(),
@@ -143,6 +147,14 @@ export default function NewBooking() {
   const driverReceives = price - commission;
   const checkIn = bookingForm.watch("check_in_date");
   const checkOut = bookingForm.watch("check_out_date");
+  // Hotel financial calculations
+  const hotelNights = bookingForm.watch("num_nights") || 0;
+  const hotelCostPerNight = bookingForm.watch("hotel_cost_per_night") || 0;
+  const hotelSoldPerNight = bookingForm.watch("hotel_sold_per_night") || 0;
+  const hotelTotalCost = hotelCostPerNight * hotelNights;
+  const hotelTotalRevenue = hotelSoldPerNight * hotelNights;
+  const hotelCommissionPerNight = Math.max(0, hotelSoldPerNight - hotelCostPerNight);
+  const hotelTotalCommission = hotelCommissionPerNight * hotelNights;
   const isTourType = serviceType === "Tour";
   const isAccommodation = serviceType === "Apartment";
   const isHotel = serviceType === "Hotel";
@@ -166,6 +178,16 @@ export default function NewBooking() {
       }
     }
   }, [checkIn, checkOut, isHotel]);
+
+  // Hotel: auto-set the booking price (what client pays) and commission earned
+  // from the per-night inputs and number of nights. We never use any field
+  // called "TVL commission" for hotels — there is no driver to split with.
+  useEffect(() => {
+    if (!isHotel) return;
+    bookingForm.setValue("price", hotelTotalRevenue);
+    bookingForm.setValue("commission_amount", hotelTotalCommission);
+    bookingForm.setValue("tvl_commission", 0);
+  }, [isHotel, hotelTotalRevenue, hotelTotalCommission]);
 
   // Populate client_id from URL param on mount (coming from client profile)
   useEffect(() => {
@@ -333,6 +355,8 @@ export default function NewBooking() {
       additional_charges: values.additional_charges,
       price: values.price,
       tvl_commission: values.tvl_commission,
+      commission_amount: values.commission_amount,
+      commission_notes: values.commission_notes,
       payment_status: values.payment_status,
       payment_method: values.payment_method,
       source: values.source,
@@ -370,7 +394,21 @@ export default function NewBooking() {
       if (values.num_nights) extraDetails.push(`Nights: ${values.num_nights}`);
       if (values.num_guests) extraDetails.push(`Guests: ${values.num_guests}`);
       if (values.breakfast_included) extraDetails.push(`Breakfast: Included`);
-      if (values.commission_amount) extraDetails.push(`Commission: £${values.commission_amount}${values.commission_notes ? ` — ${values.commission_notes}` : ""}`);
+      // Per-night financials breakdown
+      if (values.hotel_cost_per_night) extraDetails.push(`Cost/Night: £${values.hotel_cost_per_night}`);
+      if (values.hotel_sold_per_night) extraDetails.push(`Sold/Night: £${values.hotel_sold_per_night}`);
+      if (hotelTotalCost > 0) extraDetails.push(`Total Cost: £${hotelTotalCost}`);
+      if (values.hotel_third_party) extraDetails.push(`Source: ${values.hotel_third_party}`);
+      // Synthesise commission_notes for the commissions/finance pages
+      const noteParts: string[] = [];
+      if (values.hotel_third_party) noteParts.push(`Source: ${values.hotel_third_party}`);
+      if (values.hotel_cost_per_night && values.hotel_sold_per_night) {
+        noteParts.push(`£${values.hotel_cost_per_night}/n cost · £${values.hotel_sold_per_night}/n sold · ${values.num_nights ?? 0}n`);
+      }
+      if (noteParts.length > 0 && !values.commission_notes) {
+        allowedPayload.commission_notes = noteParts.join(" — ");
+      }
+      if (hotelTotalCommission > 0) extraDetails.push(`Commission Earned: £${hotelTotalCommission}`);
     }
     if (values.service_type === "Apartment") {
       if (values.property_name) extraDetails.push(`Property: ${values.property_name}`);
@@ -863,6 +901,68 @@ export default function NewBooking() {
                           <label htmlFor="breakfast_included" className="text-sm font-medium cursor-pointer">Breakfast included</label>
                         </div>
                       </div>
+
+                      {/* Hotel Financials — auto-calculated from per-night inputs */}
+                      <div className="mt-4 space-y-3 p-3 rounded-lg border border-primary/30 bg-primary/5">
+                        <p className="text-xs font-semibold text-primary uppercase tracking-wider">Hotel Financials</p>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <FormField control={bookingForm.control} name="hotel_cost_per_night" render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Cost per Night (£) <span className="text-xs text-muted-foreground font-normal">(what we pay)</span></FormLabel>
+                              <FormControl><Input type="number" step="0.01" min="0" placeholder="0.00" {...field} value={field.value ?? ""} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                          <FormField control={bookingForm.control} name="hotel_sold_per_night" render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Sold to Client / Night (£)</FormLabel>
+                              <FormControl><Input type="number" step="0.01" min="0" placeholder="0.00" {...field} value={field.value ?? ""} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Total Cost ({hotelNights} night{hotelNights !== 1 ? "s" : ""})</Label>
+                            <div className="h-10 flex items-center px-3 border border-border rounded-md bg-muted/40 font-bold text-foreground">
+                              £{hotelTotalCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            </div>
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Total Charged to Client</Label>
+                            <div className="h-10 flex items-center px-3 border border-primary/30 rounded-md bg-primary/10 font-bold text-primary">
+                              £{hotelTotalRevenue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="border-t border-primary/20 pt-3 space-y-3">
+                          <FormField control={bookingForm.control} name="hotel_third_party" render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Third Party / Source <span className="text-xs text-muted-foreground font-normal">(name only — we earn commission, we do not pay it)</span></FormLabel>
+                              <FormControl><Input placeholder="e.g. Booking.com, Direct, ABC Travel" {...field} value={field.value ?? ""} /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Commission / Night</Label>
+                              <div className="h-10 flex items-center px-3 border border-emerald-500/40 rounded-md bg-emerald-500/10 font-bold text-emerald-400">
+                                £{hotelCommissionPerNight.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                              </div>
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Total Commission Earned</Label>
+                              <div className="h-10 flex items-center px-3 border border-emerald-500/40 rounded-md bg-emerald-500/10 font-bold text-emerald-400">
+                                £{hotelTotalCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   )}
 
@@ -1046,52 +1146,72 @@ export default function NewBooking() {
               <Card className="border-primary/10">
                 <CardHeader className="pb-3"><CardTitle className="text-base">Financials &amp; Assignment</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-3 gap-3">
-                    <FormField control={bookingForm.control} name="price" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Price (£)</FormLabel>
-                        <FormControl><Input type="number" step="0.01" {...field} className="text-lg font-bold" /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={bookingForm.control} name="tvl_commission" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>TVL Commission (£)</FormLabel>
-                        <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    {!needsCommission && (
-                      <div className="space-y-2">
-                        <Label className="text-sm font-medium">Driver Gets</Label>
-                        <div className="h-10 flex items-center px-3 border border-border rounded-md bg-muted/50 font-bold text-primary">
-                          £{driverReceives.toFixed(0)}
+                  {/* For Hotel: price + commission are auto-calculated above. Show a read-only summary. */}
+                  {isHotel ? (
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label className="text-xs uppercase tracking-wider text-muted-foreground">Total Price (auto)</Label>
+                        <div className="h-10 flex items-center px-3 border border-primary/30 rounded-md bg-primary/10 font-bold text-primary text-lg">
+                          £{hotelTotalRevenue.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                         </div>
                       </div>
-                    )}
-                  </div>
-
-                  {/* Third-party Commission — Hotel & Apartment only */}
-                  {needsCommission && (
-                    <div className="space-y-3 p-3 rounded-xl border border-primary/20 bg-primary/5">
-                      <p className="text-xs font-semibold text-primary uppercase tracking-wider">Third-party Commission</p>
-                      <div className="grid grid-cols-2 gap-3">
-                        <FormField control={bookingForm.control} name="commission_amount" render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Commission Paid (£)</FormLabel>
-                            <FormControl><Input type="number" step="0.01" placeholder="0.00" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
-                        <FormField control={bookingForm.control} name="commission_notes" render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Commission Notes</FormLabel>
-                            <FormControl><Input placeholder="e.g. Agent: XYZ Travels" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
+                      <div className="space-y-1">
+                        <Label className="text-xs uppercase tracking-wider text-muted-foreground">Commission Earned (auto)</Label>
+                        <div className="h-10 flex items-center px-3 border border-emerald-500/40 rounded-md bg-emerald-500/10 font-bold text-emerald-400 text-lg">
+                          £{hotelTotalCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                        </div>
                       </div>
                     </div>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-3 gap-3">
+                        <FormField control={bookingForm.control} name="price" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Price (£)</FormLabel>
+                            <FormControl><Input type="number" step="0.01" {...field} className="text-lg font-bold" /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="tvl_commission" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>TVL Commission (£)</FormLabel>
+                            <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        {!needsCommission && (
+                          <div className="space-y-2">
+                            <Label className="text-sm font-medium">Driver Gets</Label>
+                            <div className="h-10 flex items-center px-3 border border-border rounded-md bg-muted/50 font-bold text-primary">
+                              £{driverReceives.toFixed(0)}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Third-party Commission — Apartment only (Hotel handled above) */}
+                      {isAccommodation && (
+                        <div className="space-y-3 p-3 rounded-xl border border-primary/20 bg-primary/5">
+                          <p className="text-xs font-semibold text-primary uppercase tracking-wider">Third-party Commission</p>
+                          <div className="grid grid-cols-2 gap-3">
+                            <FormField control={bookingForm.control} name="commission_amount" render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Commission Earned (£)</FormLabel>
+                                <FormControl><Input type="number" step="0.01" placeholder="0.00" {...field} /></FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )} />
+                            <FormField control={bookingForm.control} name="commission_notes" render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Commission Notes</FormLabel>
+                                <FormControl><Input placeholder="e.g. Agent: XYZ Travels" {...field} /></FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )} />
+                          </div>
+                        </div>
+                      )}
+                    </>
                   )}
 
                   {/* Apartment rental financials */}
