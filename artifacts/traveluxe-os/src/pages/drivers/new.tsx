@@ -16,6 +16,7 @@ const formSchema = z.object({
   name: z.string().min(2, "Name required"),
   staff_no: z.string().optional(),
   whatsapp: z.string().min(5, "WhatsApp required"),
+  email: z.string().email("Valid email required for job alerts").optional().or(z.literal("")),
   vehicle_model: z.string().min(1, "Vehicle name required (e.g. MB V-Class)"),
   vehicle_type: z.string().default("MPV"),
   plate: z.string().optional(),
@@ -42,6 +43,7 @@ export default function NewDriver() {
       name: "",
       staff_no: "",
       whatsapp: "",
+      email: "",
       vehicle_model: "",
       vehicle_type: "MPV",
       plate: "",
@@ -100,6 +102,18 @@ export default function NewDriver() {
                   <FormItem>
                     <FormLabel>WhatsApp Number *</FormLabel>
                     <FormControl><Input type="tel" placeholder="+44 7700 000000" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="email" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Email
+                      <span className="text-xs text-muted-foreground font-normal ml-1">
+                        Receives auto job-assignment alerts
+                      </span>
+                    </FormLabel>
+                    <FormControl><Input type="email" placeholder="driver@example.com" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />

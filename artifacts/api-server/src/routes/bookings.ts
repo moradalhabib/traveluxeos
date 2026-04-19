@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { supabase, auditLog, getUserFromToken, getDbClient } from "../lib/supabase";
 import { sendEmail } from "../services/email";
+import { notifyDriverAssigned } from "../services/scheduler";
 import { bookingConfirmationHtml, paymentReceiptHtml } from "../templates/emailTemplates";
 
 const router = Router();
@@ -180,6 +181,7 @@ router.post("/", async (req, res) => {
   // Update driver assigned status if driver provided
   if (body.driver_id) {
     await supabase.from("bookings").update({ status: "Driver Assigned" }).eq("id", data.id).eq("status", "Confirmed");
+    notifyDriverAssigned(data.id).catch(() => {});
   }
 
   await auditLog("create_booking", "booking", data.id, user?.id ?? null,
@@ -292,6 +294,11 @@ router.put("/:id", async (req, res) => {
   const updated: any = data;
 
   // If driver assigned, update status
+  // Notify driver if a new driver was just assigned via PUT
+  if (body.driver_id && body.driver_id !== prev?.driver_id) {
+    notifyDriverAssigned(req.params.id).catch(() => {});
+  }
+
   if (body.driver_id && updated.status === "Confirmed") {
     await supabase.from("bookings").update({ status: "Driver Assigned" }).eq("id", req.params.id);
   }

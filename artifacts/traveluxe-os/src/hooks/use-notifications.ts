@@ -58,10 +58,35 @@ function setFlightCache(cache: Record<string, string>) {
   } catch {}
 }
 
-function browserNotify(title: string, body: string) {
+// Register the service worker once so notifications work even when the
+// browser tab is in the background or minimised. Falls back silently if SW
+// is unavailable (e.g. http: localhost in some browsers).
+let swReg: ServiceWorkerRegistration | null = null;
+if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
+  const swUrl = (import.meta.env.BASE_URL || "/") + "sw.js";
+  navigator.serviceWorker
+    .register(swUrl, { scope: import.meta.env.BASE_URL || "/" })
+    .then((reg) => { swReg = reg; })
+    .catch(() => {});
+}
+
+function browserNotify(title: string, body: string, link?: string) {
   if (typeof Notification === "undefined") return;
   if (Notification.permission === "granted") {
     try {
+      // Prefer the service-worker registration so the notification stays
+      // visible even when the tab is in the background.
+      if (swReg && swReg.showNotification) {
+        swReg.showNotification(title, {
+          body,
+          icon: "/favicon.ico",
+          badge: "/favicon.ico",
+          data: { link },
+          tag: title,
+          renotify: true,
+        } as any);
+        return;
+      }
       new Notification(title, { body, icon: "/favicon.ico" });
     } catch {}
   }
