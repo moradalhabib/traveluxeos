@@ -4,6 +4,8 @@ import { supabase } from "@/lib/supabase";
 export type NotifType =
   | "booking_new"
   | "booking_update"
+  | "booking_started"
+  | "booking_reminder"
   | "flight_delay"
   | "flight_landed"
   | "flight_early"
@@ -201,6 +203,98 @@ export function useNotifications() {
     return () => {
       if (bookingTimerRef.current) clearInterval(bookingTimerRef.current);
     };
+  }, [push]);
+
+  // Auto-activate jobs whose start time has arrived + 2h reminder polling
+  // Runs every 60 seconds. Only auto-activates jobs that started in the last 24h
+  // so we don't reactivate ancient un-completed bookings.
+  useEffect(() => {
+    const REMINDER_KEY = "tvl_reminded_bookings";
+    const loadReminded = (): Record<string, number> => {
+      try { return JSON.parse(localStorage.getItem(REMINDER_KEY) ?? "{}"); }
+      catch { return {}; }
+    };
+    const saveReminded = (m: Record<string, number>) => {
+      try { localStorage.setItem(REMINDER_KEY, JSON.stringify(m)); } catch {}
+    };
+
+    const tick = async () => {
+      try {
+        const now = Date.now();
+        const dayAgo = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+        const nowIso = new Date(now).toISOString();
+        const twoHoursAgo = new Date(now - 2 * 60 * 60 * 1000).toISOString();
+
+        // 1) Auto-activate: bookings where start has passed but status is pre-active
+        const { data: toActivate } = await supabase
+          .from("bookings")
+          .select("id, tvl_ref, client_name, status, date_time")
+          .in("status", ["Confirmed", "Driver Assigned"])
+          .gte("date_time", dayAgo)
+          .lte("date_time", nowIso)
+          .limit(20);
+
+        if (toActivate && toActivate.length > 0) {
+          const { data: { session } } = await supabase.auth.getSession();
+          const token = session?.access_token;
+          for (const bk of toActivate) {
+            try {
+              const res = await fetch(`/api/bookings/${bk.id}/status`, {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
+                },
+                body: JSON.stringify({ status: "Active" }),
+              });
+              if (res.ok) {
+                push(
+                  "booking_started",
+                  "Job Started",
+                  `${bk.tvl_ref ?? ""} · ${bk.client_name ?? ""} is now Active`,
+                  `/bookings/${bk.id}`
+                );
+              }
+            } catch {}
+          }
+        }
+
+        // 2) Reminders: Active bookings whose start was >= 2h ago, not yet reminded
+        const { data: toRemind } = await supabase
+          .from("bookings")
+          .select("id, tvl_ref, client_name, status, date_time, payment_status")
+          .eq("status", "Active")
+          .lte("date_time", twoHoursAgo)
+          .gte("date_time", dayAgo)
+          .limit(20);
+
+        if (toRemind && toRemind.length > 0) {
+          const reminded = loadReminded();
+          let changed = false;
+          for (const bk of toRemind) {
+            if (reminded[bk.id]) continue;
+            push(
+              "booking_reminder",
+              "Action Required",
+              `${bk.tvl_ref ?? ""} · ${bk.client_name ?? ""} — please mark Completed & Paid`,
+              `/bookings/${bk.id}`
+            );
+            reminded[bk.id] = now;
+            changed = true;
+          }
+          // Garbage-collect entries older than 7 days
+          const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+          for (const k of Object.keys(reminded)) {
+            if (reminded[k] < weekAgo) { delete reminded[k]; changed = true; }
+          }
+          if (changed) saveReminded(reminded);
+        }
+      } catch {}
+    };
+
+    tick();
+    const t = setInterval(tick, 60 * 1000);
+    return () => clearInterval(t);
   }, [push]);
 
   // Flight status polling — every 4 minutes
