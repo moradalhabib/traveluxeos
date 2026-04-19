@@ -176,7 +176,10 @@ router.put("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
   const { id } = req.params;
 
-  const ALLOWED = new Set(["name","whatsapp","email","nationality","language_preference","vip_tier","notes","inactive"]);
+  const ALLOWED = new Set([
+    "name","whatsapp","email","nationality","language_preference","vip_tier","notes","inactive",
+    "preferred_driver_id","favourite_vehicle_type","service_preferences","dietary_notes","usual_pickup_locations"
+  ]);
   const body: Record<string, any> = {};
   for (const [k, v] of Object.entries(req.body)) {
     if (ALLOWED.has(k)) body[k] = v;

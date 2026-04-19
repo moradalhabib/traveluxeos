@@ -7,11 +7,51 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { MessageSquare, Edit, ArrowLeft, Ban, Plus, CalendarRange, Trash2 } from "lucide-react";
-import { format } from "date-fns";
+import { MessageSquare, Edit, ArrowLeft, Ban, Plus, CalendarRange, Trash2, Crown, Sparkles, ShieldCheck, Lock, Star } from "lucide-react";
+import { format, differenceInMonths } from "date-fns";
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
+
+// ── Recognition tier (operator-only, never shown to client) ────────────────
+type Tier = "Guest" | "Patron" | "Ambassador" | "Maison";
+
+const TIER_CONFIG: Record<Tier, {
+  label: string; minBookings: number; minSpend: number;
+  color: string; bg: string; icon: typeof Crown;
+  perks: string[];
+}> = {
+  Guest:      { label: "Guest",      minBookings: 0,  minSpend: 0,     color: "text-muted-foreground", bg: "bg-secondary border-border", icon: Star,
+                perks: ["Standard service"] },
+  Patron:     { label: "Patron",     minBookings: 5,  minSpend: 5000,  color: "text-blue-300",         bg: "bg-blue-500/10 border-blue-500/30", icon: ShieldCheck,
+                perks: ["Priority dispatch", "Preferred-driver requests honoured"] },
+  Ambassador: { label: "Ambassador", minBookings: 15, minSpend: 15000, color: "text-primary",          bg: "bg-primary/10 border-primary/30", icon: Sparkles,
+                perks: ["All Patron perks", "Named dedicated driver", "Champagne in vehicle on request", "Courtesy flight-monitoring call"] },
+  Maison:     { label: "Maison",     minBookings: 40, minSpend: 40000, color: "text-purple-300",       bg: "bg-purple-500/10 border-purple-500/30", icon: Crown,
+                perks: ["All Ambassador perks", "24/7 concierge line", "Complimentary 4th hour on As-Directed", "Birthday & anniversary acknowledgement"] },
+};
+const TIER_ORDER: Tier[] = ["Guest", "Patron", "Ambassador", "Maison"];
+
+function computeTier(bookings: number, spent: number): Tier {
+  if (bookings >= TIER_CONFIG.Maison.minBookings || spent >= TIER_CONFIG.Maison.minSpend) return "Maison";
+  if (bookings >= TIER_CONFIG.Ambassador.minBookings || spent >= TIER_CONFIG.Ambassador.minSpend) return "Ambassador";
+  if (bookings >= TIER_CONFIG.Patron.minBookings || spent >= TIER_CONFIG.Patron.minSpend) return "Patron";
+  return "Guest";
+}
+
+function nextTierProgress(bookings: number, spent: number, current: Tier) {
+  const idx = TIER_ORDER.indexOf(current);
+  if (idx === TIER_ORDER.length - 1) return null;
+  const next = TIER_ORDER[idx + 1];
+  const cfg = TIER_CONFIG[next];
+  const bookingsNeeded = Math.max(0, cfg.minBookings - bookings);
+  const spendNeeded = Math.max(0, cfg.minSpend - spent);
+  // pick whichever path is closer
+  const bookingsPct = cfg.minBookings > 0 ? Math.min(100, (bookings / cfg.minBookings) * 100) : 0;
+  const spendPct = cfg.minSpend > 0 ? Math.min(100, (spent / cfg.minSpend) * 100) : 0;
+  const closerPct = Math.max(bookingsPct, spendPct);
+  return { next, bookingsNeeded, spendNeeded, pct: closerPct };
+}
 
 export default function ClientDetail() {
   const params = useParams();
@@ -34,6 +74,10 @@ export default function ClientDetail() {
   const [editLanguage, setEditLanguage] = useState("");
   const [editVip, setEditVip] = useState("");
   const [editNotes, setEditNotes] = useState("");
+  const [editFavVehicle, setEditFavVehicle] = useState("");
+  const [editServicePrefs, setEditServicePrefs] = useState("");
+  const [editDietary, setEditDietary] = useState("");
+  const [editPickups, setEditPickups] = useState("");
 
   // Delete dialog state
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -49,6 +93,10 @@ export default function ClientDetail() {
     setEditLanguage((client as any).language_preference || "");
     setEditVip((client as any).vip_tier || "Standard");
     setEditNotes((client as any).notes || "");
+    setEditFavVehicle((client as any).favourite_vehicle_type || "");
+    setEditServicePrefs((client as any).service_preferences || "");
+    setEditDietary((client as any).dietary_notes || "");
+    setEditPickups((client as any).usual_pickup_locations || "");
     setEditOpen(true);
   };
 
@@ -69,6 +117,10 @@ export default function ClientDetail() {
           language_preference: editLanguage || undefined,
           vip_tier: editVip || "Standard",
           notes: editNotes || undefined,
+          favourite_vehicle_type: editFavVehicle || null,
+          service_preferences: editServicePrefs || null,
+          dietary_notes: editDietary || null,
+          usual_pickup_locations: editPickups || null,
         }),
       });
       if (!res.ok) throw new Error(await res.text());
@@ -139,6 +191,16 @@ export default function ClientDetail() {
 
   const waNumber = (client as any).whatsapp?.replace(/\D/g, '') || '';
 
+  // ── Recognition tier (operator-only) ──────────────────────────────────
+  const totalBookings = (client as any).total_bookings ?? 0;
+  const totalSpent = (client as any).total_spent ?? 0;
+  const tier: Tier = computeTier(totalBookings, totalSpent);
+  const tierCfg = TIER_CONFIG[tier];
+  const TierIcon = tierCfg.icon;
+  const progress = nextTierProgress(totalBookings, totalSpent, tier);
+  const clientSince = (client as any).created_at ? new Date((client as any).created_at) : null;
+  const monthsActive = clientSince ? Math.max(0, differenceInMonths(new Date(), clientSince)) : 0;
+
   return (
     <div className="space-y-5 max-w-4xl mx-auto">
       <Button variant="ghost" onClick={() => setLocation("/clients")} className="mb-2 -ml-2">
@@ -190,18 +252,104 @@ export default function ClientDetail() {
       {/* Stats strip */}
       <div className="grid grid-cols-3 gap-3">
         <div className="rounded-xl border border-border bg-card p-4 text-center">
-          <div className="text-2xl font-bold text-foreground">{(client as any).total_bookings || 0}</div>
+          <div className="text-2xl font-bold text-foreground">{totalBookings}</div>
           <div className="text-xs text-muted-foreground mt-1">Bookings</div>
         </div>
         <div className="rounded-xl border border-border bg-card p-4 text-center">
-          <div className="text-2xl font-bold text-primary">£{((client as any).total_spent || 0).toLocaleString()}</div>
+          <div className="text-2xl font-bold text-primary">£{totalSpent.toLocaleString()}</div>
           <div className="text-xs text-muted-foreground mt-1">Total Spent</div>
         </div>
         <div className="rounded-xl border border-border bg-card p-4 text-center">
-          <div className="text-sm font-bold text-foreground">{(client as any).language_preference || '—'}</div>
-          <div className="text-xs text-muted-foreground mt-1">Language</div>
+          <div className="text-sm font-bold text-foreground">
+            {clientSince ? `${monthsActive}mo` : '—'}
+          </div>
+          <div className="text-xs text-muted-foreground mt-1">
+            {clientSince ? `Since ${format(clientSince, 'MMM yyyy')}` : 'Client Since'}
+          </div>
         </div>
       </div>
+
+      {/* ── RECOGNITION TIER (Operator-only) ─────────────────────────── */}
+      <Card className={`${tierCfg.bg} border`}>
+        <CardContent className="p-4 space-y-3">
+          {/* Operator-only banner */}
+          <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground/80 font-semibold">
+            <Lock className="w-3 h-3" />
+            Internal · Operator-only · Do not share with client
+          </div>
+
+          {/* Tier header */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className={`w-12 h-12 rounded-2xl ${tierCfg.bg} border flex items-center justify-center`}>
+                <TierIcon className={`w-6 h-6 ${tierCfg.color}`} />
+              </div>
+              <div>
+                <div className={`text-lg font-bold ${tierCfg.color}`}>{tierCfg.label}</div>
+                <div className="text-xs text-muted-foreground">
+                  Recognition tier · auto-calculated
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Progress to next */}
+          {progress && (
+            <div className="space-y-1.5 pt-1">
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-muted-foreground">Progress to <span className={TIER_CONFIG[progress.next].color}>{progress.next}</span></span>
+                <span className="font-medium text-foreground">
+                  {progress.bookingsNeeded > 0 && progress.spendNeeded > 0
+                    ? `${progress.bookingsNeeded} more bookings or £${progress.spendNeeded.toLocaleString()}`
+                    : "Threshold met — promotes on next booking"}
+                </span>
+              </div>
+              <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+                <div
+                  className={`h-full rounded-full ${tierCfg.color.replace('text-', 'bg-')}`}
+                  style={{ width: `${progress.pct}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Operator perks to offer */}
+          <div className="pt-2 border-t border-border/50">
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-2 font-semibold">
+              Perks you can offer this client
+            </div>
+            <ul className="space-y-1">
+              {tierCfg.perks.map((p, i) => (
+                <li key={i} className="text-xs text-foreground flex items-start gap-1.5">
+                  <span className={`mt-0.5 ${tierCfg.color}`}>·</span>
+                  <span>{p}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Service preferences (operator notes) */}
+          {((client as any).service_preferences || (client as any).dietary_notes || (client as any).favourite_vehicle_type || (client as any).usual_pickup_locations) && (
+            <div className="pt-2 border-t border-border/50 space-y-2">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                Personal touches
+              </div>
+              {(client as any).favourite_vehicle_type && (
+                <div className="text-xs"><span className="text-muted-foreground">Vehicle preference: </span><span className="text-foreground font-medium">{(client as any).favourite_vehicle_type}</span></div>
+              )}
+              {(client as any).service_preferences && (
+                <div className="text-xs"><span className="text-muted-foreground">Service notes: </span><span className="text-foreground">{(client as any).service_preferences}</span></div>
+              )}
+              {(client as any).dietary_notes && (
+                <div className="text-xs"><span className="text-muted-foreground">Dietary / refreshments: </span><span className="text-foreground">{(client as any).dietary_notes}</span></div>
+              )}
+              {(client as any).usual_pickup_locations && (
+                <div className="text-xs"><span className="text-muted-foreground">Usual pickups: </span><span className="text-foreground">{(client as any).usual_pickup_locations}</span></div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Client info */}
       <Card className="border-primary/10 bg-card">
@@ -366,6 +514,36 @@ export default function ClientDetail() {
                 placeholder="Internal notes..."
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none"
               />
+            </div>
+
+            {/* Operator-only personal touches */}
+            <div className="pt-3 mt-3 border-t border-border space-y-3">
+              <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                <Lock className="w-3 h-3" />
+                Personal touches (operator-only)
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Vehicle preference</p>
+                <Input value={editFavVehicle} onChange={e => setEditFavVehicle(e.target.value)} placeholder="e.g. Mercedes V-Class, Range Rover" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Service notes</p>
+                <textarea
+                  value={editServicePrefs}
+                  onChange={e => setEditServicePrefs(e.target.value)}
+                  rows={2}
+                  placeholder="e.g. prefers silent rides, classical music, extra phone charger"
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm resize-none"
+                />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Dietary / refreshments</p>
+                <Input value={editDietary} onChange={e => setEditDietary(e.target.value)} placeholder="e.g. Pellegrino sparkling, no nuts" />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Usual pickup locations</p>
+                <Input value={editPickups} onChange={e => setEditPickups(e.target.value)} placeholder="e.g. Claridge's, Annabel's, Heathrow T5" />
+              </div>
             </div>
           </div>
           <DialogFooter>
