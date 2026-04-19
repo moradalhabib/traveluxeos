@@ -438,7 +438,15 @@ export default function BookingDetail() {
     <div className="space-y-5 max-w-3xl mx-auto pb-10">
       {/* Header */}
       <div className="flex items-center gap-3">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/jobs")} className="-ml-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => {
+            if (window.history.length > 1) window.history.back();
+            else setLocation("/jobs");
+          }}
+          className="-ml-2"
+        >
           <ArrowLeft className="w-5 h-5" />
         </Button>
         <div className="flex-1">
