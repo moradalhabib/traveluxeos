@@ -344,11 +344,14 @@ export default function NewBooking() {
 
     // Fold service-specific details into notes so data is preserved
     const extraDetails: string[] = [];
+    // 2nd/3rd driver — all transport types (multi-vehicle bookings)
+    if (!["Hotel", "Apartment"].includes(values.service_type)) {
+      if (values.driver2_name) extraDetails.push(`Driver 2: ${values.driver2_name}`);
+      if (values.driver3_name) extraDetails.push(`Driver 3: ${values.driver3_name}`);
+    }
     if (values.service_type === "As Directed") {
       if (values.check_in_date) extraDetails.push(`Rental Start: ${values.check_in_date}`);
       if (values.check_out_date) extraDetails.push(`Rental Return: ${values.check_out_date}`);
-      if (values.driver2_name) extraDetails.push(`Driver 2: ${values.driver2_name}`);
-      if (values.driver3_name) extraDetails.push(`Driver 3: ${values.driver3_name}`);
       if (values.chauffeuring_notes) extraDetails.push(`Service Notes: ${values.chauffeuring_notes}`);
     }
     if (values.service_type === "Tour") {
@@ -646,7 +649,7 @@ export default function NewBooking() {
                             <SelectItem value="WhatsApp">WhatsApp</SelectItem>
                             <SelectItem value="Snapchat">Snapchat</SelectItem>
                             <SelectItem value="Referral">Referral</SelectItem>
-                            <SelectItem value="Returning">Returning</SelectItem>
+                            <SelectItem value="Returning Client">Returning Client</SelectItem>
                             <SelectItem value="Other">Other</SelectItem>
                           </SelectContent>
                         </Select>
@@ -943,26 +946,6 @@ export default function NewBooking() {
                     </div>
                   )}
 
-                  {/* Second + Third driver — As Directed only */}
-                  {isAsDirected && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <FormField control={bookingForm.control} name="driver2_name" render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Second Driver <span className="text-xs text-muted-foreground font-normal">(optional)</span></FormLabel>
-                          <FormControl><Input placeholder="Driver name" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
-                      <FormField control={bookingForm.control} name="driver3_name" render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Third Driver <span className="text-xs text-muted-foreground font-normal">(optional)</span></FormLabel>
-                          <FormControl><Input placeholder="Driver name" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
-                    </div>
-                  )}
-
                   {/* Chauffeuring service notes — As Directed only */}
                   {isAsDirected && (
                     <FormField control={bookingForm.control} name="chauffeuring_notes" render={({ field }) => (
@@ -1253,6 +1236,46 @@ export default function NewBooking() {
                           <FormMessage />
                         </FormItem>
                       )} />
+
+                      {/* 2nd & 3rd Driver — all transport types (multi-vehicle bookings) */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField control={bookingForm.control} name="driver2_name" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>2nd Driver <span className="text-xs text-muted-foreground font-normal">(optional — multi-vehicle)</span></FormLabel>
+                            <Select onValueChange={(val) => field.onChange(val === "none" ? "" : val)} value={field.value || "none"}>
+                              <FormControl><SelectTrigger><SelectValue placeholder="None" /></SelectTrigger></FormControl>
+                              <SelectContent>
+                                <SelectItem value="none">None</SelectItem>
+                                {drivers?.map((driver: any) => (
+                                  <SelectItem key={driver.id} value={driver.name}>
+                                    {driver.name} · {driver.vehicle_model || driver.vehicle_type}
+                                    {driver.plate ? ` (${driver.plate})` : ""}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="driver3_name" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>3rd Driver <span className="text-xs text-muted-foreground font-normal">(optional — multi-vehicle)</span></FormLabel>
+                            <Select onValueChange={(val) => field.onChange(val === "none" ? "" : val)} value={field.value || "none"}>
+                              <FormControl><SelectTrigger><SelectValue placeholder="None" /></SelectTrigger></FormControl>
+                              <SelectContent>
+                                <SelectItem value="none">None</SelectItem>
+                                {drivers?.map((driver: any) => (
+                                  <SelectItem key={driver.id} value={driver.name}>
+                                    {driver.name} · {driver.vehicle_model || driver.vehicle_type}
+                                    {driver.plate ? ` (${driver.plate})` : ""}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      </div>
                     </>
                   )}
 

@@ -8,11 +8,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import {
   ArrowLeft, ArrowRight, PlaneTakeoff, Car, Map, Building2, Hotel,
-  CalendarRange, TrendingUp, Clock, CheckCircle2, Plus
+  CalendarRange, TrendingUp, Clock, CheckCircle2, Plus, Package, Tag
 } from "lucide-react";
 import { Link } from "wouter";
 
-// Fixed canonical service definitions — always exactly these 5
 const SERVICES = [
   {
     key: "Airport Transfer",
@@ -53,7 +52,6 @@ const SERVICES = [
 
 type ServiceKey = typeof SERVICES[number]["key"];
 
-// Legacy DB name → canonical key (handles pre-migration DB state)
 const LEGACY_MAP: Record<string, ServiceKey> = {
   "City Tour":                "Tour",
   "Chauffeur Tour":           "Tour",
@@ -62,15 +60,16 @@ const LEGACY_MAP: Record<string, ServiceKey> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  "Confirmed":   "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  "Completed":   "bg-green-500/20 text-green-400 border-green-500/30",
-  "Pending":     "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  "Cancelled":   "bg-destructive/20 text-destructive border-destructive/30",
-  "Invoiced":    "bg-purple-500/20 text-purple-400 border-purple-500/30",
-  "In Progress": "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
+  "Confirmed":        "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  "Driver Assigned":  "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
+  "Completed":        "bg-green-500/20 text-green-400 border-green-500/30",
+  "Pending":          "bg-amber-500/20 text-amber-400 border-amber-500/30",
+  "Cancelled":        "bg-destructive/20 text-destructive border-destructive/30",
+  "Invoiced":         "bg-purple-500/20 text-purple-400 border-purple-500/30",
+  "In Progress":      "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
 };
 
-const STATUS_FILTERS = ["All", "Pending", "Confirmed", "In Progress", "Completed", "Invoiced", "Cancelled"];
+const STATUS_FILTERS = ["All", "Confirmed", "Driver Assigned", "In Progress", "Completed", "Invoiced", "Cancelled"];
 
 interface Booking {
   id: string;
@@ -86,6 +85,17 @@ interface Booking {
   dropoff: string | null;
 }
 
+interface Product {
+  id: string;
+  name: string;
+  category: string;
+  base_price: number;
+  unit: string | null;
+  description: string | null;
+  service_types: string[] | null;
+  active: boolean;
+}
+
 function canonicalKey(raw: string): ServiceKey {
   if (LEGACY_MAP[raw]) return LEGACY_MAP[raw];
   return raw as ServiceKey;
@@ -95,9 +105,12 @@ export default function Services() {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loadingBookings, setLoadingBookings] = useState(true);
+  const [loadingProducts, setLoadingProducts] = useState(false);
   const [selectedKey, setSelectedKey] = useState<ServiceKey | null>(null);
   const [statusFilter, setStatusFilter] = useState("All");
+  const [activeTab, setActiveTab] = useState<"bookings" | "catalogue">("bookings");
 
   useEffect(() => {
     supabase
@@ -110,9 +123,24 @@ export default function Services() {
       });
   }, []);
 
+  useEffect(() => {
+    if (!selectedKey) return;
+    setLoadingProducts(true);
+    supabase
+      .from("products")
+      .select("id, name, category, base_price, unit, description, service_types, active")
+      .eq("active", true)
+      .order("category")
+      .order("name")
+      .then(({ data }) => {
+        setProducts(data ?? []);
+        setLoadingProducts(false);
+      });
+  }, [selectedKey]);
+
   const statsFor = (key: ServiceKey) => {
     const svcBookings = bookings.filter(b => canonicalKey(b.service_type) === key);
-    const active = svcBookings.filter(b => ["Confirmed", "Pending", "In Progress"].includes(b.status)).length;
+    const active = svcBookings.filter(b => ["Confirmed", "Driver Assigned", "Pending", "In Progress"].includes(b.status)).length;
     const revenue = svcBookings.filter(b => b.status !== "Cancelled").reduce((s, b) => s + Number(b.price || 0), 0);
     const completed = svcBookings.filter(b => b.status === "Completed" || b.status === "Invoiced").length;
     return { total: svcBookings.length, active, revenue, completed };
@@ -125,6 +153,14 @@ export default function Services() {
       .filter(b => statusFilter === "All" || b.status === statusFilter);
   }, [selectedKey, bookings, statusFilter]);
 
+  const catalogueProducts = useMemo(() => {
+    if (!selectedKey) return [];
+    return products.filter(p => {
+      if (!p.service_types || p.service_types.length === 0) return false;
+      return p.service_types.includes(selectedKey);
+    });
+  }, [selectedKey, products]);
+
   const allStats = useMemo(() => {
     const nonCancelled = bookings.filter(b => b.status !== "Cancelled");
     return {
@@ -133,7 +169,7 @@ export default function Services() {
     };
   }, [bookings]);
 
-  // ─── Detail view for a selected service ───────────────────────────────────
+  // ─── Detail view for a selected service ────────────────────────────────────
   if (selectedKey) {
     const svc = SERVICES.find(s => s.key === selectedKey)!;
     const stats = statsFor(selectedKey);
@@ -141,7 +177,11 @@ export default function Services() {
     return (
       <div className="space-y-5">
         <div className="flex items-center gap-3">
-          <Button variant="ghost" size="sm" onClick={() => { setSelectedKey(null); setStatusFilter("All"); }} className="-ml-2 text-muted-foreground">
+          <Button
+            variant="ghost" size="sm"
+            onClick={() => { setSelectedKey(null); setStatusFilter("All"); setActiveTab("bookings"); }}
+            className="-ml-2 text-muted-foreground"
+          >
             <ArrowLeft className="w-4 h-4 mr-1.5" /> Services
           </Button>
         </div>
@@ -162,10 +202,10 @@ export default function Services() {
         {/* Stats strip */}
         <div className={`grid gap-3 ${isSuperAdmin ? "grid-cols-4" : "grid-cols-3"}`}>
           {[
-            { label: "Total",     value: stats.total,                                                     icon: <CalendarRange className="w-4 h-4" />, show: true },
-            { label: "Active",    value: stats.active,                                                     icon: <Clock className="w-4 h-4 text-amber-400" />, show: true },
-            { label: "Completed", value: stats.completed,                                                  icon: <CheckCircle2 className="w-4 h-4 text-green-400" />, show: true },
-            { label: "Revenue",   value: `£${stats.revenue.toLocaleString()}`,                             icon: <TrendingUp className="w-4 h-4 text-primary" />, show: isSuperAdmin },
+            { label: "Total",     value: stats.total,                       icon: <CalendarRange className="w-4 h-4" />,                     show: true },
+            { label: "Active",    value: stats.active,                      icon: <Clock className="w-4 h-4 text-amber-400" />,              show: true },
+            { label: "Completed", value: stats.completed,                   icon: <CheckCircle2 className="w-4 h-4 text-green-400" />,       show: true },
+            { label: "Revenue",   value: `£${stats.revenue.toLocaleString()}`, icon: <TrendingUp className="w-4 h-4 text-primary" />,        show: isSuperAdmin },
           ].filter(item => item.show).map(item => (
             <div key={item.label} className="bg-card border border-border rounded-xl p-3 text-center">
               <div className="flex justify-center mb-1 text-muted-foreground">{item.icon}</div>
@@ -175,109 +215,227 @@ export default function Services() {
           ))}
         </div>
 
-        {/* Status filter */}
-        <div className="flex overflow-x-auto gap-2 pb-1">
-          {STATUS_FILTERS.map(s => (
-            <button
-              key={s}
-              onClick={() => setStatusFilter(s)}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border flex-shrink-0 transition-all ${
-                statusFilter === s
-                  ? "bg-primary text-primary-foreground border-primary"
-                  : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
-              }`}
-            >
-              {s}
-              {s !== "All" && (
-                <span className="ml-1.5 opacity-70">
-                  {bookings.filter(b => canonicalKey(b.service_type) === selectedKey && b.status === s).length}
-                </span>
-              )}
-            </button>
-          ))}
+        {/* Tab bar */}
+        <div className="flex gap-1 border border-border rounded-xl p-1 bg-secondary/20">
+          <button
+            onClick={() => setActiveTab("bookings")}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium rounded-lg transition-all ${
+              activeTab === "bookings"
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <CalendarRange className="w-3.5 h-3.5" />
+            Bookings
+            <span className={`text-xs ml-0.5 ${activeTab === "bookings" ? "text-primary" : "text-muted-foreground"}`}>
+              {stats.total}
+            </span>
+          </button>
+          <button
+            onClick={() => setActiveTab("catalogue")}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium rounded-lg transition-all ${
+              activeTab === "catalogue"
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Package className="w-3.5 h-3.5" />
+            Catalogue
+            {!loadingProducts && (
+              <span className={`text-xs ml-0.5 ${activeTab === "catalogue" ? "text-primary" : "text-muted-foreground"}`}>
+                {catalogueProducts.length}
+              </span>
+            )}
+          </button>
         </div>
 
-        {/* Booking list */}
-        {loadingBookings ? (
-          <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-20" />)}</div>
-        ) : filteredBookings.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-16 border border-dashed border-border rounded-2xl text-center">
-            <CalendarRange className="w-10 h-10 text-muted-foreground/30 mb-3" />
-            <p className="text-muted-foreground font-medium">No bookings found</p>
-            <p className="text-sm text-muted-foreground/60 mt-1">
-              {statusFilter !== "All" ? `No ${statusFilter.toLowerCase()} ${svc.label} bookings` : `No ${svc.label} bookings yet`}
-            </p>
-            <Link href="/bookings/new" className="mt-4">
-              <Button size="sm" variant="outline"><Plus className="w-3.5 h-3.5 mr-1.5" /> Create Booking</Button>
-            </Link>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {filteredBookings.map(booking => (
-              <Link key={booking.id} href={`/bookings/${booking.id}`}>
-                <Card className="border-border hover:border-primary/40 transition-all cursor-pointer bg-card hover:bg-secondary/5">
-                  <CardContent className="p-0">
-                    <div className="flex items-stretch">
-                      <div className={`w-1 rounded-l-xl flex-shrink-0 ${
-                        booking.status === "Confirmed"  ? "bg-blue-500" :
-                        booking.status === "Completed" || booking.status === "Invoiced" ? "bg-green-500" :
-                        booking.status === "Cancelled"  ? "bg-red-500" :
-                        booking.status === "In Progress"? "bg-cyan-500" :
-                        "bg-amber-500"
-                      }`} />
-                      <div className="flex-1 px-4 py-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <span className="font-mono text-xs font-bold text-primary">{booking.tvl_ref}</span>
-                              <span className="text-sm font-semibold text-foreground">{booking.client_name}</span>
-                            </div>
-                            <div className="flex items-center gap-3 mt-1 flex-wrap">
-                              {booking.date_time && (
-                                <span className="text-xs text-muted-foreground">
-                                  📅 {format(new Date(booking.date_time), "dd MMM yyyy, HH:mm")}
+        {/* ── Bookings tab ────────────────────────────────────────────────────── */}
+        {activeTab === "bookings" && (
+          <>
+            {/* Status filter */}
+            <div className="flex overflow-x-auto gap-2 pb-1">
+              {STATUS_FILTERS.map(s => (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter(s)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border flex-shrink-0 transition-all ${
+                    statusFilter === s
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
+                  }`}
+                >
+                  {s}
+                  {s !== "All" && (
+                    <span className="ml-1.5 opacity-70">
+                      {bookings.filter(b => canonicalKey(b.service_type) === selectedKey && b.status === s).length}
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {loadingBookings ? (
+              <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-20" />)}</div>
+            ) : filteredBookings.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 border border-dashed border-border rounded-2xl text-center">
+                <CalendarRange className="w-10 h-10 text-muted-foreground/30 mb-3" />
+                <p className="text-muted-foreground font-medium">No bookings found</p>
+                <p className="text-sm text-muted-foreground/60 mt-1">
+                  {statusFilter !== "All" ? `No ${statusFilter.toLowerCase()} ${svc.label} bookings` : `No ${svc.label} bookings yet`}
+                </p>
+                <Link href="/bookings/new" className="mt-4">
+                  <Button size="sm" variant="outline"><Plus className="w-3.5 h-3.5 mr-1.5" /> Create Booking</Button>
+                </Link>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredBookings.map(booking => (
+                  <Link key={booking.id} href={`/bookings/${booking.id}`}>
+                    <Card className="border-border hover:border-primary/40 transition-all cursor-pointer bg-card hover:bg-secondary/5">
+                      <CardContent className="p-0">
+                        <div className="flex items-stretch">
+                          <div className={`w-1 rounded-l-xl flex-shrink-0 ${
+                            booking.status === "Confirmed"      ? "bg-blue-500" :
+                            booking.status === "Driver Assigned"? "bg-cyan-400" :
+                            booking.status === "Completed" || booking.status === "Invoiced" ? "bg-green-500" :
+                            booking.status === "Cancelled"      ? "bg-red-500" :
+                            booking.status === "In Progress"    ? "bg-cyan-500" :
+                            "bg-amber-500"
+                          }`} />
+                          <div className="flex-1 px-4 py-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-mono text-xs font-bold text-primary">{booking.tvl_ref}</span>
+                                  <span className="text-sm font-semibold text-foreground">{booking.client_name}</span>
+                                </div>
+                                <div className="flex items-center gap-3 mt-1 flex-wrap">
+                                  {booking.date_time && (
+                                    <span className="text-xs text-muted-foreground">
+                                      📅 {format(new Date(booking.date_time), "dd MMM yyyy, HH:mm")}
+                                    </span>
+                                  )}
+                                  {booking.pickup && (
+                                    <span className="text-xs text-muted-foreground truncate max-w-[180px]">
+                                      📍 {booking.pickup}{booking.dropoff ? ` → ${booking.dropoff}` : ""}
+                                    </span>
+                                  )}
+                                </div>
+                                {booking.driver_name && (
+                                  <div className="text-xs text-muted-foreground mt-1">🚘 {booking.driver_name}</div>
+                                )}
+                              </div>
+                              <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+                                <Badge variant="outline" className={`text-[10px] ${STATUS_COLORS[booking.status] ?? "border-border text-muted-foreground"}`}>
+                                  {booking.status}
+                                </Badge>
+                                <span className="text-base font-bold text-foreground">
+                                  £{Number(booking.price || 0).toLocaleString()}
                                 </span>
-                              )}
-                              {booking.pickup && (
-                                <span className="text-xs text-muted-foreground truncate max-w-[180px]">
-                                  📍 {booking.pickup}{booking.dropoff ? ` → ${booking.dropoff}` : ""}
-                                </span>
-                              )}
+                                {booking.payment_status && (
+                                  <span className={`text-[10px] font-medium ${booking.payment_status === "Paid" ? "text-green-400" : "text-amber-400"}`}>
+                                    {booking.payment_status}
+                                  </span>
+                                )}
+                              </div>
                             </div>
-                            {booking.driver_name && (
-                              <div className="text-xs text-muted-foreground mt-1">🚘 {booking.driver_name}</div>
-                            )}
                           </div>
-                          <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                            <Badge variant="outline" className={`text-[10px] ${STATUS_COLORS[booking.status] ?? "border-border text-muted-foreground"}`}>
-                              {booking.status}
-                            </Badge>
-                            <span className="text-base font-bold text-foreground">
-                              £{Number(booking.price || 0).toLocaleString()}
-                            </span>
-                            {booking.payment_status && (
-                              <span className={`text-[10px] font-medium ${booking.payment_status === "Paid" ? "text-green-400" : "text-amber-400"}`}>
-                                {booking.payment_status}
-                              </span>
-                            )}
+                          <div className="flex items-center pr-3">
+                            <ArrowRight className="w-4 h-4 text-muted-foreground/40" />
                           </div>
                         </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── Catalogue tab ───────────────────────────────────────────────────── */}
+        {activeTab === "catalogue" && (
+          <>
+            {loadingProducts ? (
+              <div className="space-y-2">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-16" />)}</div>
+            ) : catalogueProducts.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 border border-dashed border-border rounded-2xl text-center">
+                <Package className="w-10 h-10 text-muted-foreground/30 mb-3" />
+                <p className="text-muted-foreground font-medium">No products linked</p>
+                <p className="text-sm text-muted-foreground/60 mt-1">
+                  Go to Admin → Products and tag items for "{svc.label}"
+                </p>
+                <Link href="/admin" className="mt-4">
+                  <Button size="sm" variant="outline"><Plus className="w-3.5 h-3.5 mr-1.5" /> Manage Products</Button>
+                </Link>
+              </div>
+            ) : (
+              (() => {
+                const grouped = catalogueProducts.reduce<Record<string, Product[]>>((acc, p) => {
+                  (acc[p.category] = acc[p.category] ?? []).push(p);
+                  return acc;
+                }, {});
+                return (
+                  <div className="space-y-5">
+                    {Object.entries(grouped).map(([category, items]) => (
+                      <div key={category}>
+                        <div className="flex items-center gap-2 mb-3">
+                          <Tag className="w-3.5 h-3.5 text-muted-foreground" />
+                          <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{category}</span>
+                        </div>
+                        <div className="space-y-2">
+                          {items.map(product => (
+                            <Card key={product.id} className="border-border bg-card">
+                              <CardContent className="p-4">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-semibold text-sm text-foreground">{product.name}</span>
+                                    </div>
+                                    {product.description && (
+                                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-1">{product.description}</p>
+                                    )}
+                                    <div className="flex flex-wrap gap-1.5 mt-2">
+                                      {(product.service_types ?? []).map(st => (
+                                        <span
+                                          key={st}
+                                          className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${
+                                            st === selectedKey
+                                              ? "bg-primary/20 text-primary border-primary/40"
+                                              : "border-border text-muted-foreground"
+                                          }`}
+                                        >
+                                          {st}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  </div>
+                                  <div className="text-right flex-shrink-0">
+                                    <div className="text-base font-bold text-foreground">
+                                      £{Number(product.base_price).toLocaleString()}
+                                    </div>
+                                    {product.unit && (
+                                      <div className="text-[10px] text-muted-foreground">per {product.unit}</div>
+                                    )}
+                                  </div>
+                                </div>
+                              </CardContent>
+                            </Card>
+                          ))}
+                        </div>
                       </div>
-                      <div className="flex items-center pr-3">
-                        <ArrowRight className="w-4 h-4 text-muted-foreground/40" />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
-            ))}
-          </div>
+                    ))}
+                  </div>
+                );
+              })()
+            )}
+          </>
         )}
       </div>
     );
   }
 
-  // ─── Overview grid ─────────────────────────────────────────────────────────
+  // ─── Overview grid ──────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -319,7 +477,7 @@ export default function Services() {
 
                 <div className={`grid gap-2 mt-4 pt-4 border-t border-white/10 ${isSuperAdmin ? "grid-cols-3" : "grid-cols-2"}`}>
                   <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Total</div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Bookings</div>
                     <div className="font-bold text-foreground">{stats.total}</div>
                   </div>
                   <div>
