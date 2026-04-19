@@ -19,6 +19,7 @@ const OPERATOR_SIDEBAR = [
   { href: "/bookings",     label: "Bookings",     icon: CalendarRange },
   { href: "/services",     label: "Services",     icon: Layers },
   { href: "/clients",      label: "Clients",      icon: Users },
+  { href: "/analytics",    label: "Intel",        icon: LineChart },
   { href: "/search",       label: "Search",       icon: Search },
   { href: "/quotes",       label: "Quotes",       icon: FileText },
   { href: "/invoices",     label: "Invoices",     icon: Receipt },
@@ -31,6 +32,7 @@ const OPERATOR_SIDEBAR = [
 ];
 
 const OPERATOR_MORE = [
+  { href: "/analytics",    label: "Intel",        icon: LineChart },
   { href: "/quotes",       label: "Quotes",       icon: FileText },
   { href: "/invoices",     label: "Invoices",     icon: Receipt },
   { href: "/flights",      label: "Flights",      icon: PlaneTakeoff },

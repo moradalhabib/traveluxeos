@@ -85,6 +85,12 @@ const bookingSchema = z.object({
   // Commission (Hotel / Apartment third-party)
   commission_amount: z.coerce.number().min(0).default(0),
   commission_notes: z.string().optional(),
+  // Apartment-specific financials
+  weekly_rent: z.coerce.number().optional(),
+  pre_deposit: z.coerce.number().optional(),
+  weeks_agreed: z.coerce.number().optional(),
+  property_agent: z.string().optional(),
+  payment_notes: z.string().optional(),
 });
 
 export default function NewBooking() {
@@ -352,6 +358,12 @@ export default function NewBooking() {
       if (values.nights) extraDetails.push(`Nights: ${values.nights}`);
       if (values.property_contact) extraDetails.push(`Contact: ${values.property_contact}`);
       if (values.commission_amount) extraDetails.push(`Commission: £${values.commission_amount}${values.commission_notes ? ` — ${values.commission_notes}` : ""}`);
+      // Rental financials
+      if (values.weekly_rent) extraDetails.push(`Weekly Rent: £${values.weekly_rent}`);
+      if (values.weeks_agreed) extraDetails.push(`Weeks Agreed: ${values.weeks_agreed}`);
+      if (values.pre_deposit) extraDetails.push(`Pre-Deposit: £${values.pre_deposit}`);
+      if (values.property_agent) extraDetails.push(`Agent: ${values.property_agent}`);
+      if (values.payment_notes) extraDetails.push(`Payment Notes: ${values.payment_notes}`);
     }
     if (extraDetails.length > 0) {
       const base = allowedPayload.notes ? `${allowedPayload.notes}\n---\n` : "";
@@ -626,9 +638,13 @@ export default function NewBooking() {
                 </CardContent>
               </Card>
 
-              {/* Journey Details */}
+              {/* Journey / Property Details */}
               <Card className="border-primary/10">
-                <CardHeader className="pb-3"><CardTitle className="text-base">Journey Details</CardTitle></CardHeader>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base">
+                    {isAccommodation ? "Property Details" : isHotel ? "Property Details" : "Journey Details"}
+                  </CardTitle>
+                </CardHeader>
                 <CardContent className="space-y-4">
                   {serviceType === "Airport Transfer" && (
                     <>
@@ -906,21 +922,31 @@ export default function NewBooking() {
                     </div>
                   )}
 
-                  <FormField control={bookingForm.control} name="extras" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Extras <span className="text-xs text-muted-foreground font-normal">(child seat, flowers, champagne, etc.)</span></FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g. Child seat, bouquet of flowers" {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
+                  {/* Extras — transport only */}
+                  {!isAccommodation && !isHotel && (
+                    <FormField control={bookingForm.control} name="extras" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Extras <span className="text-xs text-muted-foreground font-normal">(child seat, flowers, champagne, etc.)</span></FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g. Child seat, bouquet of flowers" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  )}
 
                   <FormField control={bookingForm.control} name="special_requests" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Special Requests</FormLabel>
+                      <FormLabel>
+                        {isAccommodation || isHotel ? "Note to Manager" : "Special Requests"}
+                      </FormLabel>
                       <FormControl>
-                        <Textarea placeholder="Client preferences, notes for driver..." className="resize-none" rows={2} {...field} />
+                        <Textarea
+                          placeholder={isAccommodation || isHotel
+                            ? "Instructions or requests for the property manager..."
+                            : "Client preferences, notes for driver..."}
+                          className="resize-none" rows={2} {...field}
+                        />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -928,29 +954,29 @@ export default function NewBooking() {
                 </CardContent>
               </Card>
 
-              {/* Products / Order Lines */}
-              <Card className="border-primary/10">
-                <CardHeader className="pb-3">
-                  <CardTitle className="text-base">
-                    {serviceType === "Airport Transfer" && "Vehicle · Meet & Greet · Extras"}
-                    {serviceType === "Tour" && "Tour · Vehicle · Extras"}
-                    {serviceType === "As Directed" && "Vehicle · Extras"}
-                    {serviceType === "Apartment" && "Accommodation · Extras"}
-                    {serviceType === "Hotel" && "Add-ons & Extras"}
-                    {(!serviceType || !["Airport Transfer","Tour","As Directed","Apartment","Hotel"].includes(serviceType)) && "Products & Order Lines"}
-                  </CardTitle>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    Select step by step — price totals automatically.
-                  </p>
-                </CardHeader>
-                <CardContent className="pt-0">
-                  <ProductPicker
-                    orderLines={orderLines}
-                    onChange={(lines) => setOrderLines(lines)}
-                    serviceType={serviceType}
-                  />
-                </CardContent>
-              </Card>
+              {/* Products / Order Lines — transport & tours only */}
+              {!isAccommodation && !isHotel && (
+                <Card className="border-primary/10">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">
+                      {serviceType === "Airport Transfer" && "Vehicle · Meet & Greet · Extras"}
+                      {serviceType === "Tour" && "Tour · Vehicle · Extras"}
+                      {serviceType === "As Directed" && "Vehicle · Extras"}
+                      {(!serviceType || !["Airport Transfer","Tour","As Directed"].includes(serviceType)) && "Products & Order Lines"}
+                    </CardTitle>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      Select step by step — price totals automatically.
+                    </p>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <ProductPicker
+                      orderLines={orderLines}
+                      onChange={(lines) => setOrderLines(lines)}
+                      serviceType={serviceType}
+                    />
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Financials */}
               <Card className="border-primary/10">
@@ -1004,6 +1030,56 @@ export default function NewBooking() {
                     </div>
                   )}
 
+                  {/* Apartment rental financials */}
+                  {isAccommodation && (
+                    <div className="space-y-3 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5">
+                      <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Rental Terms</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField control={bookingForm.control} name="weekly_rent" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Weekly Rent (£)</FormLabel>
+                            <FormControl><Input type="number" step="1" placeholder="0" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="weeks_agreed" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Weeks Agreed</FormLabel>
+                            <FormControl><Input type="number" min="1" step="1" placeholder="e.g. 4" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="pre_deposit" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Pre-Deposit (£)</FormLabel>
+                            <FormControl><Input type="number" step="1" placeholder="Confirms booking" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <div className="space-y-2">
+                          <Label className="text-sm font-medium">Est. Total Rent</Label>
+                          <div className="h-10 flex items-center px-3 border border-border rounded-md bg-muted/50 font-bold text-amber-400">
+                            £{((bookingForm.watch("weekly_rent") || 0) * (bookingForm.watch("weeks_agreed") || 0)).toLocaleString()}
+                          </div>
+                        </div>
+                        <FormField control={bookingForm.control} name="property_agent" render={({ field }) => (
+                          <FormItem className="col-span-2">
+                            <FormLabel>Property Agent / Source</FormLabel>
+                            <FormControl><Input placeholder="e.g. Foxtons, Knight Frank, Direct landlord" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="payment_notes" render={({ field }) => (
+                          <FormItem className="col-span-2">
+                            <FormLabel>Payment Notes <span className="text-xs text-muted-foreground font-normal">(extensions, weekly payments received, etc.)</span></FormLabel>
+                            <FormControl><Textarea placeholder="e.g. Week 1 cash received 01/04. Client extended by 2 weeks on 14/04..." className="resize-none" rows={2} {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      </div>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-3">
                     <FormField control={bookingForm.control} name="payment_status" render={({ field }) => (
                       <FormItem>
@@ -1027,7 +1103,8 @@ export default function NewBooking() {
                           <SelectContent>
                             <SelectItem value="Card">Card / Link</SelectItem>
                             <SelectItem value="Bank Transfer">Bank Transfer</SelectItem>
-                            <SelectItem value="Cash">Cash (To Driver)</SelectItem>
+                            <SelectItem value="Cash">Cash</SelectItem>
+                            {isAccommodation && <SelectItem value="Cash Weekly">Cash (Weekly)</SelectItem>}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -1035,67 +1112,71 @@ export default function NewBooking() {
                     )} />
                   </div>
 
-                  <FormField control={bookingForm.control} name="driver_id" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Assign Driver <span className="text-muted-foreground font-normal text-xs">(optional)</span></FormLabel>
-                      <Select
-                        onValueChange={(val) => {
-                          field.onChange(val);
-                          // Auto-fill vehicle from selected driver's vehicle_model
-                          if (val && val !== "unassigned") {
-                            const selected = drivers?.find((d: any) => d.id === val);
-                            if (selected?.vehicle_model) {
-                              bookingForm.setValue("vehicle_type", selected.vehicle_model);
-                            }
-                          } else {
-                            bookingForm.setValue("vehicle_type", "");
-                          }
-                        }}
-                        defaultValue={field.value}
-                      >
-                        <FormControl><SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          <SelectItem value="unassigned">Unassigned</SelectItem>
-                          {drivers?.map((driver: any) => (
-                            <SelectItem key={driver.id} value={driver.id}>
-                              {driver.name} · {driver.vehicle_model || driver.vehicle_type}
-                              {driver.plate ? ` (${driver.plate})` : ""}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
+                  {/* Driver & Vehicle — transport only, not for accommodation */}
+                  {!isAccommodation && !isHotel && (
+                    <>
+                      <FormField control={bookingForm.control} name="driver_id" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Assign Driver <span className="text-muted-foreground font-normal text-xs">(optional)</span></FormLabel>
+                          <Select
+                            onValueChange={(val) => {
+                              field.onChange(val);
+                              if (val && val !== "unassigned") {
+                                const selected = drivers?.find((d: any) => d.id === val);
+                                if (selected?.vehicle_model) {
+                                  bookingForm.setValue("vehicle_type", selected.vehicle_model);
+                                }
+                              } else {
+                                bookingForm.setValue("vehicle_type", "");
+                              }
+                            }}
+                            defaultValue={field.value}
+                          >
+                            <FormControl><SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger></FormControl>
+                            <SelectContent>
+                              <SelectItem value="unassigned">Unassigned</SelectItem>
+                              {drivers?.map((driver: any) => (
+                                <SelectItem key={driver.id} value={driver.id}>
+                                  {driver.name} · {driver.vehicle_model || driver.vehicle_type}
+                                  {driver.plate ? ` (${driver.plate})` : ""}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
 
-                  <FormField control={bookingForm.control} name="vehicle_type" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Vehicle <span className="text-xs text-muted-foreground font-normal">(auto-filled from driver · override if needed)</span></FormLabel>
-                      <FormControl>
-                        <Input
-                          list="fleet-vehicles-list"
-                          placeholder="e.g. MB V-Class, Range Rover"
-                          {...field}
-                        />
-                      </FormControl>
-                      <datalist id="fleet-vehicles-list">
-                        {drivers?.map((d: any) => d.vehicle_model && (
-                          <option key={d.id} value={d.vehicle_model} />
-                        ))}
-                        <option value="MB V-Class" />
-                        <option value="MB S-Class" />
-                        <option value="MB E-Class" />
-                        <option value="MB GLS" />
-                        <option value="BMW 7 Series" />
-                        <option value="Range Rover" />
-                        <option value="Rolls-Royce Ghost" />
-                        <option value="Bentley Flying Spur" />
-                        <option value="Toyota Alphard" />
-                        <option value="VW Caravelle" />
-                      </datalist>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
+                      <FormField control={bookingForm.control} name="vehicle_type" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Vehicle <span className="text-xs text-muted-foreground font-normal">(auto-filled from driver · override if needed)</span></FormLabel>
+                          <FormControl>
+                            <Input
+                              list="fleet-vehicles-list"
+                              placeholder="e.g. MB V-Class, Range Rover"
+                              {...field}
+                            />
+                          </FormControl>
+                          <datalist id="fleet-vehicles-list">
+                            {drivers?.map((d: any) => d.vehicle_model && (
+                              <option key={d.id} value={d.vehicle_model} />
+                            ))}
+                            <option value="MB V-Class" />
+                            <option value="MB S-Class" />
+                            <option value="MB E-Class" />
+                            <option value="MB GLS" />
+                            <option value="BMW 7 Series" />
+                            <option value="Range Rover" />
+                            <option value="Rolls-Royce Ghost" />
+                            <option value="Bentley Flying Spur" />
+                            <option value="Toyota Alphard" />
+                            <option value="VW Caravelle" />
+                          </datalist>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    </>
+                  )}
 
                   <FormField control={bookingForm.control} name="notes" render={({ field }) => (
                     <FormItem>

@@ -144,10 +144,15 @@ export default function ClientDetail() {
         </CardContent>
       </Card>
 
-      {/* Recent bookings */}
+      {/* Full Booking History */}
       <Card className="border-primary/10 bg-card">
         <CardHeader className="pb-3 flex flex-row items-center justify-between">
-          <CardTitle className="text-base">Recent Bookings</CardTitle>
+          <div>
+            <CardTitle className="text-base">Booking History</CardTitle>
+            {client.bookings && client.bookings.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-0.5">{client.bookings.length} total booking{client.bookings.length !== 1 ? "s" : ""}</p>
+            )}
+          </div>
           <Link href={`/bookings/new?client_id=${client.id}`}>
             <Button size="sm" variant="outline" className="text-xs h-8">
               <Plus className="w-3 h-3 mr-1" /> New
@@ -156,19 +161,39 @@ export default function ClientDetail() {
         </CardHeader>
         <CardContent className="pt-0">
           {client.bookings && client.bookings.length > 0 ? (
-            <div className="space-y-3">
-              {client.bookings.slice(0, 5).map(booking => (
+            <div className="space-y-2">
+              {[...client.bookings]
+                .sort((a: any, b: any) => {
+                  if (!a.date_time) return 1;
+                  if (!b.date_time) return -1;
+                  return new Date(b.date_time).getTime() - new Date(a.date_time).getTime();
+                })
+                .map((booking: any) => (
                 <Link key={booking.id} href={`/bookings/${booking.id}`}>
-                  <div className="flex justify-between items-center p-3 rounded-xl border border-border bg-background/50 hover:border-primary/30 transition-colors cursor-pointer">
-                    <div>
-                      <div className="font-semibold text-sm">{booking.tvl_ref}</div>
+                  <div className="flex items-center gap-3 p-3 rounded-xl border border-border bg-background/50 hover:border-primary/30 transition-colors cursor-pointer">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm">{booking.tvl_ref}</span>
+                        {booking.service_type && (
+                          <Badge variant="outline" className="text-[10px] shrink-0">{booking.service_type}</Badge>
+                        )}
+                      </div>
                       <div className="text-xs text-muted-foreground mt-0.5">
-                        {booking.date_time ? format(new Date(booking.date_time), 'dd MMM yyyy · HH:mm') : ''}
+                        {booking.date_time ? format(new Date(booking.date_time), 'dd MMM yyyy · HH:mm') : 'No date'}
                       </div>
                     </div>
-                    <div className="text-right">
-                      <div className="font-semibold text-sm">£{booking.price}</div>
-                      <Badge variant="outline" className="text-[10px] mt-0.5">{booking.status}</Badge>
+                    <div className="text-right flex-shrink-0">
+                      <div className="font-semibold text-sm text-primary">£{(booking.price || 0).toLocaleString()}</div>
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] mt-0.5 ${
+                          booking.status === 'Completed' ? 'text-green-400 border-green-400/30' :
+                          booking.status === 'Cancelled' ? 'text-destructive border-destructive/30' :
+                          'text-primary border-primary/30'
+                        }`}
+                      >
+                        {booking.status}
+                      </Badge>
                     </div>
                   </div>
                 </Link>

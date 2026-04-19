@@ -37,6 +37,7 @@ import InvoiceDetail from "@/pages/invoices/[id]";
 import Search from "@/pages/search/index";
 import Admin from "@/pages/admin/index";
 import Services from "@/pages/services/index";
+import Analytics from "@/pages/analytics/index";
 
 const queryClient = new QueryClient();
 
@@ -111,6 +112,7 @@ function Router() {
       <ProtectedRoute path="/invoices/:id" component={InvoiceDetail} blockResidenceManager={true} />
       <ProtectedRoute path="/search" component={Search} blockResidenceManager={true} />
       <ProtectedRoute path="/services" component={Services} blockResidenceManager={true} />
+      <ProtectedRoute path="/analytics" component={Analytics} blockResidenceManager={true} />
       <ProtectedRoute path="/admin" component={Admin} reqAdmin={true} />
 
       <Route component={NotFound} />
