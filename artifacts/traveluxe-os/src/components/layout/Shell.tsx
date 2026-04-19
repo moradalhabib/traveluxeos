@@ -229,9 +229,9 @@ export function Shell({ children }: { children: ReactNode }) {
           <span className="text-[9px] font-medium text-primary mt-0.5">Book</span>
         </div>
 
-        <Link href="/clients" className={`flex flex-col items-center justify-center w-14 h-16 ${location.startsWith('/clients') ? 'text-primary' : 'text-muted-foreground'}`}>
-          <Users className="w-5 h-5 mb-1" />
-          <span className="text-[10px] font-medium">Clients</span>
+        <Link href="/services" className={`flex flex-col items-center justify-center w-14 h-16 ${location.startsWith('/services') ? 'text-primary' : 'text-muted-foreground'}`}>
+          <Layers className="w-5 h-5 mb-1" />
+          <span className="text-[10px] font-medium">Services</span>
         </Link>
 
         <button

@@ -23,6 +23,8 @@ router.get("/summary", async (_req, res) => {
     { data: allDriverBreakdown },
     { data: allClients },
     { data: allDrivers },
+    { data: upcomingBookings },
+    { data: unpaidInvoices },
   ] = await Promise.all([
     supabase.from("bookings").select("price, additional_charges, status").gte("date_time", todayStart.toISOString()),
     supabase.from("bookings").select("price, additional_charges, status").gte("date_time", weekStart.toISOString()),
@@ -33,6 +35,8 @@ router.get("/summary", async (_req, res) => {
     supabase.from("bookings").select("driver_id, tvl_commission, driver_receives, payment_method, commission_status, payout_status").eq("payment_method", "Cash").eq("commission_status", "Outstanding"),
     supabase.from("bookings").select("client_id, price, additional_charges").neq("status", "Cancelled"),
     supabase.from("bookings").select("driver_id").neq("status", "Cancelled"),
+    supabase.from("bookings").select("id").gte("date_time", todayStart.toISOString()).not("status", "in", '("Cancelled","Completed")'),
+    supabase.from("invoices").select("id").not("status", "in", '("Paid","Cancelled")'),
   ]);
 
   const calcRevenue = (bookings: { price: number; additional_charges: number; status: string }[] | null) =>
@@ -126,6 +130,7 @@ router.get("/summary", async (_req, res) => {
     bookings_today: (todayBookings ?? []).length,
     bookings_this_week: (weekBookings ?? []).length,
     bookings_this_month: (monthBookings ?? []).length,
+    upcoming_bookings: (upcomingBookings ?? []).length,
     revenue_today: calcRevenue(todayBookings as any),
     revenue_this_week: calcRevenue(weekBookings as any),
     revenue_this_month: calcRevenue(monthBookings as any),
@@ -134,6 +139,7 @@ router.get("/summary", async (_req, res) => {
     pending_payments: (pendingPayments ?? []).length,
     outstanding_commissions: outstandingCommissions,
     pending_payouts: pendingPayouts,
+    unpaid_invoices_count: (unpaidInvoices ?? []).length,
     top_clients: topClients,
     top_drivers: topDrivers,
     booking_sources: bookingSources,
