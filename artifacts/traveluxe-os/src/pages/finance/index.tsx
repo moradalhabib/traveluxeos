@@ -1,15 +1,48 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useGetFinanceSummary, getGetFinanceSummaryQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   PoundSterling, TrendingUp, CreditCard, AlertCircle,
-  Car, LayoutDashboard, ChevronRight, CheckCircle2, Clock
+  Car, LayoutDashboard, ChevronRight, CheckCircle2, Clock, CalendarRange
 } from "lucide-react";
 import { Link } from "wouter";
+
+type Period = "today" | "week" | "month" | "year" | "all" | "custom";
+
+function periodRange(p: Period, customFrom?: string, customTo?: string): { from?: string; to?: string; label: string } {
+  const now = new Date();
+  const startOfDay = (d: Date) => { const x = new Date(d); x.setHours(0,0,0,0); return x; };
+  const endOfDay = (d: Date) => { const x = new Date(d); x.setHours(23,59,59,999); return x; };
+
+  if (p === "today") {
+    return { from: startOfDay(now).toISOString(), to: endOfDay(now).toISOString(), label: "Today" };
+  }
+  if (p === "week") {
+    const day = now.getDay() || 7;
+    const monday = new Date(now); monday.setDate(now.getDate() - (day - 1));
+    return { from: startOfDay(monday).toISOString(), to: endOfDay(now).toISOString(), label: "This Week" };
+  }
+  if (p === "month") {
+    const first = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { from: startOfDay(first).toISOString(), to: endOfDay(now).toISOString(), label: "This Month" };
+  }
+  if (p === "year") {
+    const first = new Date(now.getFullYear(), 0, 1);
+    return { from: startOfDay(first).toISOString(), to: endOfDay(now).toISOString(), label: "This Year" };
+  }
+  if (p === "custom" && (customFrom || customTo)) {
+    const fromIso = customFrom ? startOfDay(new Date(customFrom)).toISOString() : undefined;
+    const toIso = customTo ? endOfDay(new Date(customTo)).toISOString() : undefined;
+    const label = `${customFrom ?? "…"} → ${customTo ?? "…"}`;
+    return { from: fromIso, to: toIso, label };
+  }
+  return { label: "All Time" };
+}
 
 const SERVICE_ICONS: Record<string, string> = {
   "Airport Transfer": "✈",
@@ -23,10 +56,21 @@ const SERVICE_ICONS: Record<string, string> = {
 
 export default function Finance() {
   const [tab, setTab] = useState("overview");
+  const [period, setPeriod] = useState<Period>("month");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
 
-  const { data: summary, isLoading } = useGetFinanceSummary(
-    {},
-    { query: { enabled: true, queryKey: getGetFinanceSummaryQueryKey({}) } }
+  const range = useMemo(() => periodRange(period, customFrom, customTo), [period, customFrom, customTo]);
+  const params = useMemo(() => {
+    const p: Record<string, string> = {};
+    if (range.from) p.date_from = range.from;
+    if (range.to) p.date_to = range.to;
+    return p as any;
+  }, [range.from, range.to]);
+
+  const { data: summary, isLoading, isFetching } = useGetFinanceSummary(
+    params,
+    { query: { queryKey: getGetFinanceSummaryQueryKey(params) } }
   );
 
   if (isLoading) {
@@ -54,13 +98,71 @@ export default function Finance() {
     <div className="space-y-5 max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Finance</h1>
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Finance</h1>
+          <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
+            <CalendarRange className="w-3 h-3" />
+            Showing: <span className="text-foreground font-medium">{range.label}</span>
+            {isFetching && <span className="text-primary animate-pulse">· refreshing</span>}
+          </p>
+        </div>
         <Link href="/">
           <Button variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10">
             <LayoutDashboard className="w-4 h-4 mr-2" />
             Dashboard
           </Button>
         </Link>
+      </div>
+
+      {/* Period filter */}
+      <div className="rounded-2xl border border-border bg-card p-3 space-y-3">
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
+          {([
+            { k: "today", label: "Today" },
+            { k: "week", label: "Week" },
+            { k: "month", label: "Month" },
+            { k: "year", label: "Year" },
+            { k: "all", label: "All Time" },
+            { k: "custom", label: "Custom" },
+          ] as { k: Period; label: string }[]).map(opt => (
+            <button
+              key={opt.k}
+              onClick={() => setPeriod(opt.k)}
+              data-testid={`finance-period-${opt.k}`}
+              className={`px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                period === opt.k
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-secondary text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+        {period === "custom" && (
+          <div className="flex items-end gap-2">
+            <div className="flex-1">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wider">From</label>
+              <Input
+                type="date"
+                value={customFrom}
+                onChange={e => setCustomFrom(e.target.value)}
+                className="h-8 text-xs"
+                data-testid="finance-custom-from"
+              />
+            </div>
+            <div className="flex-1">
+              <label className="text-[10px] text-muted-foreground uppercase tracking-wider">To</label>
+              <Input
+                type="date"
+                value={customTo}
+                onChange={e => setCustomTo(e.target.value)}
+                className="h-8 text-xs"
+                data-testid="finance-custom-to"
+              />
+            </div>
+          </div>
+        )}
       </div>
 
       {/* KPI cards */}
