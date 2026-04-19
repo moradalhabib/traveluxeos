@@ -39,7 +39,7 @@ const registerSchema = z.object({
 });
 
 const bookingSchema = z.object({
-  client_id: z.string().min(1),
+  client_id: z.string().optional(),
   service_type: z.string(),
   direction: z.string().optional(),
   pickup: z.string().optional(),
@@ -54,8 +54,8 @@ const bookingSchema = z.object({
   special_requests: z.string().optional(),
   extras: z.string().optional(),
   additional_charges: z.coerce.number().optional(),
-  price: z.coerce.number().min(0, "Enter the price"),
-  tvl_commission: z.coerce.number().min(0).default(0),
+  price: z.coerce.number().optional().default(0),
+  tvl_commission: z.coerce.number().optional().default(0),
   payment_status: z.string().default("Unpaid"),
   payment_method: z.string().optional(),
   source: z.string().optional(),
@@ -163,6 +163,14 @@ export default function NewBooking() {
     if (orderLines.length > 0) {
       const total = orderLines.reduce((s, l) => s + l.unit_price * l.quantity, 0);
       bookingForm.setValue("price", total);
+    }
+  }, [orderLines]);
+
+  // Auto-fill vehicle_type from the selected Vehicle product in orderLines
+  useEffect(() => {
+    const vehicleLine = orderLines.find(l => l.category === "Vehicle");
+    if (vehicleLine) {
+      bookingForm.setValue("vehicle_type", vehicleLine.name);
     }
   }, [orderLines]);
 

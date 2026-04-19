@@ -1,7 +1,8 @@
 import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Minus, X, Check, ChevronDown, ChevronUp, Car, Sparkles, Map, Package, Building2 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Plus, Minus, X, Check, ChevronDown, ChevronUp, Car, Sparkles, Map, Package, Building2, PenLine } from "lucide-react";
 
 export interface OrderLine {
   key: string;
@@ -10,6 +11,7 @@ export interface OrderLine {
   unit_price: number;
   quantity: number;
   notes?: string;
+  category?: string;
 }
 
 interface Product {
@@ -21,7 +23,6 @@ interface Product {
   active: boolean;
 }
 
-// Map each service type to which category sections to show, in order
 const SERVICE_CATEGORY_MAP: Record<string, string[]> = {
   "Airport Transfer": ["Vehicle", "Meet & Greet", "Add-on"],
   "As Directed":      ["Vehicle", "Add-on"],
@@ -31,7 +32,6 @@ const SERVICE_CATEGORY_MAP: Record<string, string[]> = {
 };
 const DEFAULT_CATEGORIES = ["Vehicle", "Meet & Greet", "Tour", "Add-on", "Accommodation"];
 
-// Categories that are radio-style (one selection replaces the previous)
 const RADIO_CATEGORIES = new Set(["Vehicle", "Meet & Greet", "Tour"]);
 
 const CATEGORY_META: Record<string, { icon: React.ReactNode; label: string; hint: string; radio: boolean }> = {
@@ -73,10 +73,13 @@ interface Props {
   serviceType?: string;
 }
 
+const OTHER_VEHICLE_KEY = "__other_vehicle__";
+
 export default function ProductPicker({ orderLines, onChange, serviceType }: Props) {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [openSections, setOpenSections] = useState<Set<string>>(new Set(["Vehicle"]));
+  const [otherVehicleInput, setOtherVehicleInput] = useState("");
 
   useEffect(() => {
     supabase
@@ -90,12 +93,10 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
       });
   }, []);
 
-  // Determine which categories to show based on service type
   const categories = serviceType && SERVICE_CATEGORY_MAP[serviceType]
     ? SERVICE_CATEGORY_MAP[serviceType]
     : DEFAULT_CATEGORIES;
 
-  // When service type changes, auto-open the first relevant section
   useEffect(() => {
     if (categories.length > 0) {
       setOpenSections(new Set([categories[0]]));
@@ -112,18 +113,18 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
   };
 
   const inOrder = (productId: string) => orderLines.find(l => l.product_id === productId);
+  const otherVehicleLine = orderLines.find(l => l.key === OTHER_VEHICLE_KEY);
   const total = orderLines.reduce((s, l) => s + l.unit_price * l.quantity, 0);
 
   const selectProduct = (product: Product) => {
     const isRadio = RADIO_CATEGORIES.has(product.category);
 
     if (isRadio) {
-      // Replace any existing selection in this category
       const withoutCategory = orderLines.filter(l => {
+        if (l.key === OTHER_VEHICLE_KEY && product.category === "Vehicle") return false;
         const p = products.find(p => p.id === l.product_id);
         return !p || p.category !== product.category;
       });
-      // If already selected, deselect (toggle off)
       const alreadySelected = orderLines.find(l => l.product_id === product.id);
       if (alreadySelected) {
         onChange(withoutCategory);
@@ -134,8 +135,8 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
           name: product.name,
           unit_price: product.unit_price,
           quantity: 1,
+          category: product.category,
         }]);
-        // Auto-open next section after selection
         const idx = categories.indexOf(product.category);
         if (idx < categories.length - 1) {
           setOpenSections(prev => {
@@ -146,7 +147,6 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
         }
       }
     } else {
-      // Multi-select: toggle on/off
       const existing = orderLines.find(l => l.product_id === product.id);
       if (existing) {
         onChange(orderLines.filter(l => l.product_id !== product.id));
@@ -157,8 +157,47 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
           name: product.name,
           unit_price: product.unit_price,
           quantity: 1,
+          category: product.category,
         }]);
       }
+    }
+  };
+
+  const toggleOtherVehicle = () => {
+    if (otherVehicleLine) {
+      onChange(orderLines.filter(l => l.key !== OTHER_VEHICLE_KEY));
+      setOtherVehicleInput("");
+    } else {
+      const withoutVehicle = orderLines.filter(l => {
+        if (l.key === OTHER_VEHICLE_KEY) return false;
+        const p = products.find(p => p.id === l.product_id);
+        return !p || p.category !== "Vehicle";
+      });
+      onChange([...withoutVehicle, {
+        key: OTHER_VEHICLE_KEY,
+        product_id: null,
+        name: otherVehicleInput || "Other vehicle",
+        unit_price: 0,
+        quantity: 1,
+        category: "Vehicle",
+      }]);
+      const idx = categories.indexOf("Vehicle");
+      if (idx < categories.length - 1) {
+        setOpenSections(prev => {
+          const next = new Set(prev);
+          next.add(categories[idx + 1]);
+          return next;
+        });
+      }
+    }
+  };
+
+  const updateOtherVehicleName = (name: string) => {
+    setOtherVehicleInput(name);
+    if (otherVehicleLine) {
+      onChange(orderLines.map(l =>
+        l.key === OTHER_VEHICLE_KEY ? { ...l, name: name || "Other vehicle" } : l
+      ));
     }
   };
 
@@ -172,6 +211,7 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
   };
 
   const removeItem = (key: string) => {
+    if (key === OTHER_VEHICLE_KEY) setOtherVehicleInput("");
     onChange(orderLines.filter(l => l.key !== key));
   };
 
@@ -184,7 +224,7 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
   }
 
   const availableCategories = categories.filter(c =>
-    products.some(p => p.category === c)
+    c === "Vehicle" || products.some(p => p.category === c)
   );
 
   if (availableCategories.length === 0) {
@@ -197,16 +237,17 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
 
   return (
     <div className="space-y-2">
-      {/* Guided sections */}
       {availableCategories.map((cat, catIdx) => {
         const meta = CATEGORY_META[cat] ?? { icon: <Package className="w-4 h-4" />, label: cat, hint: "", radio: false };
         const catProducts = products.filter(p => p.category === cat);
         const selectedInCat = orderLines.filter(l => {
+          if (l.key === OTHER_VEHICLE_KEY && cat === "Vehicle") return true;
           const p = products.find(p => p.id === l.product_id);
           return p?.category === cat;
         });
         const isOpen = openSections.has(cat);
         const hasSelection = selectedInCat.length > 0;
+        const showVehicleOther = cat === "Vehicle";
 
         return (
           <div
@@ -217,7 +258,6 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
                 : "border-border bg-card"
             }`}
           >
-            {/* Section header */}
             <button
               type="button"
               onClick={() => toggleSection(cat)}
@@ -259,7 +299,6 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
               </div>
             </button>
 
-            {/* Products grid */}
             {isOpen && (
               <div className="px-3 pb-3 border-t border-border/60 pt-3 space-y-2">
                 {catProducts.map(product => {
@@ -278,7 +317,6 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
                       }`}
                     >
                       <div className="flex items-center gap-3 flex-1 min-w-0 pr-2">
-                        {/* Radio indicator for single-select, checkbox for multi */}
                         <div className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
                           ordered
                             ? "border-primary bg-primary"
@@ -324,13 +362,47 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
                     </button>
                   );
                 })}
+
+                {/* Other (manual input) — only for Vehicle category */}
+                {showVehicleOther && (
+                  <div className={`rounded-xl border transition-all ${
+                    otherVehicleLine
+                      ? "border-primary bg-primary/8 shadow-[0_0_8px_rgba(201,168,76,0.1)]"
+                      : "border-border/60 bg-background"
+                  }`}>
+                    <button
+                      type="button"
+                      onClick={toggleOtherVehicle}
+                      className="w-full flex items-center gap-3 p-3 text-left"
+                    >
+                      <div className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                        otherVehicleLine ? "border-primary bg-primary" : "border-border"
+                      }`}>
+                        {otherVehicleLine && <div className="w-2 h-2 rounded-full bg-white" />}
+                      </div>
+                      <PenLine className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <span className="text-sm font-semibold text-foreground">Other (manual input)</span>
+                    </button>
+                    {otherVehicleLine && (
+                      <div className="px-3 pb-3">
+                        <Input
+                          placeholder="e.g. MB V-Class, Range Rover, Rolls-Royce"
+                          value={otherVehicleInput}
+                          onChange={e => updateOtherVehicleName(e.target.value)}
+                          onClick={e => e.stopPropagation()}
+                          className="text-sm"
+                          autoFocus
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>
         );
       })}
 
-      {/* Order summary */}
       {orderLines.length > 0 && (
         <div className="rounded-2xl border border-primary/20 bg-primary/5 overflow-hidden mt-4">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-primary/10">
