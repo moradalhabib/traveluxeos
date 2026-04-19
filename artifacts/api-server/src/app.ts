@@ -4,6 +4,7 @@ import pinoHttp from "pino-http";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import cookieParser from "cookie-parser";
+import { authStorage } from "./lib/supabase";
 
 const app: Express = express();
 
@@ -67,6 +68,13 @@ function requireJwt(req: Request, res: Response, next: NextFunction): void {
   next();
 }
 
-app.use("/api", requireJwt, router);
+// Run each request inside an AsyncLocalStorage scope holding the auth header,
+// so the supabase client automatically forwards the user's JWT to Postgres
+// (required for RLS).
+function withAuthContext(req: Request, _res: Response, next: NextFunction): void {
+  authStorage.run(req.headers.authorization, () => next());
+}
+
+app.use("/api", requireJwt, withAuthContext, router);
 
 export default app;

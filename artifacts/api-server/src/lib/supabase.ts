@@ -1,42 +1,56 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { AsyncLocalStorage } from "node:async_hooks";
 
-let _client: SupabaseClient | null = null;
+// Per-request storage for the user's auth header. Set by middleware in app.ts
+// so every Supabase call inside a request automatically forwards the JWT.
+export const authStorage = new AsyncLocalStorage<string | undefined>();
 
-function getClient(): SupabaseClient {
-  if (_client) return _client;
+let _anonClient: SupabaseClient | null = null;
+const _jwtClientCache = new Map<string, SupabaseClient>();
 
-  const supabaseUrl = (
-    process.env.SUPABASE_URL ||
-    process.env.VITE_SUPABASE_URL ||
-    ""
-  ).trim();
-
-  const supabaseAnonKey = (
-    process.env.SUPABASE_ANON_KEY ||
-    process.env.VITE_SUPABASE_ANON_KEY ||
-    ""
-  ).trim();
-
-  if (!supabaseUrl || !supabaseUrl.startsWith("http")) {
-    throw new Error(
-      "Missing or invalid SUPABASE_URL environment variable. Must be a valid https:// URL."
-    );
+function readEnv() {
+  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim();
+  const key = (process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || "").trim();
+  if (!url || !url.startsWith("http")) {
+    throw new Error("Missing or invalid SUPABASE_URL environment variable. Must be a valid https:// URL.");
   }
-
-  if (!supabaseAnonKey) {
-    throw new Error(
-      "Missing SUPABASE_ANON_KEY environment variable."
-    );
+  if (!key) {
+    throw new Error("Missing SUPABASE_ANON_KEY environment variable.");
   }
+  return { url, key };
+}
 
-  _client = createClient(supabaseUrl, supabaseAnonKey, {
-    auth: {
-      persistSession: false,
-      autoRefreshToken: false,
-    },
+function getAnonClient(): SupabaseClient {
+  if (_anonClient) return _anonClient;
+  const { url, key } = readEnv();
+  _anonClient = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
   });
+  return _anonClient;
+}
 
-  return _client;
+function getJwtClient(token: string): SupabaseClient {
+  const cached = _jwtClientCache.get(token);
+  if (cached) return cached;
+  const { url, key } = readEnv();
+  const client = createClient(url, key, {
+    global: { headers: { Authorization: `Bearer ${token}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  // Cap cache to avoid memory bloat across many users
+  if (_jwtClientCache.size > 200) _jwtClientCache.clear();
+  _jwtClientCache.set(token, client);
+  return client;
+}
+
+// The default client automatically uses the per-request JWT if one was stored
+// by the auth middleware; otherwise falls back to the anon client.
+function getClient(): SupabaseClient {
+  const authHeader = authStorage.getStore();
+  if (authHeader?.startsWith("Bearer ")) {
+    return getJwtClient(authHeader.substring(7));
+  }
+  return getAnonClient();
 }
 
 export const supabase = new Proxy({} as SupabaseClient, {
