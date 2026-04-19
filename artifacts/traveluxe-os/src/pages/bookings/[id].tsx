@@ -193,13 +193,15 @@ export default function BookingDetail() {
     } else if (svc === "Hotel") {
       // NO driver, NO vehicle, NO name board for hotel bookings.
       if ((booking as any).hotel_name) lines.push(`Hotel: ${(booking as any).hotel_name}`);
+      // Hotel booking reference is critical — show it prominently right after the hotel name.
+      if ((booking as any).hotel_booking_ref) lines.push(`*Hotel Booking Reference: ${(booking as any).hotel_booking_ref}*`);
       if ((booking as any).room_type) lines.push(`Room: ${(booking as any).room_type}`);
       if ((booking as any).check_in_date) lines.push(`Check-in: ${fmtDT((booking as any).check_in_date)}`);
       if ((booking as any).check_out_date) lines.push(`Check-out: ${fmtDT((booking as any).check_out_date)}`);
       if ((booking as any).num_nights) lines.push(`Nights: ${(booking as any).num_nights}`);
       if ((booking as any).num_guests) lines.push(`Guests: ${(booking as any).num_guests}`);
       if ((booking as any).breakfast_included) lines.push(`Breakfast: Included`);
-      if ((booking as any).hotel_booking_ref) lines.push(`Hotel ref: ${(booking as any).hotel_booking_ref}`);
+      lines.push(``, `Please present this booking reference at the hotel front desk on arrival.`);
     } else if (svc === "Apartment") {
       // NO driver, NO vehicle, NO name board for apartment bookings.
       if ((booking as any).property_name) lines.push(`Property: ${(booking as any).property_name}`);

@@ -148,16 +148,22 @@ export function bookingConfirmationHtml(booking: any, invoiceNumber?: string): s
       ${booking.vehicle_type ? row("Vehicle", esc(booking.vehicle_type)) : ""}
     `;
   } else if (isHotel) {
+    // Hotel booking reference is critical — render it prominently right after
+    // the hotel name with bold gold styling so the guest can quote it at check-in.
+    const refRow = booking.hotel_booking_ref ? `<tr>
+      <td class="detail-label">Booking Reference</td>
+      <td class="detail-value" style="color:${BRAND_GOLD};font-family:monospace;font-size:16px;font-weight:700">${esc(booking.hotel_booking_ref)}</td>
+    </tr>` : "";
     detailsRows = `
       ${row("Service", esc(svc))}
       ${booking.hotel_name ? row("Hotel", esc(booking.hotel_name)) : ""}
+      ${refRow}
       ${booking.room_type ? row("Room", esc(booking.room_type)) : ""}
       ${booking.check_in_date ? row("Check-in", formatDateTime(booking.check_in_date)) : ""}
       ${booking.check_out_date ? row("Check-out", formatDateTime(booking.check_out_date)) : ""}
       ${booking.num_nights ? row("Nights", esc(String(booking.num_nights))) : ""}
       ${booking.num_guests ? row("Guests", esc(String(booking.num_guests))) : ""}
       ${booking.breakfast_included ? row("Breakfast", "Included") : ""}
-      ${booking.hotel_booking_ref ? row("Hotel Reference", esc(booking.hotel_booking_ref)) : ""}
     `;
   } else if (isApartment) {
     detailsRows = `
