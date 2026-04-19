@@ -224,14 +224,19 @@ export default function BookingDetail() {
     // Driver messages only make sense for transport service types.
     // For Hotel/Apartment we still produce a brief notice in case a driver
     // was somehow assigned, but no transport fields will be invented.
+    const driverStaffNo = (booking as any).driver_staff_no;
+    const driverGreeting = booking.driver_name
+      ? `Hi ${booking.driver_name}${driverStaffNo ? ` (${driverStaffNo})` : ''},`
+      : `Hi Driver,`;
     const lines: string[] = [
-      `Hi ${booking.driver_name || 'Driver'},`,
+      driverGreeting,
       ``,
       `Please confirm receipt of your upcoming job:`,
       ``,
       `Ref: *${booking.tvl_ref}*`,
       `Service: ${svc}`,
     ];
+    if (driverStaffNo) lines.push(`Assigned to: *${driverStaffNo}*`);
 
     if (svc === "Airport Transfer") {
       lines.push(`Date: ${dateStr}`, `Time: ${timeStr}`);

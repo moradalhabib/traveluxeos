@@ -40,8 +40,13 @@ export default function DriverDetail() {
 
       <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-3 mb-1">
+          <div className="flex items-center gap-3 mb-1 flex-wrap">
             <h1 className="text-3xl font-bold tracking-tight text-foreground">{driver.name}</h1>
+            {(driver as any).staff_no && (
+              <span className="font-mono text-sm px-2.5 py-1 rounded bg-primary/10 text-primary border border-primary/30 font-semibold">
+                {(driver as any).staff_no}
+              </span>
+            )}
             <Badge variant="outline" className={driver.status === 'Active' ? 'bg-green-500/20 text-green-500 border-green-500/50' : 'bg-secondary text-secondary-foreground border-border'}>
               {driver.status}
             </Badge>

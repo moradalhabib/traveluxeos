@@ -18,6 +18,7 @@ async function enrichBooking(booking: any) {
     client_vip_tier: client?.vip_tier ?? null,
     client_email: client?.email ?? null,
     driver_name: driver?.name ?? null,
+    driver_staff_no: driver?.staff_no ?? null,
     driver_vehicle: driver ? `${driver.vehicle_type} ${driver.vehicle_model ?? ""}`.trim() : null,
     operator_name: operator?.name ?? null,
   };
@@ -70,7 +71,7 @@ router.get("/", async (req, res) => {
 
   let query = db
     .from("bookings")
-    .select("*, clients(name, vip_tier), drivers(name, vehicle_type, vehicle_model), users!bookings_operator_id_fkey(name)")
+    .select("*, clients(name, vip_tier), drivers(name, staff_no, vehicle_type, vehicle_model), users!bookings_operator_id_fkey(name)")
     .order("date_time", { ascending: true });
 
   if (status) query = query.eq("status", String(status));
@@ -174,7 +175,7 @@ router.get("/:id", async (req, res) => {
   const db = getDbClient(req.headers.authorization);
   const { data: booking, error } = await db
     .from("bookings")
-    .select("*, clients(name, vip_tier, whatsapp), drivers(name, vehicle_type, vehicle_model, whatsapp), users!bookings_operator_id_fkey(name)")
+    .select("*, clients(name, vip_tier, whatsapp), drivers(name, staff_no, vehicle_type, vehicle_model, whatsapp), users!bookings_operator_id_fkey(name)")
     .eq("id", req.params.id)
     .single();
 

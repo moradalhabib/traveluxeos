@@ -14,6 +14,7 @@ import { Loader2, Car } from "lucide-react";
 
 const formSchema = z.object({
   name: z.string().min(2, "Name required"),
+  staff_no: z.string().optional(),
   whatsapp: z.string().min(5, "WhatsApp required"),
   vehicle_model: z.string().min(1, "Vehicle name required (e.g. MB V-Class)"),
   vehicle_type: z.string().default("MPV"),
@@ -39,6 +40,7 @@ export default function NewDriver() {
     resolver: zodResolver(formSchema),
     defaultValues: {
       name: "",
+      staff_no: "",
       whatsapp: "",
       vehicle_model: "",
       vehicle_type: "MPV",
@@ -79,6 +81,18 @@ export default function NewDriver() {
                   <FormItem>
                     <FormLabel>Full Name *</FormLabel>
                     <FormControl><Input placeholder="James Okafor" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <FormField control={form.control} name="staff_no" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>
+                      Staff Number
+                      <span className="text-xs text-muted-foreground font-normal ml-1">Auto-assigned (TVL 01, TVL 02…) — leave blank</span>
+                    </FormLabel>
+                    <FormControl>
+                      <Input placeholder="Auto: next TVL number" {...field} className="font-mono uppercase" />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />

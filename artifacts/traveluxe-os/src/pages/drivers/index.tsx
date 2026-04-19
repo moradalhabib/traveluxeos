@@ -45,7 +45,14 @@ export default function Drivers() {
             <CardContent className="p-5 flex-1 flex flex-col">
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <h3 className="font-bold text-lg text-foreground">{driver.name}</h3>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h3 className="font-bold text-lg text-foreground">{driver.name}</h3>
+                    {(driver as any).staff_no && (
+                      <span className="font-mono text-xs px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/30">
+                        {(driver as any).staff_no}
+                      </span>
+                    )}
+                  </div>
                   <div className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
                     <Car className="w-3 h-3" />
                     {driver.vehicle_type} - {driver.plate || 'No plate'}
