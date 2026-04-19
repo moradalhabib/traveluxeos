@@ -6,7 +6,27 @@ import { AsyncLocalStorage } from "node:async_hooks";
 export const authStorage = new AsyncLocalStorage<string | undefined>();
 
 let _anonClient: SupabaseClient | null = null;
+let _serviceRoleClient: SupabaseClient | null | undefined = undefined;
 const _jwtClientCache = new Map<string, SupabaseClient>();
+
+/**
+ * Returns a Supabase client authenticated with the service-role key, which
+ * bypasses RLS. Use ONLY for trusted server-side jobs (backups, scheduler)
+ * — never for user-facing requests. Returns null if the key isn't configured.
+ */
+export function getServiceRoleClient(): SupabaseClient | null {
+  if (_serviceRoleClient !== undefined) return _serviceRoleClient;
+  const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim();
+  const key = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+  if (!url || !key) {
+    _serviceRoleClient = null;
+    return null;
+  }
+  _serviceRoleClient = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  return _serviceRoleClient;
+}
 
 function readEnv() {
   const url = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "").trim();

@@ -372,24 +372,45 @@ function ExportTab() {
 
   const exportFullBackup = async () => {
     setLoading('backup');
-    const [clients, bookings, drivers, commissions] = await Promise.all([
-      supabase.from('clients').select('*').order('name'),
-      supabase.from('bookings').select('*').order('date_time', { ascending: false }),
-      supabase.from('drivers').select('*').order('name'),
-      supabase.from('commissions').select('*').order('created_at', { ascending: false }),
-    ]);
-    const backup = {
-      exported_at: new Date().toISOString(),
-      version: '1.0',
-      data: {
-        clients: clients.data || [],
-        bookings: bookings.data || [],
-        drivers: drivers.data || [],
-        commissions: commissions.data || [],
-      },
-    };
-    downloadFile(JSON.stringify(backup, null, 2), `traveluxe-backup-${format(new Date(), 'yyyy-MM-dd')}.json`, 'application/json');
-    toast({ title: 'Full backup downloaded' });
+    try {
+      // Use the server-side endpoint so the backup includes ALL tables
+      // (audit_log, products, invoices, etc.) regardless of client-side RLS.
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
+      const res = await fetch(`${baseUrl}/api/admin/export`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`Export failed (${res.status})`);
+      const blob = await res.blob();
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:.]/g, '-');
+      downloadFile(await blob.text(), `traveluxe-backup-${stamp}.json`, 'application/json');
+      toast({ title: 'Full backup downloaded', description: `${(blob.size / 1024).toFixed(1)} KB` });
+    } catch (e: any) {
+      toast({ title: 'Backup failed', description: e?.message ?? 'Unknown error', variant: 'destructive' });
+    }
+    setLoading(null);
+  };
+
+  const triggerEmailBackup = async () => {
+    setLoading('email-backup');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
+      const res = await fetch(`${baseUrl}/api/admin/export/email`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const result = await res.json();
+      if (result.sent) {
+        toast({ title: 'Backup emailed', description: `${(result.bytes / 1024).toFixed(1)} KB sent to admins` });
+      } else {
+        toast({ title: 'Could not send email', description: 'Check that SMTP_PASS is set and at least one super_admin exists.', variant: 'destructive' });
+      }
+    } catch (e: any) {
+      toast({ title: 'Email backup failed', description: e?.message ?? 'Unknown error', variant: 'destructive' });
+    }
     setLoading(null);
   };
 
@@ -459,6 +480,33 @@ function ExportTab() {
             </div>
           </div>
         ))}
+      </div>
+
+      {/* ─── Daily auto-backup ─────────────────────────────────────────────── */}
+      <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
+        <div className="flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center flex-shrink-0">
+            <Database className="w-5 h-5 text-primary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-foreground text-sm">Daily Auto-Backup</p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              A full database snapshot is automatically emailed to all admins at <b>03:00 UK time</b> every night.
+              You can also send one right now to verify it's working.
+            </p>
+          </div>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          className="w-full border-primary/30 hover:bg-primary/10 hover:text-primary"
+          onClick={triggerEmailBackup}
+          disabled={loading === 'email-backup'}
+        >
+          {loading === 'email-backup'
+            ? <><Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" /> Sending…</>
+            : <><Download className="w-3.5 h-3.5 mr-2" /> Send Backup Email Now</>}
+        </Button>
       </div>
 
       <div className="rounded-xl border border-border bg-muted/20 p-4 text-xs text-muted-foreground space-y-1">

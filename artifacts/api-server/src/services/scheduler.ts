@@ -1,5 +1,6 @@
 import { supabase, auditLog } from "../lib/supabase";
 import { sendEmail } from "./email";
+import { emailDailyBackup } from "./backup";
 
 const TICK_MS = 60 * 1000;
 
@@ -277,15 +278,33 @@ export async function notifyDriverAssigned(bookingId: string) {
 let started = false;
 let timer: ReturnType<typeof setInterval> | null = null;
 let lastDigestDate = "";
+let lastBackupDate = "";
 
 async function maybeRunDigest() {
   const now = new Date();
-  // Run once between 08:00 and 08:01 UK time, deduped per calendar date
-  if (now.getHours() !== 8 || now.getMinutes() !== 0) return;
+  // Fire any time during the 08:00 hour, deduped per calendar date so it only
+  // runs once. The hour-window (vs. an exact minute) protects us against tick
+  // jitter if a previous tick ran long.
+  if (now.getHours() !== 8) return;
   const today = now.toISOString().slice(0, 10);
   if (lastDigestDate === today) return;
   lastDigestDate = today;
   await sendDailyDigest();
+}
+
+async function maybeRunBackup() {
+  const now = new Date();
+  // Fire any time during the 03:00 hour, deduped per calendar date.
+  if (now.getHours() !== 3) return;
+  const today = now.toISOString().slice(0, 10);
+  if (lastBackupDate === today) return;
+  lastBackupDate = today;
+  try {
+    const r = await emailDailyBackup();
+    console.info(`[Scheduler] Daily backup: sent=${r.sent} bytes=${r.bytes}`);
+  } catch (e: any) {
+    console.error("[Scheduler] backup error:", e?.message);
+  }
 }
 
 export function startScheduler() {
@@ -297,6 +316,7 @@ export function startScheduler() {
       await autoActivateJobs();
       await sendReminders();
       await maybeRunDigest();
+      await maybeRunBackup();
     } catch (e: any) {
       console.error("[Scheduler] tick error:", e?.message);
     }
@@ -305,7 +325,7 @@ export function startScheduler() {
   // Run shortly after boot, then every minute
   setTimeout(tick, 5000);
   timer = setInterval(tick, TICK_MS);
-  console.info("[Scheduler] auto-activate + 2h reminder + 08:00 daily digest loop started (60s interval)");
+  console.info("[Scheduler] auto-activate + 2h reminder + 08:00 digest + 03:00 backup loop started (60s interval)");
 }
 
 export function stopScheduler() {

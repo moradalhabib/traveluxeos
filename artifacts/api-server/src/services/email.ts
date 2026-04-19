@@ -22,11 +22,18 @@ function createTransporter() {
   });
 }
 
+export interface EmailAttachment {
+  filename: string;
+  content: string | Buffer;
+  contentType?: string;
+}
+
 export interface SendEmailOptions {
   to: string;
   subject: string;
   html: string;
   replyTo?: string;
+  attachments?: EmailAttachment[];
 }
 
 export async function sendEmail(opts: SendEmailOptions): Promise<{ sent: boolean; reason?: string }> {
@@ -43,6 +50,7 @@ export async function sendEmail(opts: SendEmailOptions): Promise<{ sent: boolean
       subject: opts.subject,
       html: opts.html,
       replyTo: opts.replyTo ?? SMTP_USER,
+      attachments: opts.attachments,
     });
     console.info(`[Email] Sent "${opts.subject}" → ${opts.to}`);
     return { sent: true };
