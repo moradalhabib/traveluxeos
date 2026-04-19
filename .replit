@@ -50,7 +50,7 @@ externalPort = 3003
 [userenv]
 
 [userenv.shared]
-SMTP_HOST = "mail.traveluxelondon.com"
+SMTP_HOST = "server53.web-hosting.com"
 SMTP_PORT = "465"
 SMTP_USER = "notifications@traveluxelondon.com"
 SMTP_FROM = "Traveluxe London <notifications@traveluxelondon.com>"
