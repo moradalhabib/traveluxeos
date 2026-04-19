@@ -12,28 +12,54 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 
+// Maps service_types.name → canonical booking service_type key stored in bookings
+const CANONICAL_BOOKING_TYPE: Record<string, string> = {
+  "City Tour":                "Tour",
+  "Chauffeur Tour":           "Tour",
+  "Event Transfer":           "Airport Transfer",
+  "Apartment / Accommodation":"Apartment",
+  // post-migration names map to themselves:
+  "Airport Transfer":         "Airport Transfer",
+  "Tour":                     "Tour",
+  "As Directed":              "As Directed",
+  "Apartment":                "Apartment",
+  "Hotel":                    "Hotel",
+};
+
 const SERVICE_ICONS: Record<string, React.ReactNode> = {
-  "Airport Transfer": <PlaneTakeoff className="w-6 h-6" />,
-  "Tour":             <Map className="w-6 h-6" />,
-  "As Directed":      <Car className="w-6 h-6" />,
-  "Apartment":        <Building2 className="w-6 h-6" />,
-  "Hotel":            <Building2 className="w-6 h-6" />,
+  "Airport Transfer":          <PlaneTakeoff className="w-6 h-6" />,
+  "Tour":                      <Map className="w-6 h-6" />,
+  "City Tour":                 <Map className="w-6 h-6" />,
+  "Chauffeur Tour":            <Car className="w-6 h-6" />,
+  "As Directed":               <Car className="w-6 h-6" />,
+  "Event Transfer":            <PlaneTakeoff className="w-6 h-6" />,
+  "Apartment":                 <Building2 className="w-6 h-6" />,
+  "Apartment / Accommodation": <Building2 className="w-6 h-6" />,
+  "Hotel":                     <Building2 className="w-6 h-6" />,
 };
 
 const SERVICE_COLORS: Record<string, string> = {
-  "Airport Transfer": "from-blue-500/20 to-blue-600/10 border-blue-500/30",
-  "Tour":             "from-emerald-500/20 to-emerald-600/10 border-emerald-500/30",
-  "As Directed":      "from-amber-500/20 to-amber-600/10 border-amber-500/30",
-  "Apartment":        "from-indigo-500/20 to-indigo-600/10 border-indigo-500/30",
-  "Hotel":            "from-purple-500/20 to-purple-600/10 border-purple-500/30",
+  "Airport Transfer":          "from-blue-500/20 to-blue-600/10 border-blue-500/30",
+  "Event Transfer":            "from-blue-500/20 to-blue-600/10 border-blue-500/30",
+  "Tour":                      "from-emerald-500/20 to-emerald-600/10 border-emerald-500/30",
+  "City Tour":                 "from-emerald-500/20 to-emerald-600/10 border-emerald-500/30",
+  "Chauffeur Tour":            "from-teal-500/20 to-teal-600/10 border-teal-500/30",
+  "As Directed":               "from-amber-500/20 to-amber-600/10 border-amber-500/30",
+  "Apartment":                 "from-indigo-500/20 to-indigo-600/10 border-indigo-500/30",
+  "Apartment / Accommodation": "from-indigo-500/20 to-indigo-600/10 border-indigo-500/30",
+  "Hotel":                     "from-purple-500/20 to-purple-600/10 border-purple-500/30",
 };
 
 const SERVICE_ICON_COLORS: Record<string, string> = {
-  "Airport Transfer": "text-blue-400 bg-blue-500/10",
-  "Tour":             "text-emerald-400 bg-emerald-500/10",
-  "As Directed":      "text-amber-400 bg-amber-500/10",
-  "Apartment":        "text-indigo-400 bg-indigo-500/10",
-  "Hotel":            "text-purple-400 bg-purple-500/10",
+  "Airport Transfer":          "text-blue-400 bg-blue-500/10",
+  "Event Transfer":            "text-blue-400 bg-blue-500/10",
+  "Tour":                      "text-emerald-400 bg-emerald-500/10",
+  "City Tour":                 "text-emerald-400 bg-emerald-500/10",
+  "Chauffeur Tour":            "text-teal-400 bg-teal-500/10",
+  "As Directed":               "text-amber-400 bg-amber-500/10",
+  "Apartment":                 "text-indigo-400 bg-indigo-500/10",
+  "Apartment / Accommodation": "text-indigo-400 bg-indigo-500/10",
+  "Hotel":                     "text-purple-400 bg-purple-500/10",
 };
 
 const STATUS_COLORS: Record<string, string> = {
@@ -99,9 +125,10 @@ export default function Services() {
       });
   }, []);
 
-  // Stats per service
+  // Stats per service — uses canonical booking type to handle pre-migration DB names
   const statsFor = (name: string) => {
-    const svcBookings = bookings.filter(b => b.service_type === name);
+    const key = CANONICAL_BOOKING_TYPE[name] ?? name;
+    const svcBookings = bookings.filter(b => b.service_type === key || b.service_type === name);
     const active = svcBookings.filter(b => ["Confirmed", "Pending", "In Progress"].includes(b.status)).length;
     const revenue = svcBookings
       .filter(b => b.status !== "Cancelled")
@@ -110,11 +137,12 @@ export default function Services() {
     return { total: svcBookings.length, active, revenue, completed };
   };
 
-  // Filtered bookings for selected service
+  // Filtered bookings for selected service — same canonical mapping
   const filteredBookings = useMemo(() => {
     if (!selectedService) return [];
+    const key = CANONICAL_BOOKING_TYPE[selectedService.name] ?? selectedService.name;
     return bookings
-      .filter(b => b.service_type === selectedService.name)
+      .filter(b => b.service_type === key || b.service_type === selectedService.name)
       .filter(b => statusFilter === "All" || b.status === statusFilter);
   }, [selectedService, bookings, statusFilter]);
 
@@ -186,7 +214,10 @@ export default function Services() {
               {s}
               {s !== "All" && (
                 <span className="ml-1.5 opacity-70">
-                  {bookings.filter(b => b.service_type === selectedService.name && b.status === s).length}
+                  {bookings.filter(b => {
+                    const key = CANONICAL_BOOKING_TYPE[selectedService.name] ?? selectedService.name;
+                    return (b.service_type === key || b.service_type === selectedService.name) && b.status === s;
+                  }).length}
                 </span>
               )}
             </button>
