@@ -687,48 +687,39 @@ export default function Admin() {
   const isSuperAdmin = user?.role === "super_admin";
 
   const { data: users, isLoading: usersLoading } = useListUsers(
-    { query: { enabled: !isSuperAdmin, queryKey: getListUsersQueryKey() } }
+    { query: { enabled: true, queryKey: getListUsersQueryKey() } }
   );
   const { data: logs, isLoading: logsLoading } = useListAuditLog(
     {},
-    { query: { enabled: !isSuperAdmin, queryKey: getListAuditLogQueryKey({}) } }
+    { query: { enabled: true, queryKey: getListAuditLogQueryKey({}) } }
   );
 
   return (
     <div className="space-y-5 max-w-3xl mx-auto">
       <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Admin Panel</h1>
-          {isSuperAdmin && (
-            <p className="text-xs text-muted-foreground mt-1">Data access only — import, export, and backup</p>
-          )}
-        </div>
+        <h1 className="text-2xl font-bold tracking-tight text-foreground">Admin Panel</h1>
         {isSuperAdmin && (
           <Badge variant="outline" className="border-primary/30 text-primary text-xs">Super Admin</Badge>
         )}
       </div>
 
       <Tabs defaultValue="import" className="w-full">
-        <TabsList className={`grid w-full ${isSuperAdmin ? "grid-cols-2" : "grid-cols-5"}`}>
+        <TabsList className="grid w-full grid-cols-5">
           <TabsTrigger value="import">
             <Upload className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Import
           </TabsTrigger>
           <TabsTrigger value="export">
             <Download className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Export
           </TabsTrigger>
-          {!isSuperAdmin && (
-            <>
-              <TabsTrigger value="fleet">
-                <Car className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Fleet
-              </TabsTrigger>
-              <TabsTrigger value="users">
-                <Users className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Users
-              </TabsTrigger>
-              <TabsTrigger value="audit">
-                <ShieldCheck className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Audit
-              </TabsTrigger>
-            </>
-          )}
+          <TabsTrigger value="fleet">
+            <Car className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Fleet
+          </TabsTrigger>
+          <TabsTrigger value="users">
+            <Users className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Users
+          </TabsTrigger>
+          <TabsTrigger value="audit">
+            <ShieldCheck className="w-3.5 h-3.5 mr-1.5 hidden sm:block" />Audit
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="import" className="mt-5">
@@ -739,42 +730,38 @@ export default function Admin() {
           <ExportTab />
         </TabsContent>
 
-        {!isSuperAdmin && (
-          <>
-            <TabsContent value="fleet" className="mt-5">
-              <FleetTab />
-            </TabsContent>
+        <TabsContent value="fleet" className="mt-5">
+          <FleetTab />
+        </TabsContent>
 
-            <TabsContent value="users" className="mt-5">
-              <UsersTab currentUserId={user?.id} />
-            </TabsContent>
+        <TabsContent value="users" className="mt-5">
+          <UsersTab currentUserId={user?.id} />
+        </TabsContent>
 
-            <TabsContent value="audit" className="mt-5">
-              <Card className="border-border">
-                <CardHeader><CardTitle className="text-base">System Audit Trail</CardTitle></CardHeader>
-                <CardContent>
-                  <div className="space-y-3">
-                    {logsLoading ? (
-                      [...Array(5)].map((_, i) => <Skeleton key={i} className="h-16" />)
-                    ) : logs?.map((log) => (
-                      <div key={log.id} className="p-3 border border-border rounded-xl bg-background/50 text-sm">
-                        <div className="flex items-center justify-between mb-1">
-                          <div className="flex items-center gap-2">
-                            <span className="font-medium">{log.operator_name || "System"}</span>
-                            <Badge variant="secondary" className="text-[10px]">{log.action}</Badge>
-                            <span className="text-xs text-muted-foreground">{log.entity_type}</span>
-                          </div>
-                          <span className="text-xs text-muted-foreground">{format(new Date(log.created_at), "dd MMM · HH:mm")}</span>
-                        </div>
-                        {log.detail && <p className="text-xs text-muted-foreground mt-1">{log.detail}</p>}
+        <TabsContent value="audit" className="mt-5">
+          <Card className="border-border">
+            <CardHeader><CardTitle className="text-base">System Audit Trail</CardTitle></CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {logsLoading ? (
+                  [...Array(5)].map((_, i) => <Skeleton key={i} className="h-16" />)
+                ) : logs?.map((log) => (
+                  <div key={log.id} className="p-3 border border-border rounded-xl bg-background/50 text-sm">
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{log.operator_name || "System"}</span>
+                        <Badge variant="secondary" className="text-[10px]">{log.action}</Badge>
+                        <span className="text-xs text-muted-foreground">{log.entity_type}</span>
                       </div>
-                    ))}
+                      <span className="text-xs text-muted-foreground">{format(new Date(log.created_at), "dd MMM · HH:mm")}</span>
+                    </div>
+                    {log.detail && <p className="text-xs text-muted-foreground mt-1">{log.detail}</p>}
                   </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-          </>
-        )}
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
     </div>
   );
