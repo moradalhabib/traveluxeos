@@ -518,12 +518,43 @@ function ExportTab() {
 }
 
 // ─── Users tab ────────────────────────────────────────────────────────────────
-function UsersTab({ currentUserId }: { currentUserId?: string }) {
+function UsersTab({ currentUserId, isSuperAdmin }: { currentUserId?: string; isSuperAdmin: boolean }) {
   const { toast } = useToast();
   const { data: users, isLoading, refetch } = useListUsers(
     { query: { enabled: true, queryKey: getListUsersQueryKey() } }
   );
   const [toggling, setToggling] = useState<string | null>(null);
+  const [changingRole, setChangingRole] = useState<string | null>(null);
+
+  const changeRole = async (userId: string, newRole: string) => {
+    if (userId === currentUserId) {
+      toast({ title: "You cannot change your own role", variant: "destructive" });
+      return;
+    }
+    setChangingRole(userId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
+      const res = await fetch(`${baseUrl}/api/users/${userId}/role`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ role: newRole }),
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        toast({ title: 'Failed to change role', description: result?.error ?? 'Unknown error', variant: 'destructive' });
+      } else {
+        toast({ title: 'Role updated', description: `Now ${newRole.replace('_', ' ')}` });
+        refetch();
+      }
+    } catch (e: any) {
+      toast({ title: 'Failed to change role', description: e?.message ?? 'Unknown error', variant: 'destructive' });
+    }
+    setChangingRole(null);
+  };
 
   const toggleActive = async (userId: string, currentActive: boolean) => {
     if (userId === currentUserId) {
@@ -603,10 +634,31 @@ function UsersTab({ currentUserId }: { currentUserId?: string }) {
                     {isCurrentUser && <span className="text-[10px] text-muted-foreground">(you)</span>}
                   </div>
                   <div className="text-xs text-muted-foreground">{u.email}</div>
-                  <div className="flex items-center gap-2 mt-1">
-                    <Badge variant="outline" className={`${roleColor(u.role)} text-[10px]`}>
-                      {roleLabel(u.role)}
-                    </Badge>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    {isSuperAdmin && !isCurrentUser ? (
+                      <Select
+                        value={u.role}
+                        onValueChange={(v) => changeRole(u.id, v)}
+                        disabled={changingRole === u.id}
+                      >
+                        <SelectTrigger className={`h-6 px-2 py-0 text-[10px] w-[120px] ${roleColor(u.role)}`}>
+                          {changingRole === u.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <SelectValue />
+                          )}
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="super_admin" className="text-xs">Super Admin</SelectItem>
+                          <SelectItem value="admin" className="text-xs">Admin</SelectItem>
+                          <SelectItem value="operator" className="text-xs">Operator</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Badge variant="outline" className={`${roleColor(u.role)} text-[10px]`}>
+                        {roleLabel(u.role)}
+                      </Badge>
+                    )}
                     <Badge
                       variant="outline"
                       className={u.active ? "text-green-500 border-green-500/30 text-[10px]" : "text-destructive border-destructive/30 text-[10px]"}
@@ -1609,7 +1661,7 @@ export default function Admin() {
         </TabsContent>
 
         <TabsContent value="users" className="mt-5">
-          <UsersTab currentUserId={user?.id} />
+          <UsersTab currentUserId={user?.id} isSuperAdmin={isSuperAdmin} />
         </TabsContent>
 
         <TabsContent value="audit" className="mt-5">
