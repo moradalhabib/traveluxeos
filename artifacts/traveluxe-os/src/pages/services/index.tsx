@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
+import { useListBookings, getListBookingsQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -103,24 +104,35 @@ function canonicalKey(raw: string): ServiceKey {
 export default function Services() {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
-  const [bookings, setBookings] = useState<Booking[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
-  const [loadingBookings, setLoadingBookings] = useState(true);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [selectedKey, setSelectedKey] = useState<ServiceKey | null>(null);
   const [statusFilter, setStatusFilter] = useState("All");
   const [activeTab, setActiveTab] = useState<"bookings" | "catalogue">("bookings");
 
-  useEffect(() => {
-    supabase
-      .from("bookings")
-      .select("id, tvl_ref, client_name, service_type, date_time, status, price, driver_name, payment_status, pickup, dropoff")
-      .order("date_time", { ascending: false })
-      .then(({ data }) => {
-        setBookings(data ?? []);
-        setLoadingBookings(false);
-      });
-  }, []);
+  // Use the same API endpoint as Jobs Board / Bookings list so this view
+  // always reflects the current source of truth (auto-refetch on focus, no
+  // RLS divergence, no stale cache after creating a new booking).
+  const { data: rawBookings, isLoading: loadingBookings } = useListBookings(
+    {},
+    { query: { enabled: true, queryKey: getListBookingsQueryKey({}) } }
+  );
+
+  const bookings: Booking[] = useMemo(() => {
+    return ((rawBookings ?? []) as any[]).map((b) => ({
+      id: b.id,
+      tvl_ref: b.tvl_ref ?? "",
+      client_name: b.client_name ?? b.clients?.name ?? "—",
+      service_type: (b.service_type ?? "").toString().trim(),
+      date_time: b.date_time ?? null,
+      status: b.status ?? "",
+      price: Number(b.price ?? 0),
+      driver_name: b.driver_name ?? b.drivers?.name ?? null,
+      payment_status: b.payment_status ?? null,
+      pickup: b.pickup ?? null,
+      dropoff: b.dropoff ?? null,
+    }));
+  }, [rawBookings]);
 
   useEffect(() => {
     if (!selectedKey) return;
