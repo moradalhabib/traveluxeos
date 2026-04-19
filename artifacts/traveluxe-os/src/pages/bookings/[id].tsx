@@ -298,8 +298,43 @@ export default function BookingDetail() {
         </div>
       </div>
 
-      {/* WHATSAPP BUTTONS — Large and prominent */}
-      <div className="grid grid-cols-1 gap-3">
+      {/* WHATSAPP BUTTONS — Large and prominent.
+          Hidden until the booking is officially Confirmed.
+          Quote = awaiting confirmation (request, not booking) — no client/driver
+          message should ever be sent in that state. Cancelled also blocks. */}
+      {(() => {
+        const blockedStatuses = ['Quote', 'Cancelled'];
+        const isAwaitingConfirmation = blockedStatuses.includes(booking.status);
+        if (isAwaitingConfirmation) {
+          return (
+            <div className="rounded-2xl border border-amber-700/40 bg-amber-900/10 p-4 flex items-start gap-3">
+              <Clock className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-semibold text-amber-400 text-sm">
+                  {booking.status === 'Cancelled' ? 'Booking cancelled' : 'Awaiting confirmation'}
+                </p>
+                <p className="text-xs text-amber-600/80 mt-0.5">
+                  {booking.status === 'Cancelled'
+                    ? 'No messages can be sent for a cancelled booking.'
+                    : 'This is a request — confirm the booking before sending any WhatsApp message to the client or driver.'}
+                </p>
+                {booking.status === 'Quote' && (
+                  <Button
+                    size="sm"
+                    onClick={() => handleUpdateStatus('Confirmed')}
+                    className="mt-3 bg-amber-500 hover:bg-amber-600 text-black font-semibold"
+                  >
+                    Confirm Booking
+                  </Button>
+                )}
+              </div>
+            </div>
+          );
+        }
+        return null;
+      })()}
+
+      <div className={`grid grid-cols-1 gap-3 ${['Quote','Cancelled'].includes(booking.status) ? 'hidden' : ''}`}>
         {clientWa ? (
           <a href={clientMsgUrl} target="_blank" rel="noopener noreferrer">
             <div className="flex items-center gap-4 p-4 rounded-2xl bg-green-900/20 border border-green-700/40 hover:bg-green-900/30 hover:border-green-600/60 transition-all cursor-pointer">
