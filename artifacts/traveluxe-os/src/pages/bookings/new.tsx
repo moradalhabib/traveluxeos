@@ -852,36 +852,59 @@ export default function NewBooking() {
                     </div>
                   )}
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <FormField control={bookingForm.control} name="pickup" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Pickup</FormLabel>
-                        <FormControl><Input placeholder="Address or Airport" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={bookingForm.control} name="dropoff" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Dropoff</FormLabel>
-                        <FormControl><Input placeholder="Address or Airport" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={bookingForm.control} name="passengers" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Passengers</FormLabel>
-                        <FormControl><Input type="number" min="1" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    <FormField control={bookingForm.control} name="luggage" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Luggage</FormLabel>
-                        <FormControl><Input type="number" min="0" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                  </div>
+                  {/* Pickup / Dropoff / Passengers / Luggage — transport services only */}
+                  {(serviceType === "Airport Transfer" || serviceType === "As Directed") && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField control={bookingForm.control} name="pickup" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Pickup</FormLabel>
+                          <FormControl><Input placeholder="Address or Airport" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                      <FormField control={bookingForm.control} name="dropoff" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Dropoff</FormLabel>
+                          <FormControl><Input placeholder="Address or Airport" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                      <FormField control={bookingForm.control} name="passengers" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Passengers</FormLabel>
+                          <FormControl><Input type="number" min="1" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                      <FormField control={bookingForm.control} name="luggage" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Luggage</FormLabel>
+                          <FormControl><Input type="number" min="0" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    </div>
+                  )}
+
+                  {/* Passengers only (no pickup/dropoff) for Tour */}
+                  {serviceType === "Tour" && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField control={bookingForm.control} name="passengers" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Passengers</FormLabel>
+                          <FormControl><Input type="number" min="1" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                      <FormField control={bookingForm.control} name="luggage" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Luggage</FormLabel>
+                          <FormControl><Input type="number" min="0" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    </div>
+                  )}
 
                   <FormField control={bookingForm.control} name="extras" render={({ field }) => (
                     <FormItem>

@@ -85,9 +85,29 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
       .eq("active", true)
       .order("sort_order")
       .then(({ data }) => {
-        setProducts(data ?? []);
+        const loaded = data ?? [];
+        setProducts(loaded);
         setLoading(false);
+
+        // Auto-select MB V-Class as default vehicle if none already chosen
+        const hasVehicle = orderLines.some(l => l.category === "Vehicle");
+        if (!hasVehicle) {
+          const vClass = loaded.find(
+            p => p.category === "Vehicle" && p.name.toLowerCase().includes("v-class")
+          ) ?? loaded.find(p => p.category === "Vehicle");
+          if (vClass) {
+            onChange([...orderLines, {
+              key: `${vClass.id}-default`,
+              product_id: vClass.id,
+              name: vClass.name,
+              unit_price: vClass.unit_price,
+              quantity: 1,
+              category: "Vehicle",
+            }]);
+          }
+        }
       });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const categories = serviceType && SERVICE_CATEGORY_MAP[serviceType]
@@ -126,11 +146,15 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
       if (alreadySelected) {
         onChange(withoutCategory);
       } else {
+        // Tour destinations are labels only — no price contribution
+        const linePrice = (serviceType === "Tour" && product.category === "Tour")
+          ? 0
+          : product.unit_price;
         onChange([...withoutCategory, {
           key: `${product.id}-${Date.now()}`,
           product_id: product.id,
           name: product.name,
-          unit_price: product.unit_price,
+          unit_price: linePrice,
           quantity: 1,
           category: product.category,
         }]);
@@ -350,14 +374,18 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
                           </div>
                         </div>
                         <div className="flex-shrink-0 text-right">
-                          <span className={`text-sm font-bold ${ordered ? "text-primary" : "text-foreground"}`}>
-                            {product.unit_price > 0 ? `£${product.unit_price.toLocaleString()}` : "Incl."}
-                          </span>
+                          {(serviceType === "Tour" && cat === "Tour") ? (
+                            <span className="text-xs text-muted-foreground font-medium">Label only</span>
+                          ) : (
+                            <span className={`text-sm font-bold ${ordered ? "text-primary" : "text-foreground"}`}>
+                              {product.unit_price > 0 ? `£${product.unit_price.toLocaleString()}` : "Incl."}
+                            </span>
+                          )}
                         </div>
                       </button>
 
-                      {/* Inline price editor + qty controls when selected */}
-                      {ordered && (
+                      {/* Inline price editor + qty controls when selected (not for Tour labels) */}
+                      {ordered && !(serviceType === "Tour" && cat === "Tour") && (
                         <div className="px-3 pb-3 space-y-2 border-t border-primary/10 pt-2">
                           <div className="flex items-center gap-2">
                             <div className="flex-1">
