@@ -61,6 +61,18 @@ const bookingSchema = z.object({
   driver_id: z.string().optional(),
   notes: z.string().optional(),
   duration: z.coerce.number().optional(),
+  // Tour fields
+  tour_name: z.string().optional(),
+  meeting_point: z.string().optional(),
+  guide_included: z.boolean().optional(),
+  itinerary: z.string().optional(),
+  // Accommodation fields
+  property_name: z.string().optional(),
+  property_address: z.string().optional(),
+  check_in_date: z.string().optional(),
+  check_out_date: z.string().optional(),
+  nights: z.coerce.number().optional(),
+  property_contact: z.string().optional(),
 });
 
 export default function NewBooking() {
@@ -104,6 +116,8 @@ export default function NewBooking() {
   const price = bookingForm.watch("price") || 0;
   const commission = bookingForm.watch("tvl_commission") || 0;
   const driverReceives = price - commission;
+  const isTourType = ["Tour", "City Tour", "Chauffeur Tour"].includes(serviceType);
+  const isAccommodation = serviceType === "Apartment / Accommodation";
 
   // Populate client_id from URL param on mount (coming from client profile)
   useEffect(() => {
@@ -449,8 +463,11 @@ export default function NewBooking() {
                           <SelectContent>
                             <SelectItem value="Airport Transfer">Airport Transfer</SelectItem>
                             <SelectItem value="Tour">Tour</SelectItem>
+                            <SelectItem value="City Tour">City Tour</SelectItem>
+                            <SelectItem value="Chauffeur Tour">Chauffeur Tour</SelectItem>
                             <SelectItem value="As Directed">As Directed</SelectItem>
                             <SelectItem value="Event Transfer">Event Transfer</SelectItem>
+                            <SelectItem value="Apartment / Accommodation">Apartment / Accommodation</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -554,22 +571,105 @@ export default function NewBooking() {
                     </>
                   )}
 
-                  {serviceType === "Tour" && (
-                    <div className="grid grid-cols-2 gap-3">
-                      <FormField control={bookingForm.control} name="destination" render={({ field }) => (
-                        <FormItem className="col-span-2">
-                          <FormLabel>Destination / Route</FormLabel>
-                          <FormControl><Input placeholder="e.g. London Highlights Tour" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
-                      <FormField control={bookingForm.control} name="duration" render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Duration (hrs)</FormLabel>
-                          <FormControl><Input type="number" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
+                  {isTourType && (
+                    <div className="space-y-3 p-3 rounded-xl border border-primary/20 bg-primary/5">
+                      <p className="text-xs font-semibold text-primary uppercase tracking-wider">Tour Details</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField control={bookingForm.control} name="tour_name" render={({ field }) => (
+                          <FormItem className="col-span-2">
+                            <FormLabel>Tour Name</FormLabel>
+                            <FormControl><Input placeholder="e.g. Oxford & Cotswolds Day Trip" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="meeting_point" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Meeting Point</FormLabel>
+                            <FormControl><Input placeholder="e.g. Hotel lobby, Big Ben" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="duration" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Duration (hrs)</FormLabel>
+                            <FormControl><Input type="number" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="itinerary" render={({ field }) => (
+                          <FormItem className="col-span-2">
+                            <FormLabel>Itinerary / Programme</FormLabel>
+                            <FormControl><Textarea placeholder="Stop 1: Windsor Castle&#10;Stop 2: Stonehenge&#10;..." className="resize-none" rows={3} {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="destination" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Destination / Route</FormLabel>
+                            <FormControl><Input placeholder="e.g. London to Cotswolds" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <div className="flex items-center gap-3 pt-5">
+                          <input
+                            type="checkbox"
+                            id="guide_included"
+                            className="w-4 h-4 accent-primary"
+                            onChange={(e) => bookingForm.setValue("guide_included", e.target.checked)}
+                          />
+                          <label htmlFor="guide_included" className="text-sm font-medium cursor-pointer">Guide included</label>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {isAccommodation && (
+                    <div className="space-y-3 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5">
+                      <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Accommodation Details</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField control={bookingForm.control} name="property_name" render={({ field }) => (
+                          <FormItem className="col-span-2">
+                            <FormLabel>Property Name</FormLabel>
+                            <FormControl><Input placeholder="e.g. The Dorchester, Hyde Park Penthouse" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="property_address" render={({ field }) => (
+                          <FormItem className="col-span-2">
+                            <FormLabel>Property Address</FormLabel>
+                            <FormControl><Input placeholder="Full address" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="check_in_date" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Check-in</FormLabel>
+                            <FormControl><Input type="datetime-local" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="check_out_date" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Check-out</FormLabel>
+                            <FormControl><Input type="datetime-local" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="nights" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Nights</FormLabel>
+                            <FormControl><Input type="number" min="1" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="property_contact" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Property Contact</FormLabel>
+                            <FormControl><Input placeholder="Manager / concierge number" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      </div>
                     </div>
                   )}
 

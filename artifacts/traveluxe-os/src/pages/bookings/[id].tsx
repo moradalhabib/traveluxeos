@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift } from "lucide-react";
+import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift, Map, Building2, CalendarRange } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
@@ -134,6 +134,12 @@ export default function BookingDetail() {
     if (booking.nameboard) lines.push(``, `Your driver will be waiting with a name board: *"${booking.nameboard}"*`);
     if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
     if (extras) lines.push(`Extras: ${extras}`);
+    if ((booking as any).tour_name) lines.push(`Tour: ${(booking as any).tour_name}`);
+    if ((booking as any).meeting_point) lines.push(`Meeting point: ${(booking as any).meeting_point}`);
+    if ((booking as any).property_name) lines.push(`Property: ${(booking as any).property_name}`);
+    if ((booking as any).property_address) lines.push(`Address: ${(booking as any).property_address}`);
+    if ((booking as any).check_in_date) lines.push(`Check-in: ${format(new Date((booking as any).check_in_date), "dd MMM yyyy HH:mm")}`);
+    if ((booking as any).check_out_date) lines.push(`Check-out: ${format(new Date((booking as any).check_out_date), "dd MMM yyyy HH:mm")}`);
     if (booking.driver_name) lines.push(``, `Your driver: *${booking.driver_name}*`);
     lines.push(``, `Any questions? We are always here for you.`, `Traveluxe London — Mayfair`);
     return lines.join('\n');
@@ -160,6 +166,10 @@ export default function BookingDetail() {
     if (booking.nameboard) lines.push(`Name Board: *"${booking.nameboard}"*`);
     if (extras) lines.push(`Extras: ${extras}`);
     if ((booking as any).special_requests) lines.push(`Notes: ${(booking as any).special_requests}`);
+    if ((booking as any).tour_name) lines.push(`Tour: ${(booking as any).tour_name}`);
+    if ((booking as any).meeting_point) lines.push(`Meeting point: ${(booking as any).meeting_point}`);
+    if ((booking as any).itinerary) lines.push(`Itinerary:\n${(booking as any).itinerary}`);
+    if ((booking as any).property_name) lines.push(`Property: ${(booking as any).property_name} — ${(booking as any).property_address || ""}`);
     lines.push(``, `Please confirm. Thank you.`, `Traveluxe London`);
     // Privacy: NEVER include client whatsapp
     return lines.join('\n');
@@ -404,6 +414,80 @@ export default function BookingDetail() {
             <div className="pt-3 border-t border-border">
               <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><ClipboardList className="w-3 h-3" /> Special Requests</p>
               <p className="font-medium">{(booking as any).special_requests}</p>
+            </div>
+          )}
+
+          {/* Tour details */}
+          {(booking as any).tour_name && (
+            <div className="pt-3 border-t border-border space-y-2">
+              <p className="text-xs text-muted-foreground uppercase font-semibold flex items-center gap-1"><Map className="w-3 h-3" /> Tour</p>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-1">Tour Name</p>
+                  <p className="font-semibold text-foreground">{(booking as any).tour_name}</p>
+                </div>
+                {(booking as any).meeting_point && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Meeting Point</p>
+                    <p className="font-medium">{(booking as any).meeting_point}</p>
+                  </div>
+                )}
+                {(booking as any).duration && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Duration</p>
+                    <p className="font-medium">{(booking as any).duration} hrs</p>
+                  </div>
+                )}
+                {(booking as any).guide_included && (
+                  <div>
+                    <Badge variant="outline" className="text-primary border-primary/30 text-xs">Guide Included</Badge>
+                  </div>
+                )}
+                {(booking as any).itinerary && (
+                  <div className="col-span-2">
+                    <p className="text-xs text-muted-foreground mb-1">Itinerary</p>
+                    <p className="text-sm whitespace-pre-line">{(booking as any).itinerary}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Accommodation details */}
+          {(booking as any).property_name && (
+            <div className="pt-3 border-t border-border space-y-2">
+              <p className="text-xs text-muted-foreground uppercase font-semibold flex items-center gap-1"><Building2 className="w-3 h-3" /> Accommodation</p>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-1">Property</p>
+                  <p className="font-semibold text-foreground">{(booking as any).property_name}</p>
+                  {(booking as any).property_address && <p className="text-xs text-muted-foreground mt-0.5">{(booking as any).property_address}</p>}
+                </div>
+                {(booking as any).check_in_date && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><CalendarRange className="w-3 h-3" /> Check-in</p>
+                    <p className="font-medium">{format(new Date((booking as any).check_in_date), "dd MMM yyyy HH:mm")}</p>
+                  </div>
+                )}
+                {(booking as any).check_out_date && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><CalendarRange className="w-3 h-3" /> Check-out</p>
+                    <p className="font-medium">{format(new Date((booking as any).check_out_date), "dd MMM yyyy HH:mm")}</p>
+                  </div>
+                )}
+                {(booking as any).nights && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Nights</p>
+                    <p className="font-medium">{(booking as any).nights} night{(booking as any).nights !== 1 ? "s" : ""}</p>
+                  </div>
+                )}
+                {(booking as any).property_contact && (
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Property Contact</p>
+                    <p className="font-medium">{(booking as any).property_contact}</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </CardContent>

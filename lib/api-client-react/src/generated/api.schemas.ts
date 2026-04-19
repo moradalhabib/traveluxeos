@@ -106,6 +106,19 @@ export interface Booking {
   updated_at?: string;
   created_by?: string;
   duration?: number;
+  extras?: string;
+  // Tour fields
+  tour_name?: string;
+  meeting_point?: string;
+  guide_included?: boolean;
+  itinerary?: string;
+  // Accommodation fields
+  property_name?: string;
+  property_address?: string;
+  check_in_date?: string;
+  check_out_date?: string;
+  nights?: number;
+  property_contact?: string;
 }
 
 export type ClientWithHistory = Client & {
@@ -235,6 +248,19 @@ export interface CreateBookingBody {
   return_booking_id?: string;
   notes?: string;
   duration?: number;
+  extras?: string;
+  // Tour fields
+  tour_name?: string;
+  meeting_point?: string;
+  guide_included?: boolean;
+  itinerary?: string;
+  // Accommodation fields
+  property_name?: string;
+  property_address?: string;
+  check_in_date?: string;
+  check_out_date?: string;
+  nights?: number;
+  property_contact?: string;
 }
 
 export interface CancelBookingBody {
