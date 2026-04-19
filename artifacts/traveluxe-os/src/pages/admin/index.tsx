@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { useListUsers, getListUsersQueryKey, useListAuditLog, getListAuditLogQueryKey, useListDrivers, getListDriversQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -9,8 +9,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { format } from "date-fns";
 import {
   Upload, Download, FileText, Users, ShieldCheck,
-  CheckCircle2, XCircle, AlertTriangle, Loader2, Database, RefreshCw, Car, Plug, Copy, Check
+  CheckCircle2, XCircle, AlertTriangle, Loader2, Database, RefreshCw, Car, Plug, Copy, Check,
+  Plus, Pencil, Trash2, GripVertical, ChevronDown, ChevronUp, LayoutDashboard
 } from "lucide-react";
+import { Link } from "wouter";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -856,6 +858,324 @@ function IntegrationTab() {
   );
 }
 
+// ─── Services Management tab (super_admin) ────────────────────────────────────
+const DEFAULT_ADD_ON = { name: "", description: "", price: 0 };
+
+function ServicesTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
+  const { toast } = useToast();
+  const [services, setServices] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [editing, setEditing] = useState<any | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const fetchServices = async () => {
+    setLoading(true);
+    const { data } = await supabase.from("service_types").select("*").order("sort_order");
+    setServices(data ?? []);
+    setLoading(false);
+  };
+
+  useEffect(() => { fetchServices(); }, []);
+
+  const startEdit = (svc: any) => {
+    setEditing({
+      ...svc,
+      add_ons: (svc.add_ons ?? []).map((a: any) => ({ ...a })),
+    });
+  };
+
+  const startNew = () => {
+    setEditing({
+      id: null,
+      name: "",
+      description: "",
+      base_price_guidance: "",
+      add_ons: [],
+      active: true,
+      sort_order: (services.length + 1) * 10,
+    });
+  };
+
+  const saveService = async () => {
+    if (!editing?.name) return;
+    setSaving(true);
+    const payload = {
+      name: editing.name,
+      description: editing.description || null,
+      base_price_guidance: editing.base_price_guidance || null,
+      add_ons: editing.add_ons ?? [],
+      active: editing.active ?? true,
+      sort_order: editing.sort_order ?? 0,
+      updated_at: new Date().toISOString(),
+    };
+    let error;
+    if (editing.id) {
+      ({ error } = await supabase.from("service_types").update(payload).eq("id", editing.id));
+    } else {
+      ({ error } = await supabase.from("service_types").insert(payload));
+    }
+    if (error) {
+      toast({ title: "Save failed: " + error.message, variant: "destructive" });
+    } else {
+      toast({ title: editing.id ? "Service updated" : "Service created" });
+      setEditing(null);
+      fetchServices();
+    }
+    setSaving(false);
+  };
+
+  const deleteService = async (id: string, name: string) => {
+    if (!confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    const { error } = await supabase.from("service_types").delete().eq("id", id);
+    if (error) {
+      toast({ title: "Delete failed: " + error.message, variant: "destructive" });
+    } else {
+      toast({ title: `${name} deleted` });
+      fetchServices();
+    }
+  };
+
+  const toggleActive = async (svc: any) => {
+    await supabase.from("service_types").update({ active: !svc.active }).eq("id", svc.id);
+    fetchServices();
+  };
+
+  const updateAddOn = (idx: number, field: string, value: any) => {
+    setEditing((e: any) => {
+      const addOns = [...e.add_ons];
+      addOns[idx] = { ...addOns[idx], [field]: value };
+      return { ...e, add_ons: addOns };
+    });
+  };
+
+  if (loading) return <div className="space-y-3">{[...Array(4)].map((_, i) => <Skeleton key={i} className="h-20" />)}</div>;
+
+  if (editing) {
+    return (
+      <div className="space-y-5">
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="sm" onClick={() => setEditing(null)} className="-ml-2">
+            ← Back
+          </Button>
+          <h2 className="font-semibold text-foreground">{editing.id ? "Edit Service" : "New Service"}</h2>
+        </div>
+
+        <div className="space-y-4">
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1.5">Service Name *</label>
+            <input
+              className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-primary"
+              value={editing.name}
+              onChange={e => setEditing((v: any) => ({ ...v, name: e.target.value }))}
+              placeholder="e.g. Airport Transfer"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1.5">Description</label>
+            <textarea
+              className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-primary resize-none"
+              rows={3}
+              value={editing.description ?? ""}
+              onChange={e => setEditing((v: any) => ({ ...v, description: e.target.value }))}
+              placeholder="Short description for operators"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-muted-foreground block mb-1.5">Pricing Guidance</label>
+            <input
+              className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-primary"
+              value={editing.base_price_guidance ?? ""}
+              onChange={e => setEditing((v: any) => ({ ...v, base_price_guidance: e.target.value }))}
+              placeholder="e.g. From £95 based on vehicle class"
+            />
+          </div>
+
+          {/* Add-ons */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs text-muted-foreground">Add-ons / Extras</label>
+              <Button
+                size="sm" variant="outline"
+                className="text-xs h-7 border-primary/30 text-primary hover:bg-primary/10"
+                onClick={() => setEditing((v: any) => ({ ...v, add_ons: [...v.add_ons, { ...DEFAULT_ADD_ON }] }))}
+              >
+                <Plus className="w-3 h-3 mr-1" /> Add Extra
+              </Button>
+            </div>
+            <div className="space-y-3">
+              {editing.add_ons.map((addon: any, idx: number) => (
+                <div key={idx} className="p-3 rounded-xl border border-border bg-card space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      className="flex-1 bg-background border border-border rounded-lg px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:border-primary"
+                      placeholder="Extra name (e.g. Meet & Greet)"
+                      value={addon.name}
+                      onChange={e => updateAddOn(idx, "name", e.target.value)}
+                    />
+                    <div className="flex items-center gap-1">
+                      <span className="text-muted-foreground text-sm">£</span>
+                      <input
+                        type="number"
+                        className="w-20 bg-background border border-border rounded-lg px-2.5 py-1.5 text-sm text-foreground focus:outline-none focus:border-primary"
+                        placeholder="0"
+                        value={addon.price}
+                        onChange={e => updateAddOn(idx, "price", Number(e.target.value))}
+                      />
+                    </div>
+                    <Button
+                      size="sm" variant="ghost"
+                      className="text-destructive hover:bg-destructive/10 h-8 w-8 p-0"
+                      onClick={() => setEditing((v: any) => ({ ...v, add_ons: v.add_ons.filter((_: any, i: number) => i !== idx) }))}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                  <input
+                    className="w-full bg-background border border-border rounded-lg px-2.5 py-1.5 text-xs text-muted-foreground focus:outline-none focus:border-primary"
+                    placeholder="Short description (optional)"
+                    value={addon.description ?? ""}
+                    onChange={e => updateAddOn(idx, "description", e.target.value)}
+                  />
+                </div>
+              ))}
+              {editing.add_ons.length === 0 && (
+                <div className="text-center py-4 text-xs text-muted-foreground border border-dashed border-border rounded-xl">
+                  No add-ons yet. Tap "Add Extra" to add one.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 pt-2 border-t border-border">
+            <label className="text-sm text-foreground flex-1">Active (visible in booking form)</label>
+            <button
+              onClick={() => setEditing((v: any) => ({ ...v, active: !v.active }))}
+              className={`relative w-11 h-6 rounded-full transition-colors ${editing.active ? 'bg-primary' : 'bg-border'}`}
+            >
+              <span className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all ${editing.active ? 'left-5.5' : 'left-0.5'} translate-x-${editing.active ? '5' : '0'}`}
+                style={{ left: editing.active ? '22px' : '2px' }}
+              />
+            </button>
+          </div>
+        </div>
+
+        <Button className="w-full h-12 font-semibold" onClick={saveService} disabled={saving || !editing.name}>
+          {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}
+          {saving ? "Saving..." : "Save Service"}
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-5">
+      <div>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="font-semibold text-foreground">Service Catalogue</h2>
+          {isSuperAdmin && (
+            <Button size="sm" onClick={startNew} className="text-xs h-8">
+              <Plus className="w-3 h-3 mr-1" /> Add Service
+            </Button>
+          )}
+        </div>
+        <p className="text-sm text-muted-foreground">
+          All services offered by Traveluxe. Each service can have configurable add-ons and pricing guidance visible to operators when creating bookings.
+          {!isSuperAdmin && " Only Super Admins can edit."}
+        </p>
+      </div>
+
+      {services.length === 0 && (
+        <div className="text-center py-10 border border-dashed border-border rounded-xl text-muted-foreground">
+          <p className="text-sm">No services found. Run the migration to add default services.</p>
+          <code className="text-xs mt-2 block">migration-service-types.sql</code>
+        </div>
+      )}
+
+      <div className="space-y-3">
+        {services.map(svc => (
+          <div key={svc.id} className={`rounded-2xl border ${svc.active ? 'border-border' : 'border-border/40 opacity-60'} bg-card overflow-hidden`}>
+            <button
+              className="w-full flex items-center justify-between px-4 py-3 text-left"
+              onClick={() => setExpanded(expanded === svc.id ? null : svc.id)}
+            >
+              <div className="flex items-center gap-3">
+                <div>
+                  <div className="font-semibold text-sm text-foreground">{svc.name}</div>
+                  {svc.base_price_guidance && (
+                    <div className="text-xs text-primary mt-0.5">{svc.base_price_guidance}</div>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className={svc.active ? "text-green-500 border-green-500/30 text-[10px]" : "text-muted-foreground text-[10px]"}>
+                  {svc.active ? "Active" : "Inactive"}
+                </Badge>
+                <Badge variant="outline" className="text-muted-foreground text-[10px]">
+                  {(svc.add_ons ?? []).length} extras
+                </Badge>
+                {expanded === svc.id ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+              </div>
+            </button>
+
+            {expanded === svc.id && (
+              <div className="px-4 pb-4 pt-0 space-y-4 border-t border-border">
+                {svc.description && (
+                  <p className="text-sm text-muted-foreground pt-3">{svc.description}</p>
+                )}
+
+                {/* Add-ons list */}
+                {(svc.add_ons ?? []).length > 0 ? (
+                  <div>
+                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Add-ons & Extras</p>
+                    <div className="space-y-2">
+                      {(svc.add_ons ?? []).map((addon: any, i: number) => (
+                        <div key={i} className="flex items-center justify-between p-2.5 rounded-lg bg-background/50 border border-border">
+                          <div>
+                            <div className="text-sm font-medium text-foreground">{addon.name}</div>
+                            {addon.description && <div className="text-xs text-muted-foreground">{addon.description}</div>}
+                          </div>
+                          <div className="text-sm font-semibold text-primary flex-shrink-0 ml-3">
+                            {addon.price > 0 ? `+£${addon.price}` : "Included"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">No add-ons configured for this service.</p>
+                )}
+
+                {isSuperAdmin && (
+                  <div className="flex gap-2 pt-2">
+                    <Button size="sm" variant="outline" onClick={() => startEdit(svc)} className="flex-1 text-xs h-8">
+                      <Pencil className="w-3 h-3 mr-1.5" /> Edit
+                    </Button>
+                    <Button
+                      size="sm" variant="outline"
+                      onClick={() => toggleActive(svc)}
+                      className={`flex-1 text-xs h-8 ${svc.active ? 'text-amber-500 border-amber-500/30 hover:bg-amber-500/10' : 'text-green-500 border-green-500/30 hover:bg-green-500/10'}`}
+                    >
+                      {svc.active ? "Deactivate" : "Activate"}
+                    </Button>
+                    <Button
+                      size="sm" variant="outline"
+                      onClick={() => deleteService(svc.id, svc.name)}
+                      className="text-xs h-8 text-destructive border-destructive/30 hover:bg-destructive/10"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── Main Admin page ──────────────────────────────────────────────────────────
 export default function Admin() {
   const { user } = useAuth();
@@ -872,33 +1192,48 @@ export default function Admin() {
   return (
     <div className="space-y-5 max-w-3xl mx-auto">
       <div className="flex items-start justify-between">
-        <h1 className="text-2xl font-bold tracking-tight text-foreground">Admin Panel</h1>
-        {isSuperAdmin && (
-          <Badge variant="outline" className="border-primary/30 text-primary text-xs">Super Admin</Badge>
-        )}
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Admin Panel</h1>
+          {isSuperAdmin && (
+            <Badge variant="outline" className="border-amber-500/30 text-amber-500 text-xs mt-1">Super Admin</Badge>
+          )}
+        </div>
+        <Link href="/">
+          <Button variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10">
+            <LayoutDashboard className="w-4 h-4 mr-2" />
+            Dashboard
+          </Button>
+        </Link>
       </div>
 
-      <Tabs defaultValue="import" className="w-full">
-        <TabsList className="grid w-full grid-cols-6">
+      <Tabs defaultValue="services" className="w-full">
+        <TabsList className="grid w-full grid-cols-7">
+          <TabsTrigger value="services" className="text-xs px-1">
+            Services
+          </TabsTrigger>
           <TabsTrigger value="import" className="text-xs px-1">
-            <Upload className="w-3 h-3 mr-1 hidden sm:block" />Import
+            Import
           </TabsTrigger>
           <TabsTrigger value="export" className="text-xs px-1">
-            <Download className="w-3 h-3 mr-1 hidden sm:block" />Export
+            Export
           </TabsTrigger>
           <TabsTrigger value="fleet" className="text-xs px-1">
-            <Car className="w-3 h-3 mr-1 hidden sm:block" />Fleet
+            Fleet
           </TabsTrigger>
           <TabsTrigger value="users" className="text-xs px-1">
-            <Users className="w-3 h-3 mr-1 hidden sm:block" />Users
+            Users
           </TabsTrigger>
           <TabsTrigger value="audit" className="text-xs px-1">
-            <ShieldCheck className="w-3 h-3 mr-1 hidden sm:block" />Audit
+            Audit
           </TabsTrigger>
           <TabsTrigger value="api" className="text-xs px-1">
-            <Plug className="w-3 h-3 mr-1 hidden sm:block" />API
+            API
           </TabsTrigger>
         </TabsList>
+
+        <TabsContent value="services" className="mt-5">
+          <ServicesTab isSuperAdmin={isSuperAdmin} />
+        </TabsContent>
 
         <TabsContent value="import" className="mt-5">
           <ImportTab />

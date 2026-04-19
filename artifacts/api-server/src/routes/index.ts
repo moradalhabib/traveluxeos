@@ -15,6 +15,7 @@ import auditRouter from "./audit";
 import searchRouter from "./search";
 import financeRouter from "./finance";
 import flightRouter from "./flight";
+import serviceTypesRouter from "./serviceTypes";
 
 const router: IRouter = Router();
 
@@ -35,5 +36,6 @@ router.use("/search", searchRouter);
 router.use("/finance", financeRouter);
 router.use("/flight-status", flightRouter);
 router.use("/flight-tracker", flightRouter);
+router.use("/service-types", serviceTypesRouter);
 
 export default router;

@@ -258,9 +258,18 @@ export function Shell({ children }: { children: ReactNode }) {
                 <p className="text-xs text-muted-foreground capitalize">{user.role}</p>
               </div>
             </div>
+            <div className="px-5 pb-3">
+              <button
+                onClick={() => { setLocation("/"); setMoreOpen(false); }}
+                className={`w-full flex items-center justify-center gap-2.5 py-3 rounded-xl border transition-all font-semibold text-sm ${location === '/' ? 'bg-primary/10 border-primary/50 text-primary' : 'bg-primary/5 border-primary/20 text-primary hover:bg-primary/15'}`}
+              >
+                <LayoutDashboard className="w-4 h-4" />
+                Return to Dashboard
+              </button>
+            </div>
             <div className="px-5 pb-4 grid grid-cols-3 gap-3">
               {filteredMore.map((item) => {
-                const isActive = location.startsWith(item.href);
+                const isActive = location === item.href || (item.href !== '/' && location.startsWith(item.href));
                 return (
                   <button
                     key={item.href}
