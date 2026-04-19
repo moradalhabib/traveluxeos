@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { Plus, Minus, X, Check, ChevronDown, ChevronUp, Car, Sparkles, Map, Package, Building2, PenLine } from "lucide-react";
+import { Label } from "@/components/ui/label";
+import { Plus, Minus, X, Check, ChevronDown, ChevronUp, Car, Sparkles, Map, Package, Building2, PenLine, Pencil } from "lucide-react";
 
 export interface OrderLine {
   key: string;
@@ -34,36 +35,31 @@ const DEFAULT_CATEGORIES = ["Vehicle", "Meet & Greet", "Tour", "Add-on", "Accomm
 
 const RADIO_CATEGORIES = new Set(["Vehicle", "Meet & Greet", "Tour"]);
 
-const CATEGORY_META: Record<string, { icon: React.ReactNode; label: string; hint: string; radio: boolean }> = {
+const CATEGORY_META: Record<string, { icon: React.ReactNode; label: string; hint: string }> = {
   "Vehicle": {
     icon: <Car className="w-4 h-4" />,
     label: "Vehicle",
-    hint: "Choose one vehicle",
-    radio: true,
+    hint: "Choose one vehicle — prices are per booking",
   },
   "Meet & Greet": {
     icon: <Sparkles className="w-4 h-4" />,
     label: "Meet & Greet",
     hint: "Choose a tier — Silver, Gold or Diamond",
-    radio: true,
   },
   "Tour": {
     icon: <Map className="w-4 h-4" />,
-    label: "Tour Destination",
-    hint: "Choose a tour",
-    radio: true,
+    label: "Tour",
+    hint: "Choose a tour — customise price after selection",
   },
   "Add-on": {
     icon: <Plus className="w-4 h-4" />,
     label: "Extras & Add-ons",
-    hint: "Select any extras",
-    radio: false,
+    hint: "Select any extras — adjust quantities and prices",
   },
   "Accommodation": {
     icon: <Building2 className="w-4 h-4" />,
     label: "Accommodation",
-    hint: "Select accommodation options",
-    radio: false,
+    hint: "Select accommodation — customise price after selection",
   },
 };
 
@@ -80,6 +76,7 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
   const [loading, setLoading] = useState(true);
   const [openSections, setOpenSections] = useState<Set<string>>(new Set(["Vehicle"]));
   const [otherVehicleInput, setOtherVehicleInput] = useState("");
+  const [otherVehiclePrice, setOtherVehiclePrice] = useState("");
 
   useEffect(() => {
     supabase
@@ -137,6 +134,7 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
           quantity: 1,
           category: product.category,
         }]);
+        // Auto-open next section
         const idx = categories.indexOf(product.category);
         if (idx < categories.length - 1) {
           setOpenSections(prev => {
@@ -163,21 +161,29 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
     }
   };
 
+  const updateLinePrice = (key: string, rawValue: string) => {
+    const parsed = parseFloat(rawValue);
+    const price = isNaN(parsed) ? 0 : parsed;
+    onChange(orderLines.map(l => l.key === key ? { ...l, unit_price: price } : l));
+  };
+
   const toggleOtherVehicle = () => {
     if (otherVehicleLine) {
       onChange(orderLines.filter(l => l.key !== OTHER_VEHICLE_KEY));
       setOtherVehicleInput("");
+      setOtherVehiclePrice("");
     } else {
       const withoutVehicle = orderLines.filter(l => {
         if (l.key === OTHER_VEHICLE_KEY) return false;
         const p = products.find(p => p.id === l.product_id);
         return !p || p.category !== "Vehicle";
       });
+      const price = parseFloat(otherVehiclePrice) || 0;
       onChange([...withoutVehicle, {
         key: OTHER_VEHICLE_KEY,
         product_id: null,
         name: otherVehicleInput || "Other vehicle",
-        unit_price: 0,
+        unit_price: price,
         quantity: 1,
         category: "Vehicle",
       }]);
@@ -201,6 +207,16 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
     }
   };
 
+  const updateOtherVehiclePrice = (rawValue: string) => {
+    setOtherVehiclePrice(rawValue);
+    if (otherVehicleLine) {
+      const price = parseFloat(rawValue) || 0;
+      onChange(orderLines.map(l =>
+        l.key === OTHER_VEHICLE_KEY ? { ...l, unit_price: price } : l
+      ));
+    }
+  };
+
   const updateQty = (key: string, delta: number) => {
     const updated = orderLines.map(l => {
       if (l.key !== key) return l;
@@ -211,16 +227,12 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
   };
 
   const removeItem = (key: string) => {
-    if (key === OTHER_VEHICLE_KEY) setOtherVehicleInput("");
+    if (key === OTHER_VEHICLE_KEY) { setOtherVehicleInput(""); setOtherVehiclePrice(""); }
     onChange(orderLines.filter(l => l.key !== key));
   };
 
   if (loading) {
-    return (
-      <div className="py-6 text-center text-xs text-muted-foreground">
-        Loading catalogue...
-      </div>
-    );
+    return <div className="py-6 text-center text-xs text-muted-foreground">Loading catalogue...</div>;
   }
 
   const availableCategories = categories.filter(c =>
@@ -238,7 +250,7 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
   return (
     <div className="space-y-2">
       {availableCategories.map((cat, catIdx) => {
-        const meta = CATEGORY_META[cat] ?? { icon: <Package className="w-4 h-4" />, label: cat, hint: "", radio: false };
+        const meta = CATEGORY_META[cat] ?? { icon: <Package className="w-4 h-4" />, label: cat, hint: "" };
         const catProducts = products.filter(p => p.category === cat);
         const selectedInCat = orderLines.filter(l => {
           if (l.key === OTHER_VEHICLE_KEY && cat === "Vehicle") return true;
@@ -247,17 +259,17 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
         });
         const isOpen = openSections.has(cat);
         const hasSelection = selectedInCat.length > 0;
+        const isRadio = RADIO_CATEGORIES.has(cat);
         const showVehicleOther = cat === "Vehicle";
 
         return (
           <div
             key={cat}
             className={`rounded-2xl border overflow-hidden transition-all ${
-              hasSelection
-                ? "border-primary/40 bg-primary/3"
-                : "border-border bg-card"
+              hasSelection ? "border-primary/40 bg-primary/3" : "border-border bg-card"
             }`}
           >
+            {/* Section header */}
             <button
               type="button"
               onClick={() => toggleSection(cat)}
@@ -279,8 +291,10 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
                   {hasSelection ? (
                     <div className="text-xs text-primary font-medium mt-0.5">
                       {selectedInCat.map(l => l.name).join(", ")}
-                      {selectedInCat.length === 1 && selectedInCat[0].unit_price > 0 &&
-                        ` · £${selectedInCat[0].unit_price.toLocaleString()}`}
+                      {" · "}
+                      <span className="text-primary/70">
+                        £{selectedInCat.reduce((s, l) => s + l.unit_price * l.quantity, 0).toLocaleString()}
+                      </span>
                     </div>
                   ) : (
                     <div className="text-xs text-muted-foreground mt-0.5">{meta.hint}</div>
@@ -299,71 +313,103 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
               </div>
             </button>
 
+            {/* Products */}
             {isOpen && (
               <div className="px-3 pb-3 border-t border-border/60 pt-3 space-y-2">
                 {catProducts.map(product => {
                   const ordered = inOrder(product.id);
-                  const isRadio = RADIO_CATEGORIES.has(cat);
 
                   return (
-                    <button
-                      key={product.id}
-                      type="button"
-                      onClick={() => selectProduct(product)}
-                      className={`w-full flex items-center justify-between p-3 rounded-xl border text-left transition-all ${
-                        ordered
-                          ? "border-primary bg-primary/8 shadow-[0_0_8px_rgba(201,168,76,0.1)]"
-                          : "border-border/60 bg-background hover:border-primary/30 hover:bg-primary/3"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 flex-1 min-w-0 pr-2">
-                        <div className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
-                          ordered
-                            ? "border-primary bg-primary"
-                            : "border-border"
-                        }`}>
-                          {ordered && <div className={`${isRadio ? "w-2 h-2 rounded-full bg-white" : ""}`}>
-                            {!isRadio && <Check className="w-3 h-3 text-white" />}
-                          </div>}
+                    <div key={product.id} className={`rounded-xl border transition-all ${
+                      ordered
+                        ? "border-primary bg-primary/8 shadow-[0_0_8px_rgba(201,168,76,0.1)]"
+                        : "border-border/60 bg-background"
+                    }`}>
+                      <button
+                        type="button"
+                        onClick={() => selectProduct(product)}
+                        className="w-full flex items-center justify-between p-3 text-left"
+                      >
+                        <div className="flex items-center gap-3 flex-1 min-w-0 pr-2">
+                          <div className={`flex-shrink-0 w-5 h-5 rounded-full border-2 flex items-center justify-center transition-all ${
+                            ordered ? "border-primary bg-primary" : "border-border"
+                          }`}>
+                            {ordered && (
+                              <div className={`${isRadio ? "w-2 h-2 rounded-full bg-white" : ""}`}>
+                                {!isRadio && <Check className="w-3 h-3 text-white" />}
+                              </div>
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-foreground leading-tight">{product.name}</div>
+                            {product.description && (
+                              <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">
+                                {product.description}
+                              </div>
+                            )}
+                          </div>
                         </div>
-                        <div className="min-w-0">
-                          <div className="text-sm font-semibold text-foreground leading-tight">{product.name}</div>
-                          {product.description && (
-                            <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2 leading-relaxed">
-                              {product.description}
+                        <div className="flex-shrink-0 text-right">
+                          <span className={`text-sm font-bold ${ordered ? "text-primary" : "text-foreground"}`}>
+                            {product.unit_price > 0 ? `£${product.unit_price.toLocaleString()}` : "Incl."}
+                          </span>
+                        </div>
+                      </button>
+
+                      {/* Inline price editor + qty controls when selected */}
+                      {ordered && (
+                        <div className="px-3 pb-3 space-y-2 border-t border-primary/10 pt-2">
+                          <div className="flex items-center gap-2">
+                            <div className="flex-1">
+                              <Label className="text-[11px] text-muted-foreground mb-1 flex items-center gap-1">
+                                <Pencil className="w-3 h-3" /> Price for this booking (£)
+                              </Label>
+                              <Input
+                                type="number"
+                                step="1"
+                                min="0"
+                                value={ordered.unit_price === 0 ? "" : ordered.unit_price}
+                                placeholder={`Catalogue: £${product.unit_price}`}
+                                onChange={e => updateLinePrice(ordered.key, e.target.value)}
+                                onClick={e => e.stopPropagation()}
+                                className="h-8 text-sm font-semibold"
+                              />
                             </div>
+                            {!isRadio && (
+                              <div className="flex-shrink-0">
+                                <Label className="text-[11px] text-muted-foreground mb-1 block">Qty</Label>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={e => { e.stopPropagation(); updateQty(ordered.key, -1); }}
+                                    className="w-7 h-8 rounded border border-border bg-background flex items-center justify-center hover:border-primary/50"
+                                  >
+                                    <Minus className="w-3 h-3" />
+                                  </button>
+                                  <span className="text-sm font-bold w-5 text-center">{ordered.quantity}</span>
+                                  <button
+                                    type="button"
+                                    onClick={e => { e.stopPropagation(); updateQty(ordered.key, 1); }}
+                                    className="w-7 h-8 rounded border border-border bg-background flex items-center justify-center hover:border-primary/50"
+                                  >
+                                    <Plus className="w-3 h-3" />
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          {ordered.unit_price !== product.unit_price && ordered.unit_price > 0 && (
+                            <p className="text-[10px] text-amber-400">
+                              Catalogue price is £{product.unit_price.toLocaleString()} — you've set a custom price for this booking
+                            </p>
                           )}
                         </div>
-                      </div>
-                      <div className="flex-shrink-0 text-right">
-                        <span className={`text-sm font-bold ${ordered ? "text-primary" : "text-foreground"}`}>
-                          {product.unit_price > 0 ? `£${product.unit_price.toLocaleString()}` : "Incl."}
-                        </span>
-                        {ordered && !isRadio && (
-                          <div className="flex items-center gap-1 mt-1 justify-end">
-                            <button
-                              type="button"
-                              onClick={e => { e.stopPropagation(); updateQty(ordered.key, -1); }}
-                              className="w-5 h-5 rounded border border-border bg-background flex items-center justify-center hover:border-primary/50"
-                            >
-                              <Minus className="w-2.5 h-2.5" />
-                            </button>
-                            <span className="text-xs font-bold w-4 text-center">{ordered.quantity}</span>
-                            <button
-                              type="button"
-                              onClick={e => { e.stopPropagation(); updateQty(ordered.key, 1); }}
-                              className="w-5 h-5 rounded border border-border bg-background flex items-center justify-center hover:border-primary/50"
-                            >
-                              <Plus className="w-2.5 h-2.5" />
-                            </button>
-                          </div>
-                        )}
-                      </div>
-                    </button>
+                      )}
+                    </div>
                   );
                 })}
 
-                {/* Other (manual input) — only for Vehicle category */}
+                {/* Other (manual input) — Vehicle only */}
                 {showVehicleOther && (
                   <div className={`rounded-xl border transition-all ${
                     otherVehicleLine
@@ -384,15 +430,31 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
                       <span className="text-sm font-semibold text-foreground">Other (manual input)</span>
                     </button>
                     {otherVehicleLine && (
-                      <div className="px-3 pb-3">
-                        <Input
-                          placeholder="e.g. MB V-Class, Range Rover, Rolls-Royce"
-                          value={otherVehicleInput}
-                          onChange={e => updateOtherVehicleName(e.target.value)}
-                          onClick={e => e.stopPropagation()}
-                          className="text-sm"
-                          autoFocus
-                        />
+                      <div className="px-3 pb-3 space-y-2 border-t border-primary/10 pt-2">
+                        <div>
+                          <Label className="text-[11px] text-muted-foreground mb-1 block">Vehicle name</Label>
+                          <Input
+                            placeholder="e.g. MB V-Class, Range Rover, Rolls-Royce Ghost"
+                            value={otherVehicleInput}
+                            onChange={e => updateOtherVehicleName(e.target.value)}
+                            onClick={e => e.stopPropagation()}
+                            className="text-sm"
+                            autoFocus
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-[11px] text-muted-foreground mb-1 block">Price for this booking (£)</Label>
+                          <Input
+                            type="number"
+                            step="1"
+                            min="0"
+                            placeholder="0"
+                            value={otherVehiclePrice}
+                            onChange={e => updateOtherVehiclePrice(e.target.value)}
+                            onClick={e => e.stopPropagation()}
+                            className="text-sm font-semibold"
+                          />
+                        </div>
                       </div>
                     )}
                   </div>
@@ -403,6 +465,7 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
         );
       })}
 
+      {/* Order summary */}
       {orderLines.length > 0 && (
         <div className="rounded-2xl border border-primary/20 bg-primary/5 overflow-hidden mt-4">
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-primary/10">
