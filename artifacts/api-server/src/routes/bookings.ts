@@ -5,10 +5,28 @@ import { bookingConfirmationHtml, paymentReceiptHtml } from "../templates/emailT
 
 const router = Router();
 
+async function fetchDriverSafely(driverId: string | null) {
+  if (!driverId) return null;
+  // Try with staff_no first (post-migration). Fall back without it if column is missing.
+  const withStaff = await supabase
+    .from("drivers")
+    .select("name, staff_no, vehicle_type, vehicle_model")
+    .eq("id", driverId)
+    .single();
+  if (!withStaff.error) return withStaff.data;
+  const fallback = await supabase
+    .from("drivers")
+    .select("name, vehicle_type, vehicle_model")
+    .eq("id", driverId)
+    .single();
+  if (fallback.error) return null;
+  return { ...fallback.data, staff_no: null };
+}
+
 async function enrichBooking(booking: any) {
-  const [{ data: client }, { data: driver }, { data: operator }] = await Promise.all([
+  const [{ data: client }, driver, { data: operator }] = await Promise.all([
     supabase.from("clients").select("name, vip_tier, email").eq("id", booking.client_id).single(),
-    supabase.from("drivers").select("name, staff_no, vehicle_type, vehicle_model").eq("id", booking.driver_id).single(),
+    fetchDriverSafely(booking.driver_id),
     supabase.from("users").select("name").eq("id", booking.operator_id).single(),
   ]);
 
@@ -71,7 +89,7 @@ router.get("/", async (req, res) => {
 
   let query = db
     .from("bookings")
-    .select("*, clients(name, vip_tier), drivers(name, staff_no, vehicle_type, vehicle_model), users!bookings_operator_id_fkey(name)")
+    .select("*, clients(name, vip_tier), drivers(name, vehicle_type, vehicle_model), users!bookings_operator_id_fkey(name)")
     .order("date_time", { ascending: true });
 
   if (status) query = query.eq("status", String(status));
@@ -175,7 +193,7 @@ router.get("/:id", async (req, res) => {
   const db = getDbClient(req.headers.authorization);
   const { data: booking, error } = await db
     .from("bookings")
-    .select("*, clients(name, vip_tier, whatsapp), drivers(name, staff_no, vehicle_type, vehicle_model, whatsapp), users!bookings_operator_id_fkey(name)")
+    .select("*, clients(name, vip_tier, whatsapp), drivers(name, vehicle_type, vehicle_model, whatsapp), users!bookings_operator_id_fkey(name)")
     .eq("id", req.params.id)
     .single();
 
