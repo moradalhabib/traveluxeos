@@ -98,13 +98,51 @@ router.get("/", async (req, res) => {
   return res.json(result);
 });
 
+// Exhaustive whitelist of every column in the bookings table
+const BOOKING_COLUMNS = new Set([
+  "client_id","quote_id","service_type","direction","pickup","dropoff",
+  "destination","flight_number","date_time","passengers","luggage",
+  "vehicle_type","nameboard","special_requests","additional_charges",
+  "price","tvl_commission","commission_type","payment_status",
+  "payment_method","commission_status","payout_status","source","status",
+  "operator_id","driver_id","return_booking_id","is_amended","notes",
+  "duration","created_by","updated_at",
+  // hotel columns
+  "hotel_name","room_type","hotel_booking_ref","breakfast_included",
+  "num_guests","num_nights","commission_amount","commission_notes",
+  // tour / apartment columns
+  "tour_name","meeting_point","guide_included","itinerary",
+  "property_name","property_address","check_in_date","check_out_date",
+  "nights","property_contact","arrangement_fee_status",
+]);
+
 router.post("/", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
-  const body = {
-    ...req.body,
-    operator_id: req.body.operator_id ?? user?.id ?? null,
+
+  // Strip any field not in the bookings table to prevent PostgREST 400s
+  const raw: Record<string, any> = {};
+  for (const [k, v] of Object.entries(req.body)) {
+    if (BOOKING_COLUMNS.has(k) && v !== "" && v !== undefined) raw[k] = v;
+  }
+
+  const body: Record<string, any> = {
+    ...raw,
+    operator_id: raw.operator_id ?? user?.id ?? null,
     created_by: user?.id ?? null,
   };
+
+  // Coerce numeric fields so strings like "150" don't cause type errors
+  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights"]) {
+    if (body[f] !== undefined && body[f] !== null) {
+      const n = Number(body[f]);
+      body[f] = isNaN(n) ? null : n;
+    }
+  }
+
+  // Ensure required defaults
+  if (!body.price && body.price !== 0) body.price = 0;
+  if (!body.status) body.status = "Confirmed";
+  if (!body.payment_status) body.payment_status = "Unpaid";
 
   const { data, error } = await supabase
     .from("bookings")
@@ -112,7 +150,10 @@ router.post("/", async (req, res) => {
     .select()
     .single();
 
-  if (error) return res.status(400).json({ error: error.message });
+  if (error) {
+    console.error("[POST /bookings] Supabase error:", error.message, "| body keys:", Object.keys(body).join(", "));
+    return res.status(400).json({ error: error.message });
+  }
 
   // Update driver assigned status if driver provided
   if (body.driver_id) {
@@ -193,7 +234,18 @@ router.put("/:id", async (req, res) => {
   const { data: prev } = await supabase.from("bookings").select("payment_status, status").eq("id", req.params.id).single();
   const prevPaymentStatus = prev?.payment_status;
 
-  const body = { ...req.body, is_amended: true };
+  // Apply same whitelist as POST to avoid unknown-column errors on update
+  const raw: Record<string, any> = {};
+  for (const [k, v] of Object.entries(req.body)) {
+    if (BOOKING_COLUMNS.has(k) && v !== "" && v !== undefined) raw[k] = v;
+  }
+  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights"]) {
+    if (raw[f] !== undefined && raw[f] !== null) {
+      const n = Number(raw[f]);
+      raw[f] = isNaN(n) ? null : n;
+    }
+  }
+  const body = { ...raw, is_amended: true };
 
   const { data, error } = await supabase
     .from("bookings")
@@ -202,7 +254,10 @@ router.put("/:id", async (req, res) => {
     .select()
     .single();
 
-  if (error) return res.status(400).json({ error: error.message });
+  if (error) {
+    console.error("[PUT /bookings/:id] Supabase error:", error.message);
+    return res.status(400).json({ error: error.message });
+  }
 
   // If driver assigned, update status
   if (body.driver_id && data.status === "Confirmed") {

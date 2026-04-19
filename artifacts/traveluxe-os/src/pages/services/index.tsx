@@ -89,8 +89,7 @@ interface Product {
   id: string;
   name: string;
   category: string;
-  base_price: number;
-  unit: string | null;
+  unit_price: number;
   description: string | null;
   service_types: string[] | null;
   active: boolean;
@@ -128,7 +127,7 @@ export default function Services() {
     setLoadingProducts(true);
     supabase
       .from("products")
-      .select("id, name, category, base_price, unit, description, service_types, active")
+      .select("id, name, category, unit_price, description, service_types, active")
       .eq("active", true)
       .order("category")
       .order("name")
@@ -412,11 +411,8 @@ export default function Services() {
                                   </div>
                                   <div className="text-right flex-shrink-0">
                                     <div className="text-base font-bold text-foreground">
-                                      £{Number(product.base_price).toLocaleString()}
+                                      {product.unit_price > 0 ? `£${Number(product.unit_price).toLocaleString()}` : "Incl."}
                                     </div>
-                                    {product.unit && (
-                                      <div className="text-[10px] text-muted-foreground">per {product.unit}</div>
-                                    )}
                                   </div>
                                 </div>
                               </CardContent>

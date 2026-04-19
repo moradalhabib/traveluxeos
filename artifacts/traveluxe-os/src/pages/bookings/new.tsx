@@ -420,7 +420,11 @@ export default function NewBooking() {
           toast({ title: "Booking created" });
           setLocation(`/bookings/${booking.id}`);
         },
-        onError: () => toast({ title: "Error creating booking", variant: "destructive" }),
+        onError: (err: any) => {
+          const msg = err?.data?.error ?? err?.message ?? "Unknown error";
+          toast({ title: "Error creating booking", description: msg, variant: "destructive" });
+          console.error("[createBooking]", err);
+        },
       }
     );
   };
