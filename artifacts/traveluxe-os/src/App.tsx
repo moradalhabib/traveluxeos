@@ -43,17 +43,18 @@ import FollowUps from "@/pages/follow-ups/index";
 
 const queryClient = new QueryClient();
 
-// Routes the residence_manager cannot access
-const RESIDENCE_MANAGER_BLOCKED = [
-  "/", "/jobs", "/quotes", "/quotes/new", "/flights",
-  "/drivers", "/commissions", "/messages", "/finance",
-  "/invoices", "/search", "/services", "/admin", "/marketing",
-];
+// Viewer is read-only and only allowed in these path trees
+const VIEWER_ALLOWED_TREES = ["/clients", "/bookings", "/jobs"];
+
+function isViewerPathAllowed(path: string) {
+  // Block all "create" routes for viewer (e.g. /clients/new, /bookings/new)
+  if (path.endsWith("/new")) return false;
+  return VIEWER_ALLOWED_TREES.some(p => path === p || path.startsWith(p + "/"));
+}
 
 function ProtectedRoute({
   component: Component,
-  reqAdmin = false,
-  reqSuperAdmin = false,
+  allowedRoles,        // optional: only these roles allowed
   blockResidenceManager = false,
   ...rest
 }: any) {
@@ -62,20 +63,22 @@ function ProtectedRoute({
   if (!user) return <Redirect to="/login" />;
 
   const isResidenceManager = user.role === "residence_manager";
+  const isViewer           = user.role === "viewer";
+  const currentPath        = rest.path as string;
 
-  // super_admin-only routes (e.g. Finance)
-  if (reqSuperAdmin && user.role !== "super_admin") {
-    return <Redirect to={isResidenceManager ? "/bookings" : "/"} />;
-  }
-
-  // admin+ routes
-  if (reqAdmin && user.role !== "admin" && user.role !== "super_admin") {
-    return <Redirect to={isResidenceManager ? "/bookings" : "/"} />;
+  // Viewer: hard allowlist
+  if (isViewer && !isViewerPathAllowed(currentPath)) {
+    return <Redirect to="/bookings" />;
   }
 
   // Routes blocked for residence_manager
   if (blockResidenceManager && isResidenceManager) {
     return <Redirect to="/bookings" />;
+  }
+
+  // Role allowlist (e.g. Finance/Admin/Commissions)
+  if (allowedRoles && !allowedRoles.includes(user.role)) {
+    return <Redirect to={isResidenceManager ? "/bookings" : "/"} />;
   }
 
   return (
@@ -107,16 +110,16 @@ function Router() {
       <ProtectedRoute path="/drivers" component={Drivers} blockResidenceManager={true} />
       <ProtectedRoute path="/drivers/new" component={NewDriver} blockResidenceManager={true} />
       <ProtectedRoute path="/drivers/:id" component={DriverDetail} blockResidenceManager={true} />
-      <ProtectedRoute path="/commissions" component={Commissions} blockResidenceManager={true} />
+      <ProtectedRoute path="/commissions" component={Commissions} allowedRoles={["super_admin", "operator"]} />
       <ProtectedRoute path="/messages" component={Messages} blockResidenceManager={true} />
-      <ProtectedRoute path="/finance" component={Finance} reqSuperAdmin={true} />
+      <ProtectedRoute path="/finance" component={Finance} allowedRoles={["super_admin", "operator"]} />
       <ProtectedRoute path="/invoices" component={Invoices} blockResidenceManager={true} />
       <ProtectedRoute path="/invoices/:id" component={InvoiceDetail} blockResidenceManager={true} />
       <ProtectedRoute path="/search" component={Search} blockResidenceManager={true} />
       <ProtectedRoute path="/services" component={Services} blockResidenceManager={true} />
       <ProtectedRoute path="/analytics" component={Analytics} blockResidenceManager={true} />
-      <ProtectedRoute path="/admin" component={Admin} reqAdmin={true} />
-      <ProtectedRoute path="/marketing" component={Marketing} reqAdmin={true} />
+      <ProtectedRoute path="/admin" component={Admin} allowedRoles={["super_admin", "operator"]} />
+      <ProtectedRoute path="/marketing" component={Marketing} blockResidenceManager={true} />
       <ProtectedRoute path="/follow-ups" component={FollowUps} blockResidenceManager={true} />
 
       <Route component={NotFound} />

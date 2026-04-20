@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useGetFinanceSummary, getGetFinanceSummaryQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -7,10 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
-  PoundSterling, TrendingUp, CreditCard, AlertCircle,
-  Car, LayoutDashboard, ChevronRight, CheckCircle2, Clock, CalendarRange
+  PoundSterling, TrendingUp, CreditCard, AlertCircle, ArrowUpDown,
+  Car, LayoutDashboard, ChevronRight, CheckCircle2, Clock, CalendarRange,
+  Plane, Map, Home, Wallet, TrendingDown
 } from "lucide-react";
 import { Link } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
+import { supabase } from "@/lib/supabase";
+import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip as RTooltip, Cell } from "recharts";
 
 type Period = "today" | "week" | "month" | "year" | "all" | "custom";
 
@@ -55,6 +59,8 @@ const SERVICE_ICONS: Record<string, string> = {
 };
 
 export default function Finance() {
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
   const [tab, setTab] = useState("overview");
   const [period, setPeriod] = useState<Period>("month");
   const [customFrom, setCustomFrom] = useState("");
@@ -201,11 +207,16 @@ export default function Finance() {
 
       {/* Tabs */}
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className="w-full grid grid-cols-4 bg-card border border-border">
+        <TabsList className={`w-full grid ${isSuperAdmin ? "grid-cols-5" : "grid-cols-4"} bg-card border border-border`}>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="services">Services</TabsTrigger>
           <TabsTrigger value="drivers">Drivers</TabsTrigger>
           <TabsTrigger value="clients">Clients</TabsTrigger>
+          {isSuperAdmin && (
+            <TabsTrigger value="profit" className="bg-primary/5 text-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+              Profit
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {/* OVERVIEW */}
@@ -374,7 +385,248 @@ export default function Finance() {
             </div>
           )}
         </TabsContent>
+        {/* PROFIT — Super Admin only */}
+        {isSuperAdmin && (
+          <TabsContent value="profit" className="space-y-4 mt-4">
+            <ProfitTab dateFrom={range.from} dateTo={range.to} periodLabel={range.label} />
+          </TabsContent>
+        )}
       </Tabs>
+    </div>
+  );
+}
+
+// ─── Profit Tab (Super Admin only) ──────────────────────────────────────────
+
+const PROFIT_BUCKETS = ["Airport Transfer", "Tour", "Car Rental", "Apartment"] as const;
+const BUCKET_ICONS: Record<string, any> = {
+  "Airport Transfer": Plane,
+  "Tour": Map,
+  "Car Rental": Car,
+  "Apartment": Home,
+};
+const BUCKET_COLORS: Record<string, string> = {
+  "Airport Transfer": "#c9a84c",
+  "Tour": "#4c8fc9",
+  "Car Rental": "#7d4cc9",
+  "Apartment": "#4cc99e",
+  "Other": "#888888",
+};
+
+type SortKey = "date" | "service" | "commission";
+
+function ProfitTab({ dateFrom, dateTo, periodLabel }: { dateFrom?: string; dateTo?: string; periodLabel: string }) {
+  const [data, setData] = useState<{ summary: Record<string, number>; total_profit: number; breakdown: any[]; booking_count: number } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>("date");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token;
+        if (!token) throw new Error("Not authenticated");
+        const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, "");
+        const qs = new URLSearchParams();
+        if (dateFrom) qs.set("date_from", dateFrom);
+        if (dateTo)   qs.set("date_to", dateTo);
+        const res = await fetch(`${baseUrl}/api/finance/profit?${qs.toString()}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          throw new Error(j?.error ?? `Request failed (${res.status})`);
+        }
+        const json = await res.json();
+        if (!cancelled) setData(json);
+      } catch (e: any) {
+        if (!cancelled) setError(e?.message ?? "Failed to load profit data");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [dateFrom, dateTo]);
+
+  const sorted = useMemo(() => {
+    if (!data) return [];
+    const arr = [...data.breakdown];
+    arr.sort((a, b) => {
+      let cmp = 0;
+      if (sortKey === "date")        cmp = new Date(a.date_time ?? 0).getTime() - new Date(b.date_time ?? 0).getTime();
+      else if (sortKey === "service") cmp = String(a.bucket).localeCompare(String(b.bucket));
+      else if (sortKey === "commission") cmp = (a.tvl_commission ?? 0) - (b.tvl_commission ?? 0);
+      return sortDir === "asc" ? cmp : -cmp;
+    });
+    return arr;
+  }, [data, sortKey, sortDir]);
+
+  const toggleSort = (k: SortKey) => {
+    if (sortKey === k) setSortDir(d => d === "asc" ? "desc" : "asc");
+    else { setSortKey(k); setSortDir("desc"); }
+  };
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        <Skeleton className="h-32 w-full" />
+        <Skeleton className="h-64 w-full" />
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="rounded-2xl border border-destructive/30 bg-destructive/5 p-6 text-center">
+        <AlertCircle className="w-8 h-8 text-destructive mx-auto mb-2" />
+        <p className="text-sm font-semibold text-destructive">Access Denied</p>
+        <p className="text-xs text-muted-foreground mt-1">{error}</p>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const chartData = PROFIT_BUCKETS.map(b => ({
+    name: b,
+    profit: Math.round(data.summary[b] ?? 0),
+  }));
+
+  return (
+    <div className="space-y-5">
+      {/* Header */}
+      <div className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/10 to-primary/5 p-5">
+        <div className="flex items-center gap-2 text-primary mb-1">
+          <Wallet className="w-5 h-5" />
+          <span className="text-xs font-semibold uppercase tracking-wider">Total TVL Profit · {periodLabel}</span>
+        </div>
+        <div className="text-4xl font-bold text-primary">£{data.total_profit.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+        <div className="text-xs text-muted-foreground mt-1">
+          From {data.booking_count} completed / invoiced {data.booking_count === 1 ? "booking" : "bookings"} · TVL commission only
+        </div>
+      </div>
+
+      {/* Per-service summary cards */}
+      <div className="grid grid-cols-2 gap-3">
+        {PROFIT_BUCKETS.map(b => {
+          const Icon = BUCKET_ICONS[b];
+          const value = data.summary[b] ?? 0;
+          const pct = data.total_profit > 0 ? (value / data.total_profit) * 100 : 0;
+          return (
+            <div key={b} className="rounded-2xl border border-border bg-card p-4">
+              <div className="flex items-center gap-2 mb-1.5">
+                <Icon className="w-4 h-4" style={{ color: BUCKET_COLORS[b] }} />
+                <span className="text-xs text-muted-foreground">{b}</span>
+              </div>
+              <div className="text-xl font-bold text-foreground">£{value.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">{pct.toFixed(1)}% of profit</div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Bar chart */}
+      <Card className="border-border">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-base">Profit per Service</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {data.total_profit === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No profit data for this period</p>
+          ) : (
+            <div className="w-full h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} layout="vertical" margin={{ left: 20, right: 30, top: 10, bottom: 10 }}>
+                  <XAxis type="number" stroke="#888" fontSize={11} tickFormatter={(v) => `£${v.toLocaleString()}`} />
+                  <YAxis type="category" dataKey="name" stroke="#888" fontSize={11} width={110} />
+                  <RTooltip
+                    cursor={{ fill: "rgba(201,168,76,0.08)" }}
+                    contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                    formatter={(v: any) => [`£${Number(v).toLocaleString()}`, "Profit"]}
+                  />
+                  <Bar dataKey="profit" radius={[0, 6, 6, 0]}>
+                    {chartData.map((entry, i) => (
+                      <Cell key={i} fill={BUCKET_COLORS[entry.name] ?? "#888"} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Breakdown table */}
+      <Card className="border-border">
+        <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
+          <CardTitle className="text-base">Booking Breakdown</CardTitle>
+          <Badge variant="outline" className="text-[10px]">Completed / Invoiced only</Badge>
+        </CardHeader>
+        <CardContent className="px-0 pb-0">
+          {sorted.length === 0 ? (
+            <p className="text-sm text-muted-foreground text-center py-8">No bookings in this period</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead className="bg-secondary/30 text-muted-foreground uppercase tracking-wider">
+                  <tr>
+                    <th className="text-left px-3 py-2 font-semibold">TVL Ref</th>
+                    <th className="text-left px-3 py-2 font-semibold">
+                      <button onClick={() => toggleSort("date")} className="flex items-center gap-1 hover:text-foreground">
+                        Date <ArrowUpDown className="w-3 h-3" />
+                      </button>
+                    </th>
+                    <th className="text-left px-3 py-2 font-semibold">
+                      <button onClick={() => toggleSort("service")} className="flex items-center gap-1 hover:text-foreground">
+                        Service <ArrowUpDown className="w-3 h-3" />
+                      </button>
+                    </th>
+                    <th className="text-left px-3 py-2 font-semibold">Client</th>
+                    <th className="text-right px-3 py-2 font-semibold">Fare</th>
+                    <th className="text-right px-3 py-2 font-semibold">
+                      <button onClick={() => toggleSort("commission")} className="flex items-center gap-1 ml-auto hover:text-foreground">
+                        TVL Commission <ArrowUpDown className="w-3 h-3" />
+                      </button>
+                    </th>
+                    <th className="text-left px-3 py-2 font-semibold">Payment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map((row: any) => (
+                    <tr key={row.booking_id} className="border-t border-border hover:bg-secondary/20">
+                      <td className="px-3 py-2 font-mono text-primary">
+                        <Link href={`/bookings/${row.booking_id}`}><span className="hover:underline cursor-pointer">{row.tvl_ref}</span></Link>
+                      </td>
+                      <td className="px-3 py-2 text-muted-foreground">
+                        {row.date_time ? new Date(row.date_time).toLocaleDateString() : "—"}
+                      </td>
+                      <td className="px-3 py-2">
+                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium" style={{ background: `${BUCKET_COLORS[row.bucket] ?? "#888"}22`, color: BUCKET_COLORS[row.bucket] ?? "#888" }}>
+                          {row.bucket}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-foreground truncate max-w-[140px]">{row.client_name}</td>
+                      <td className="px-3 py-2 text-right text-muted-foreground">£{Number(row.price).toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right font-semibold text-primary">£{Number(row.tvl_commission).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2">
+                        <Badge variant="outline" className={`text-[10px] ${row.payment_status === "Paid" ? "border-green-500/30 text-green-500" : "border-amber-500/30 text-amber-500"}`}>
+                          {row.payment_status ?? "—"}
+                        </Badge>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

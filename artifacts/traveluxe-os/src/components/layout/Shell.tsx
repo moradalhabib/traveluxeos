@@ -15,6 +15,13 @@ import { useFollowUpBadge } from "@/hooks/use-follow-up-badge";
 
 // ─── Nav definitions per role ───────────────────────────────────────────────
 
+// Roles:
+//   super_admin → everything (incl. Profit tab)
+//   admin       → everything EXCEPT Admin Panel, Finance, Commissions  → blockAdmin
+//   operator    → everything EXCEPT user-mgmt section + Profit tab
+//   viewer      → READ-ONLY on Clients, Bookings, Jobs only
+//   residence_manager → kept (apartments only)
+
 const OPERATOR_SIDEBAR = [
   { href: "/",             label: "Dashboard",    icon: LayoutDashboard },
   { href: "/jobs",         label: "Jobs Board",   icon: Briefcase },
@@ -28,11 +35,11 @@ const OPERATOR_SIDEBAR = [
   { href: "/invoices",     label: "Invoices",     icon: Receipt },
   { href: "/flights",      label: "Flights",      icon: PlaneTakeoff },
   { href: "/drivers",      label: "Drivers",      icon: Car },
-  { href: "/commissions",  label: "Commissions",  icon: Calculator },
+  { href: "/commissions",  label: "Commissions",  icon: Calculator, blockAdmin: true },
   { href: "/messages",     label: "Messages",     icon: MessageSquare },
-  { href: "/finance",      label: "Finance",      icon: LineChart, reqSuperAdmin: true },
-  { href: "/marketing",    label: "Marketing",    icon: Megaphone, reqAdmin: true },
-  { href: "/admin",        label: "Admin",        icon: Settings, reqAdmin: true },
+  { href: "/finance",      label: "Finance",      icon: LineChart, blockAdmin: true },
+  { href: "/marketing",    label: "Marketing",    icon: Megaphone },
+  { href: "/admin",        label: "Admin",        icon: Settings, blockAdmin: true },
 ];
 
 const OPERATOR_MORE = [
@@ -42,17 +49,24 @@ const OPERATOR_MORE = [
   { href: "/invoices",     label: "Invoices",     icon: Receipt },
   { href: "/flights",      label: "Flights",      icon: PlaneTakeoff },
   { href: "/drivers",      label: "Drivers",      icon: Car },
-  { href: "/commissions",  label: "Commissions",  icon: Calculator },
+  { href: "/commissions",  label: "Commissions",  icon: Calculator, blockAdmin: true },
   { href: "/messages",     label: "Messages",     icon: MessageSquare },
-  { href: "/finance",      label: "Finance",      icon: LineChart, reqSuperAdmin: true },
-  { href: "/marketing",    label: "Marketing",    icon: Megaphone, reqAdmin: true },
-  { href: "/admin",        label: "Admin",        icon: Settings, reqAdmin: true },
+  { href: "/finance",      label: "Finance",      icon: LineChart, blockAdmin: true },
+  { href: "/marketing",    label: "Marketing",    icon: Megaphone },
+  { href: "/admin",        label: "Admin",        icon: Settings, blockAdmin: true },
 ];
 
 // Residence Manager: only Apartment bookings + Clients (view)
 const RM_SIDEBAR = [
   { href: "/bookings", label: "Apartments",  icon: Home },
   { href: "/clients",  label: "Clients",     icon: Users },
+];
+
+// Viewer: read-only on Clients, Bookings, Jobs only
+const VIEWER_SIDEBAR = [
+  { href: "/jobs",     label: "Jobs Board", icon: Briefcase },
+  { href: "/bookings", label: "Bookings",   icon: CalendarRange },
+  { href: "/clients",  label: "Clients",    icon: Users },
 ];
 
 // ─── Role helpers ────────────────────────────────────────────────────────────
@@ -62,6 +76,7 @@ function formatRole(role: string) {
     case "super_admin":       return "Super Admin";
     case "admin":             return "Admin";
     case "operator":          return "Operator";
+    case "viewer":            return "Viewer";
     case "residence_manager": return "Residence Manager";
     default:                  return role;
   }
@@ -163,24 +178,27 @@ export function Shell({ children }: { children: ReactNode }) {
 
   if (!user) return <>{children}</>;
 
-  const isSuperAdmin      = user.role === "super_admin";
-  const isAdmin           = user.role === "admin" || isSuperAdmin;
+  const isSuperAdmin       = user.role === "super_admin";
+  const isAdminRole        = user.role === "admin"; // ONLY admin (not super_admin)
   const isResidenceManager = user.role === "residence_manager";
+  const isViewer           = user.role === "viewer";
+  const canWrite           = !isViewer; // viewers are read-only
 
   if (isLocked) return <LockScreen />;
 
-  // Pick the right nav set
-  const sidebarItems = isResidenceManager ? RM_SIDEBAR : OPERATOR_SIDEBAR.filter(item => {
-    if ((item as any).reqSuperAdmin) return isSuperAdmin;
-    if ((item as any).reqAdmin)      return isAdmin;
+  // Filter helper for operator/admin nav: skip items flagged blockAdmin when user is admin
+  const filterForRole = (items: typeof OPERATOR_SIDEBAR) => items.filter(item => {
+    if ((item as any).blockAdmin && isAdminRole) return false;
     return true;
   });
 
-  const moreItems = isResidenceManager ? [] : OPERATOR_MORE.filter(item => {
-    if ((item as any).reqSuperAdmin) return isSuperAdmin;
-    if ((item as any).reqAdmin)      return isAdmin;
-    return true;
-  });
+  // Pick the right nav set
+  let sidebarItems: typeof OPERATOR_SIDEBAR;
+  if (isResidenceManager)   sidebarItems = RM_SIDEBAR as any;
+  else if (isViewer)        sidebarItems = VIEWER_SIDEBAR as any;
+  else                      sidebarItems = filterForRole(OPERATOR_SIDEBAR);
+
+  const moreItems = (isResidenceManager || isViewer) ? [] : filterForRole(OPERATOR_MORE);
 
   // Mobile bottom nav tabs (5 max for operators, 2 for residence_manager)
   const mobileBottomTabs = isResidenceManager
@@ -204,8 +222,8 @@ export function Shell({ children }: { children: ReactNode }) {
           <NotificationBell />
         </div>
 
-        {/* New Booking button — hidden for Residence Manager */}
-        {!isResidenceManager && (
+        {/* New Booking button — hidden for Residence Manager and Viewer */}
+        {!isResidenceManager && canWrite && (
           <div className="px-4 mb-4">
             <Link href="/bookings/new">
               <Button className="w-full h-11 font-semibold shadow-[0_0_15px_rgba(201,168,76,0.25)] hover:shadow-[0_0_25px_rgba(201,168,76,0.4)] transition-all">
@@ -213,6 +231,16 @@ export function Shell({ children }: { children: ReactNode }) {
                 New Booking
               </Button>
             </Link>
+          </div>
+        )}
+
+        {/* Viewer banner */}
+        {isViewer && (
+          <div className="px-4 mb-4">
+            <div className="px-3 py-2 rounded-md bg-secondary/40 border border-border text-center">
+              <p className="text-xs text-muted-foreground font-medium">Read-Only Access</p>
+              <p className="text-[10px] text-muted-foreground/70 mt-0.5">View bookings, clients & jobs</p>
+            </div>
           </div>
         )}
 
@@ -301,8 +329,33 @@ export function Shell({ children }: { children: ReactNode }) {
         </nav>
       )}
 
+      {/* ── Viewer: read-only 4-tab bottom nav ── */}
+      {isViewer && (
+        <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-card border-t border-border z-50 flex items-center justify-around px-1" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
+          <Link href="/jobs" className={`flex flex-col items-center justify-center flex-1 h-16 ${location.startsWith('/jobs') ? 'text-primary' : 'text-muted-foreground'}`}>
+            <Briefcase className="w-5 h-5 mb-1" />
+            <span className="text-[10px] font-medium">Jobs</span>
+          </Link>
+          <Link href="/bookings" className={`flex flex-col items-center justify-center flex-1 h-16 ${location.startsWith('/bookings') ? 'text-primary' : 'text-muted-foreground'}`}>
+            <CalendarRange className="w-5 h-5 mb-1" />
+            <span className="text-[10px] font-medium">Bookings</span>
+          </Link>
+          <Link href="/clients" className={`flex flex-col items-center justify-center flex-1 h-16 ${location.startsWith('/clients') ? 'text-primary' : 'text-muted-foreground'}`}>
+            <Users className="w-5 h-5 mb-1" />
+            <span className="text-[10px] font-medium">Clients</span>
+          </Link>
+          <button
+            onClick={() => { logout(); }}
+            className="flex flex-col items-center justify-center flex-1 h-16 text-muted-foreground hover:text-destructive transition-colors"
+          >
+            <LogOut className="w-5 h-5 mb-1" />
+            <span className="text-[10px] font-medium">Sign Out</span>
+          </button>
+        </nav>
+      )}
+
       {/* ── Operator/Admin: full bottom nav ── */}
-      {!isResidenceManager && (
+      {!isResidenceManager && !isViewer && (
         <>
           <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-card border-t border-border z-50 flex items-center justify-around px-1" style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
             <Link href="/" className={`flex flex-col items-center justify-center w-14 h-16 ${location === '/' ? 'text-primary' : 'text-muted-foreground'}`}>

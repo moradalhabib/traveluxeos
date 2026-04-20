@@ -1755,7 +1755,9 @@ export default function Admin() {
             <TabsTrigger value="import" className="text-xs px-3 whitespace-nowrap">Import</TabsTrigger>
             <TabsTrigger value="export" className="text-xs px-3 whitespace-nowrap">Export</TabsTrigger>
             <TabsTrigger value="fleet" className="text-xs px-3 whitespace-nowrap">Fleet</TabsTrigger>
-            <TabsTrigger value="users" className="text-xs px-3 whitespace-nowrap">Users</TabsTrigger>
+            {isSuperAdmin && (
+              <TabsTrigger value="users" className="text-xs px-3 whitespace-nowrap">Users</TabsTrigger>
+            )}
             <TabsTrigger value="audit" className="text-xs px-3 whitespace-nowrap">Audit</TabsTrigger>
             <TabsTrigger value="api" className="text-xs px-3 whitespace-nowrap">API</TabsTrigger>
           </TabsList>

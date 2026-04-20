@@ -3,6 +3,15 @@ import { supabase, auditLog, getUserFromToken } from "../lib/supabase";
 
 const router = Router();
 
+// Guard: Commissions is restricted to super_admin + operator. Admin/viewer/RM blocked.
+router.use(async (req, res, next) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || !["super_admin", "operator"].includes(user.role)) {
+    return res.status(403).json({ error: "Commissions access denied." });
+  }
+  return next();
+});
+
 router.get("/", async (_req, res) => {
   const now = new Date();
   const weekStart = new Date(now);
