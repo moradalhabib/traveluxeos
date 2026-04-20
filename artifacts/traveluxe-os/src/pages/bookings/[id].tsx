@@ -234,13 +234,12 @@ export default function BookingDetail() {
 
   const getStatusColor = (s: string) => {
     switch (s) {
+      case 'Pending':   return 'bg-amber-500/20 text-amber-400 border-amber-500/50';
       case 'Confirmed': return 'bg-blue-500/20 text-blue-400 border-blue-500/50';
-      case 'Driver Assigned': return 'bg-primary/20 text-primary border-primary/50';
-      case 'Active': return 'bg-green-500/20 text-green-400 border-green-500/50';
+      case 'Active':    return 'bg-green-500/20 text-green-400 border-green-500/50';
       case 'Completed': return 'bg-gray-500/20 text-gray-400 border-gray-500/50';
       case 'Cancelled': return 'bg-destructive/20 text-destructive border-destructive/50';
-      case 'Invoiced': return 'bg-purple-500/20 text-purple-400 border-purple-500/50';
-      default: return 'bg-secondary text-secondary-foreground border-border';
+      default:          return 'bg-secondary text-secondary-foreground border-border';
     }
   };
 
@@ -491,7 +490,7 @@ export default function BookingDetail() {
           Quote = awaiting confirmation (request, not booking) — no client/driver
           message should ever be sent in that state. Cancelled also blocks. */}
       {(() => {
-        const blockedStatuses = ['Quote', 'Cancelled'];
+        const blockedStatuses = ['Quote', 'Pending', 'Cancelled'];
         const isAwaitingConfirmation = blockedStatuses.includes(booking.status);
         if (isAwaitingConfirmation) {
           return (
@@ -499,14 +498,14 @@ export default function BookingDetail() {
               <Clock className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="font-semibold text-amber-400 text-sm">
-                  {booking.status === 'Cancelled' ? 'Booking cancelled' : 'Awaiting confirmation'}
+                  {booking.status === 'Cancelled' ? 'Booking cancelled' : 'Awaiting client confirmation'}
                 </p>
                 <p className="text-xs text-amber-600/80 mt-0.5">
                   {booking.status === 'Cancelled'
                     ? 'No messages can be sent for a cancelled booking.'
-                    : 'This is a request — confirm the booking before sending any WhatsApp message to the client or driver.'}
+                    : 'Confirm the booking once the client has agreed — WhatsApp messages will unlock.'}
                 </p>
-                {booking.status === 'Quote' && (
+                {(booking.status === 'Pending' || booking.status === 'Quote') && (
                   <Button
                     size="sm"
                     onClick={() => handleUpdateStatus('Confirmed')}
@@ -522,7 +521,7 @@ export default function BookingDetail() {
         return null;
       })()}
 
-      <div className={`grid grid-cols-1 gap-3 ${['Quote','Cancelled'].includes(booking.status) ? 'hidden' : ''}`}>
+      <div className={`grid grid-cols-1 gap-3 ${['Quote','Pending','Cancelled'].includes(booking.status) ? 'hidden' : ''}`}>
         {clientWa ? (
           <a href={clientMsgUrl} target="_blank" rel="noopener noreferrer">
             <div className="flex items-center gap-4 p-4 rounded-2xl bg-green-900/20 border border-green-700/40 hover:bg-green-900/30 hover:border-green-600/60 transition-all cursor-pointer">
@@ -575,13 +574,18 @@ export default function BookingDetail() {
       {/* Status actions */}
       {booking.status !== 'Completed' && booking.status !== 'Cancelled' && (
         <div className="flex flex-col gap-2">
-          {booking.status !== 'Active' && (
+          {booking.status === 'Confirmed' && (
             <p className="text-xs text-muted-foreground italic">
               💡 The system auto-activates this booking at its scheduled start time. Use <em>Mark Active</em> only to override.
             </p>
           )}
         <div className="flex gap-2 flex-wrap">
-          {booking.status !== 'Active' && (
+          {(booking.status === 'Pending' || booking.status === 'Quote') && (
+            <Button variant="outline" size="sm" onClick={() => handleUpdateStatus('Confirmed')} className="text-blue-400 hover:bg-blue-500/10 border-blue-500/30">
+              Mark Confirmed
+            </Button>
+          )}
+          {booking.status === 'Confirmed' && (
             <Button variant="outline" size="sm" onClick={() => handleUpdateStatus('Active')} className="text-green-400 hover:bg-green-500/10 border-green-500/30">
               Mark Active
             </Button>

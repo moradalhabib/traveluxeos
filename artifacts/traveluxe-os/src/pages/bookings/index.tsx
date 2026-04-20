@@ -150,8 +150,8 @@ export default function Bookings() {
         />
         <div className="flex gap-2 overflow-x-auto pb-2 flex-1">
           <Button variant={status === "" ? "default" : "outline"} onClick={() => setStatus("")}>All</Button>
+          <Button variant={status === "Pending" ? "default" : "outline"} onClick={() => setStatus("Pending")}>Pending</Button>
           <Button variant={status === "Confirmed" ? "default" : "outline"} onClick={() => setStatus("Confirmed")}>Confirmed</Button>
-          <Button variant={status === "Driver Assigned" ? "default" : "outline"} onClick={() => setStatus("Driver Assigned")}>Assigned</Button>
           <Button variant={status === "Active" ? "default" : "outline"} onClick={() => setStatus("Active")}>Active</Button>
           <Button variant={status === "Completed" ? "default" : "outline"} onClick={() => setStatus("Completed")}>Completed</Button>
           <Button variant={status === "Cancelled" ? "default" : "outline"} onClick={() => setStatus("Cancelled")}>Cancelled</Button>

@@ -202,7 +202,7 @@ export function useNotifications() {
               );
             }
 
-            // Driver newly assigned
+            // Driver newly assigned (notification title is a label, not a status)
             if (!prevDriver && bk.driver_id && !seenIdsRef.current.has(`driver_${bk.id}`)) {
               seenIdsRef.current.add(`driver_${bk.id}`);
               push(
@@ -254,7 +254,7 @@ export function useNotifications() {
         const { data: toActivate } = await supabase
           .from("bookings")
           .select("id, tvl_ref, client_name, status, date_time")
-          .in("status", ["Confirmed", "Driver Assigned"])
+          .in("status", ["Confirmed", "Pending"])
           .gte("date_time", dayAgo)
           .lte("date_time", nowIso)
           .limit(20);

@@ -56,7 +56,7 @@ async function autoActivateJobs() {
   const { data: due, error } = await supabase
     .from("bookings")
     .select("id, tvl_ref, client_name, service_type, status, date_time, driver_id, drivers(name)")
-    .in("status", ["Confirmed", "Driver Assigned"])
+    .in("status", ["Confirmed", "Pending"])
     .gte("date_time", dayAgo)
     .lte("date_time", now.toISOString())
     .limit(50);
@@ -71,7 +71,7 @@ async function autoActivateJobs() {
         .from("bookings")
         .update({ status: "Active" })
         .eq("id", b.id)
-        .in("status", ["Confirmed", "Driver Assigned"]);
+        .in("status", ["Confirmed", "Pending"]);
       if (upErr) continue;
 
       await auditLog("auto_active", "booking", b.id, null,

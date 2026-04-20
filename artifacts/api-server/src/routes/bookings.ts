@@ -196,9 +196,8 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ error: error.message });
   }
 
-  // Update driver assigned status if driver provided
+  // Notify driver if one was provided at creation time
   if (body.driver_id) {
-    await supabase.from("bookings").update({ status: "Driver Assigned" }).eq("id", data.id).eq("status", "Confirmed");
     notifyDriverAssigned(data.id).catch(() => {});
   }
 
@@ -315,10 +314,6 @@ router.put("/:id", async (req, res) => {
   // Notify driver if a new driver was just assigned via PUT
   if (body.driver_id && body.driver_id !== prev?.driver_id) {
     notifyDriverAssigned(req.params.id).catch(() => {});
-  }
-
-  if (body.driver_id && updated.status === "Confirmed") {
-    await supabase.from("bookings").update({ status: "Driver Assigned" }).eq("id", req.params.id);
   }
 
   await auditLog("amend_booking", "booking", req.params.id, user?.id ?? null,

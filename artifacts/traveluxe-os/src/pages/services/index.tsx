@@ -61,16 +61,14 @@ const LEGACY_MAP: Record<string, ServiceKey> = {
 };
 
 const STATUS_COLORS: Record<string, string> = {
-  "Confirmed":        "bg-blue-500/20 text-blue-400 border-blue-500/30",
-  "Driver Assigned":  "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
-  "Completed":        "bg-green-500/20 text-green-400 border-green-500/30",
-  "Pending":          "bg-amber-500/20 text-amber-400 border-amber-500/30",
-  "Cancelled":        "bg-destructive/20 text-destructive border-destructive/30",
-  "Invoiced":         "bg-purple-500/20 text-purple-400 border-purple-500/30",
-  "In Progress":      "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
+  "Pending":   "bg-amber-500/20 text-amber-400 border-amber-500/30",
+  "Confirmed": "bg-blue-500/20 text-blue-400 border-blue-500/30",
+  "Active":    "bg-green-500/20 text-green-400 border-green-500/30",
+  "Completed": "bg-gray-500/20 text-gray-400 border-gray-500/30",
+  "Cancelled": "bg-destructive/20 text-destructive border-destructive/30",
 };
 
-const STATUS_FILTERS = ["All", "Confirmed", "Driver Assigned", "In Progress", "Completed", "Invoiced", "Cancelled"];
+const STATUS_FILTERS = ["All", "Pending", "Confirmed", "Active", "Completed", "Cancelled"];
 
 interface Booking {
   id: string;
@@ -175,7 +173,7 @@ export default function Services() {
   const startOfToday = useMemo(() => {
     const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime();
   }, []);
-  const ACTIVE_STATUSES = ["Confirmed", "Driver Assigned", "Pending", "In Progress"];
+  const ACTIVE_STATUSES = ["Pending", "Confirmed", "Active"];
   const isUpcoming = (b: Booking) =>
     !!b.date_time && new Date(b.date_time).getTime() >= startOfToday;
 
@@ -187,7 +185,7 @@ export default function Services() {
     const active = svcBookings.filter(b =>
       ACTIVE_STATUSES.includes(b.status) && isUpcoming(b)
     ).length;
-    const completed = svcBookings.filter(b => b.status === "Completed" || b.status === "Invoiced").length;
+    const completed = svcBookings.filter(b => b.status === "Completed").length;
     return { total: svcBookings.length, active, completed };
   };
 
@@ -377,11 +375,10 @@ export default function Services() {
                       <CardContent className="p-0">
                         <div className="flex items-stretch">
                           <div className={`w-1 rounded-l-xl flex-shrink-0 ${
-                            booking.status === "Confirmed"      ? "bg-blue-500" :
-                            booking.status === "Driver Assigned"? "bg-cyan-400" :
-                            booking.status === "Completed" || booking.status === "Invoiced" ? "bg-green-500" :
-                            booking.status === "Cancelled"      ? "bg-red-500" :
-                            booking.status === "In Progress"    ? "bg-cyan-500" :
+                            booking.status === "Confirmed"  ? "bg-blue-500"  :
+                            booking.status === "Active"     ? "bg-green-400" :
+                            booking.status === "Completed"  ? "bg-gray-400"  :
+                            booking.status === "Cancelled"  ? "bg-red-500"   :
                             "bg-amber-500"
                           }`} />
                           <div className="flex-1 px-4 py-3">

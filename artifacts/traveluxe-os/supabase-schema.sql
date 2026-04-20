@@ -96,7 +96,7 @@ CREATE TABLE IF NOT EXISTS public.bookings (
   commission_status TEXT DEFAULT 'Outstanding' CHECK (commission_status IN ('Outstanding', 'Settled')),
   payout_status TEXT DEFAULT 'Pending' CHECK (payout_status IN ('Pending', 'Paid')),
   source TEXT CHECK (source IN ('WhatsApp', 'Snapchat', 'Referral', 'Returning Client', 'Other')),
-  status TEXT NOT NULL DEFAULT 'Confirmed' CHECK (status IN ('Quote', 'Confirmed', 'Driver Assigned', 'Active', 'Completed', 'Invoiced', 'Cancelled')),
+  status TEXT NOT NULL DEFAULT 'Confirmed' CHECK (status IN ('Pending', 'Confirmed', 'Active', 'Completed', 'Cancelled', 'Quote')),
   operator_id UUID REFERENCES public.users(id),
   driver_id UUID REFERENCES public.drivers(id),
   return_booking_id UUID REFERENCES public.bookings(id),
