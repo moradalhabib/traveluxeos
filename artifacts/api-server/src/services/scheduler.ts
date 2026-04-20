@@ -1,6 +1,7 @@
 import { supabase, auditLog } from "../lib/supabase";
 import { sendEmail } from "./email";
 import { emailDailyBackup } from "./backup";
+import { notifyByRoles, notifyUser, STAFF_ROLES } from "./notify";
 
 const TICK_MS = 60 * 1000;
 
@@ -275,10 +276,113 @@ export async function notifyDriverAssigned(bookingId: string) {
   }
 }
 
+// ─── No-driver alerts (3-hour & 24-hour windows) ────────────────────────────
+// Repeats every 30 min for the 3h alert (dedupe via 30-min bucket key),
+// and once per day for the 24h alert (dedupe per booking per day).
+async function checkNoDriverAlerts() {
+  const now = Date.now();
+  const in3h = new Date(now + 3 * 60 * 60 * 1000).toISOString();
+  const in24h = new Date(now + 24 * 60 * 60 * 1000).toISOString();
+  const nowIso = new Date(now).toISOString();
+
+  // ── 3-hour urgent alerts ─────────────────────────────────────────────
+  const { data: urgent } = await supabase
+    .from("bookings")
+    .select("id, tvl_ref, client_name, date_time, status")
+    .is("driver_id", null)
+    .in("status", ["Confirmed", "Pending"])
+    .gte("date_time", nowIso)
+    .lte("date_time", in3h)
+    .limit(50);
+
+  if (urgent && urgent.length > 0) {
+    // 30-min dedupe bucket: alert renews every half-hour as spec says
+    const bucket = new Date();
+    bucket.setMinutes(bucket.getMinutes() < 30 ? 0 : 30, 0, 0);
+    const bucketKey = bucket.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
+
+    for (const b of urgent) {
+      const start = b.date_time ? new Date(b.date_time).getTime() : now;
+      const minsLeft = Math.max(0, Math.round((start - now) / 60000));
+      const hoursLeft = (minsLeft / 60).toFixed(1);
+      notifyByRoles(STAFF_ROLES, {
+        type: "no_driver_3h",
+        title: "⚠️ URGENT — No Driver",
+        message: `${b.tvl_ref ?? ""} has no driver assigned — job in ${hoursLeft}h`,
+        link: `/bookings/${b.id}`,
+        entityType: "booking",
+        entityId: b.id,
+        severity: "urgent",
+        dedupeKey: `no_driver_3h:${b.id}:${bucketKey}`,
+      }).catch(() => {});
+    }
+  }
+
+  // ── 24-hour warning alerts (only outside the 3h window) ──────────────
+  const { data: tomorrow } = await supabase
+    .from("bookings")
+    .select("id, tvl_ref, client_name, date_time, status")
+    .is("driver_id", null)
+    .in("status", ["Confirmed", "Pending"])
+    .gt("date_time", in3h)
+    .lte("date_time", in24h)
+    .limit(50);
+
+  if (tomorrow && tomorrow.length > 0) {
+    const today = new Date().toISOString().slice(0, 10);
+    for (const b of tomorrow) {
+      const t = b.date_time
+        ? new Date(b.date_time).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })
+        : "soon";
+      notifyByRoles(STAFF_ROLES, {
+        type: "no_driver_24h",
+        title: "⚠️ No Driver — Tomorrow",
+        message: `${b.tvl_ref ?? ""} has no driver assigned — ${t}`,
+        link: `/bookings/${b.id}`,
+        entityType: "booking",
+        entityId: b.id,
+        severity: "warning",
+        dedupeKey: `no_driver_24h:${b.id}:${today}`,
+      }).catch(() => {});
+    }
+  }
+}
+
+// ─── Follow-up due alerts ──────────────────────────────────────────────────
+async function checkFollowUpsDue() {
+  const today = new Date().toISOString().slice(0, 10);
+  const { data: due } = await supabase
+    .from("follow_ups")
+    .select("id, client_id, operator_id, due_date, status, clients(name)")
+    .lte("due_date", today)
+    .eq("status", "pending")
+    .limit(100);
+
+  if (!due || due.length === 0) return;
+
+  for (const f of due as any[]) {
+    const clientName = f.clients?.name ?? "client";
+    const targetUser = f.operator_id;
+    if (!targetUser) continue;
+    notifyUser(targetUser, {
+      type: "follow_up_due",
+      title: "📞 Follow-up Due",
+      message: `Follow-up due: ${clientName}`,
+      link: `/follow-ups`,
+      entityType: "follow_up",
+      entityId: f.id,
+      severity: "info",
+      dedupeKey: `follow_up_due:${f.id}:${today}`,
+    }).catch(() => {});
+  }
+}
+
 let started = false;
 let timer: ReturnType<typeof setInterval> | null = null;
 let lastDigestDate = "";
 let lastBackupDate = "";
+let lastFollowUpDate = "";
+let lastNoDriverTickMs = 0;
 
 async function maybeRunDigest() {
   const now = new Date();
@@ -290,6 +394,25 @@ async function maybeRunDigest() {
   if (lastDigestDate === today) return;
   lastDigestDate = today;
   await sendDailyDigest();
+}
+
+async function maybeRunFollowUpScan() {
+  const now = new Date();
+  // Run any time during the 08:00 hour, deduped per calendar date.
+  if (now.getHours() !== 8) return;
+  const today = now.toISOString().slice(0, 10);
+  if (lastFollowUpDate === today) return;
+  lastFollowUpDate = today;
+  await checkFollowUpsDue().catch(e => console.error("[Scheduler] follow-up scan:", e?.message));
+}
+
+async function maybeRunNoDriverScan() {
+  // Throttle to every 5 minutes to keep load light. Dedupe in createNotification
+  // means real alert frequency is governed by the dedupe bucket.
+  const now = Date.now();
+  if (now - lastNoDriverTickMs < 5 * 60 * 1000) return;
+  lastNoDriverTickMs = now;
+  await checkNoDriverAlerts().catch(e => console.error("[Scheduler] no-driver scan:", e?.message));
 }
 
 async function maybeRunBackup() {
@@ -315,6 +438,8 @@ export function startScheduler() {
     try {
       await autoActivateJobs();
       await sendReminders();
+      await maybeRunNoDriverScan();
+      await maybeRunFollowUpScan();
       await maybeRunDigest();
       await maybeRunBackup();
     } catch (e: any) {
@@ -325,7 +450,7 @@ export function startScheduler() {
   // Run shortly after boot, then every minute
   setTimeout(tick, 5000);
   timer = setInterval(tick, TICK_MS);
-  console.info("[Scheduler] auto-activate + 2h reminder + 08:00 digest + 03:00 backup loop started (60s interval)");
+  console.info("[Scheduler] auto-activate + reminders + no-driver alerts + follow-up scan + 08:00 digest + 03:00 backup loop started (60s interval)");
 }
 
 export function stopScheduler() {

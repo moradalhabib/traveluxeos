@@ -1,6 +1,7 @@
 import { Switch, Route, Router as WouterRouter, Redirect } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
+import { Toaster as SonnerToaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
@@ -137,6 +138,20 @@ function App() {
           </AuthProvider>
         </WouterRouter>
         <Toaster />
+        <SonnerToaster
+          position="top-right"
+          closeButton
+          richColors={false}
+          theme="dark"
+          toastOptions={{
+            style: {
+              background: "hsl(var(--card))",
+              color: "hsl(var(--foreground))",
+              border: "1px solid hsl(var(--border))",
+              borderLeftWidth: "4px",
+            },
+          }}
+        />
       </TooltipProvider>
     </QueryClientProvider>
   );

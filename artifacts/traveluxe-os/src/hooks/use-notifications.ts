@@ -1,16 +1,38 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabase } from "@/lib/supabase";
+import { toast } from "sonner";
 
+// All notification types the app understands. Server-emitted types come
+// from artifacts/api-server/src/services/notify.ts. Local-only types are
+// produced by client-side flight polling (slice 1 transitional).
 export type NotifType =
+  // Server
   | "booking_new"
-  | "booking_update"
-  | "booking_started"
-  | "booking_reminder"
+  | "booking_status"
+  | "booking_amended"
+  | "booking_cancelled"
+  | "job_assigned"
+  | "no_driver_3h"
+  | "no_driver_24h"
+  | "follow_up_due"
+  | "task_assigned"
+  | "task_overdue"
+  | "weekly_commission"
+  | "unpaid_invoice"
+  | "direct_message"
+  | "announcement"
+  // Local-only (flight tracker, not yet server-side)
   | "flight_delay"
   | "flight_landed"
   | "flight_early"
   | "flight_ontime"
+  // Legacy aliases used by older bell UI
+  | "booking_update"
+  | "booking_started"
+  | "booking_reminder"
   | "driver_assigned";
+
+export type NotifSeverity = "info" | "success" | "warning" | "urgent";
 
 export interface AppNotification {
   id: string;
@@ -20,309 +42,221 @@ export interface AppNotification {
   timestamp: Date;
   read: boolean;
   link?: string;
+  severity?: NotifSeverity;
+  /** True for in-memory only (e.g. legacy flight-poll). Skip API calls. */
+  local?: boolean;
 }
 
-const STORAGE_KEY = "tvl_notifications";
 const FLIGHT_CACHE_KEY = "tvl_flight_status_cache";
-const BOOKING_POLL_KEY = "tvl_last_booking_check";
-const MAX_STORED = 50;
-
-function loadStored(): AppNotification[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as any[];
-    return parsed.map(n => ({ ...n, timestamp: new Date(n.timestamp) }));
-  } catch {
-    return [];
-  }
-}
-
-function save(items: AppNotification[]) {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(items.slice(0, MAX_STORED)));
-  } catch {}
-}
+const MAX_KEEP = 50;
 
 function getFlightCache(): Record<string, string> {
-  try {
-    return JSON.parse(localStorage.getItem(FLIGHT_CACHE_KEY) ?? "{}");
-  } catch {
-    return {};
-  }
+  try { return JSON.parse(localStorage.getItem(FLIGHT_CACHE_KEY) ?? "{}"); }
+  catch { return {}; }
 }
-
 function setFlightCache(cache: Record<string, string>) {
-  try {
-    localStorage.setItem(FLIGHT_CACHE_KEY, JSON.stringify(cache));
-  } catch {}
+  try { localStorage.setItem(FLIGHT_CACHE_KEY, JSON.stringify(cache)); } catch {}
 }
 
-// Register the service worker once so notifications work even when the
-// browser tab is in the background or minimised. Falls back silently if SW
-// is unavailable (e.g. http: localhost in some browsers).
+// ── Service worker for browser notifications when tab is backgrounded ──
 let swReg: ServiceWorkerRegistration | null = null;
 if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
   const swUrl = (import.meta.env.BASE_URL || "/") + "sw.js";
   navigator.serviceWorker
     .register(swUrl, { scope: import.meta.env.BASE_URL || "/" })
-    .then((reg) => { swReg = reg; })
+    .then(reg => { swReg = reg; })
     .catch(() => {});
 }
 
 function browserNotify(title: string, body: string, link?: string) {
   if (typeof Notification === "undefined") return;
-  if (Notification.permission === "granted") {
-    try {
-      // Prefer the service-worker registration so the notification stays
-      // visible even when the tab is in the background.
-      if (swReg && swReg.showNotification) {
-        swReg.showNotification(title, {
-          body,
-          icon: "/favicon.ico",
-          badge: "/favicon.ico",
-          data: { link },
-          tag: title,
-          renotify: true,
-        } as any);
-        return;
-      }
-      new Notification(title, { body, icon: "/favicon.ico" });
-    } catch {}
-  }
+  if (Notification.permission !== "granted") return;
+  try {
+    if (swReg && swReg.showNotification) {
+      swReg.showNotification(title, {
+        body,
+        icon: "/favicon.ico",
+        badge: "/favicon.ico",
+        data: { link },
+        tag: title,
+        renotify: true,
+      } as any);
+      return;
+    }
+    new Notification(title, { body, icon: "/favicon.ico" });
+  } catch {}
+}
+
+// Sonner toast styling per severity
+function showToast(n: AppNotification, onClick: () => void) {
+  const sev = n.severity ?? "info";
+  const opts = {
+    description: n.message,
+    duration: 8000,
+    onClick,
+    className: sev === "urgent"
+      ? "tvl-toast-urgent"
+      : sev === "warning"
+      ? "tvl-toast-warning"
+      : sev === "success"
+      ? "tvl-toast-success"
+      : "tvl-toast-info",
+  };
+  if (sev === "urgent") toast.error(n.title, opts);
+  else if (sev === "warning") toast.warning(n.title, opts);
+  else if (sev === "success") toast.success(n.title, opts);
+  else toast(n.title, opts);
+}
+
+function rowToNotif(r: any): AppNotification {
+  return {
+    id: r.id,
+    type: r.type,
+    title: r.title,
+    message: r.message,
+    timestamp: new Date(r.created_at),
+    read: !!r.read,
+    link: r.link ?? undefined,
+    severity: (r.severity ?? "info") as NotifSeverity,
+  };
+}
+
+async function authedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const token = session?.access_token;
+  return fetch(path, {
+    ...init,
+    headers: {
+      "Content-Type": "application/json",
+      ...(init.headers ?? {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
 }
 
 export function useNotifications() {
-  const [items, setItems] = useState<AppNotification[]>(loadStored);
-  const bookingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [items, setItems] = useState<AppNotification[]>([]);
+  const itemsRef = useRef<AppNotification[]>([]);
+  itemsRef.current = items;
+  const channelRef = useRef<any>(null);
   const flightTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const seenIdsRef = useRef<Set<string>>(new Set(loadStored().map(n => n.link ?? "")));
-  const prevStatusRef = useRef<Record<string, string>>({});
 
   const unreadCount = items.filter(n => !n.read).length;
 
-  const push = useCallback((type: NotifType, title: string, message: string, link?: string) => {
+  // Local-only push (used by flight poll). Adds to state + toast + browser notif.
+  const push = useCallback((type: NotifType, title: string, message: string, link?: string, severity: NotifSeverity = "info") => {
     const n: AppNotification = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      type,
-      title,
-      message,
+      id: `local-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      type, title, message, link, severity,
       timestamp: new Date(),
       read: false,
-      link,
+      local: true,
     };
-    setItems(prev => {
-      const next = [n, ...prev].slice(0, MAX_STORED);
-      save(next);
-      return next;
+    setItems(prev => [n, ...prev].slice(0, MAX_KEEP));
+    showToast(n, () => {
+      if (link && typeof window !== "undefined") window.location.assign(link);
     });
-    browserNotify(title, message);
+    browserNotify(title, message, link);
   }, []);
 
-  const markAllRead = useCallback(() => {
-    setItems(prev => {
-      const next = prev.map(n => ({ ...n, read: true }));
-      save(next);
-      return next;
-    });
+  // ── Initial fetch ───────────────────────────────────────────────────
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await authedFetch("/api/notifications?limit=50");
+        if (!res.ok) return;
+        const json = await res.json();
+        if (cancelled) return;
+        const list = (json.items ?? []).map(rowToNotif) as AppNotification[];
+        setItems(list);
+      } catch {}
+    })();
+    return () => { cancelled = true; };
   }, []);
 
-  const dismiss = useCallback((id: string) => {
-    setItems(prev => {
-      const next = prev.filter(n => n.id !== id);
-      save(next);
-      return next;
-    });
-  }, []);
-
-  const clearAll = useCallback(() => {
-    setItems([]);
-    save([]);
-  }, []);
-
-  // Request browser notification permission on mount
+  // ── Browser-notification permission ──────────────────────────────────
   useEffect(() => {
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
       Notification.requestPermission().catch(() => {});
     }
   }, []);
 
-  // Poll for new bookings + status changes every 20 seconds
+  // ── Real-time subscription to current user's notifications ──────────
   useEffect(() => {
-    const pollBookings = async () => {
-      try {
-        const lastCheck = localStorage.getItem(BOOKING_POLL_KEY) ?? new Date(Date.now() - 5 * 60000).toISOString();
+    let mounted = true;
+    let channel: any = null;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const uid = session?.user?.id;
+      if (!uid || !mounted) return;
 
-        // New bookings created since last check
-        const { data: newBookings } = await supabase
-          .from("bookings")
-          .select("id, tvl_ref, client_name, service_type, status, driver_id, created_at")
-          .gt("created_at", lastCheck)
-          .order("created_at", { ascending: false })
-          .limit(10);
-
-        if (newBookings && newBookings.length > 0) {
-          for (const bk of newBookings) {
-            const link = `/bookings/${bk.id}`;
-            if (seenIdsRef.current.has(`new_${bk.id}`)) continue;
-            seenIdsRef.current.add(`new_${bk.id}`);
-            push(
-              "booking_new",
-              "New Booking Created",
-              `${bk.tvl_ref ?? ""} · ${bk.client_name ?? "Client"} · ${bk.service_type ?? ""}`.trim(),
-              link
-            );
+      channel = supabase
+        .channel(`notif:${uid}`)
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${uid}` },
+          (payload: any) => {
+            const n = rowToNotif(payload.new);
+            // Avoid showing dismissed rows (server may insert dismissed=false always
+            // but be defensive)
+            if (payload.new?.dismissed) return;
+            setItems(prev => {
+              if (prev.some(x => x.id === n.id)) return prev;
+              return [n, ...prev].slice(0, MAX_KEEP);
+            });
+            showToast(n, () => {
+              if (n.link && typeof window !== "undefined") window.location.assign(n.link);
+            });
+            browserNotify(n.title, n.message, n.link);
           }
-        }
-
-        // Check for recent status changes (bookings updated in last 60s)
-        const oneMinAgo = new Date(Date.now() - 60 * 1000).toISOString();
-        const { data: updatedBookings } = await supabase
-          .from("bookings")
-          .select("id, tvl_ref, client_name, status, driver_id, updated_at")
-          .gt("updated_at", oneMinAgo)
-          .order("updated_at", { ascending: false })
-          .limit(10);
-
-        if (updatedBookings && updatedBookings.length > 0) {
-          for (const bk of updatedBookings) {
-            const statusKey = `status_${bk.id}`;
-            const driverKey = `driver_${bk.id}`;
-            const prevStatus = prevStatusRef.current[statusKey];
-            const prevDriver = prevStatusRef.current[driverKey];
-
-            // Status change detected
-            if (prevStatus && prevStatus !== bk.status && !seenIdsRef.current.has(`status_${bk.id}_${bk.status}`)) {
-              seenIdsRef.current.add(`status_${bk.id}_${bk.status}`);
-              push(
-                "booking_update",
-                "Booking Status Updated",
-                `${bk.tvl_ref ?? ""} · ${bk.client_name ?? ""} → ${bk.status}`,
-                `/bookings/${bk.id}`
-              );
+        )
+        .on(
+          "postgres_changes",
+          { event: "UPDATE", schema: "public", table: "notifications", filter: `user_id=eq.${uid}` },
+          (payload: any) => {
+            const id = payload.new?.id;
+            if (!id) return;
+            if (payload.new?.dismissed) {
+              setItems(prev => prev.filter(x => x.id !== id));
+              return;
             }
-
-            // Driver newly assigned (notification title is a label, not a status)
-            if (!prevDriver && bk.driver_id && !seenIdsRef.current.has(`driver_${bk.id}`)) {
-              seenIdsRef.current.add(`driver_${bk.id}`);
-              push(
-                "driver_assigned",
-                "Driver Assigned",
-                `${bk.tvl_ref ?? ""} · Driver assigned to ${bk.client_name ?? "client"}`,
-                `/bookings/${bk.id}`
-              );
-            }
-
-            prevStatusRef.current[statusKey] = bk.status;
-            prevStatusRef.current[driverKey] = bk.driver_id ?? "";
+            setItems(prev => prev.map(x => x.id === id ? { ...x, read: !!payload.new.read } : x));
           }
-        }
-
-        localStorage.setItem(BOOKING_POLL_KEY, new Date().toISOString());
-      } catch {}
-    };
-
-    pollBookings();
-    bookingTimerRef.current = setInterval(pollBookings, 20 * 1000);
+        )
+        .subscribe();
+      channelRef.current = channel;
+    })();
 
     return () => {
-      if (bookingTimerRef.current) clearInterval(bookingTimerRef.current);
+      mounted = false;
+      if (channelRef.current) {
+        supabase.removeChannel(channelRef.current);
+        channelRef.current = null;
+      }
     };
-  }, [push]);
+  }, []);
 
-  // Auto-activate jobs whose start time has arrived + 2h reminder polling
-  // Runs every 60 seconds. Only auto-activates jobs that started in the last 24h
-  // so we don't reactivate ancient un-completed bookings.
-  useEffect(() => {
-    const REMINDER_KEY = "tvl_reminded_bookings";
-    const loadReminded = (): Record<string, number> => {
-      try { return JSON.parse(localStorage.getItem(REMINDER_KEY) ?? "{}"); }
-      catch { return {}; }
-    };
-    const saveReminded = (m: Record<string, number>) => {
-      try { localStorage.setItem(REMINDER_KEY, JSON.stringify(m)); } catch {}
-    };
+  // ── Mutations (server-backed) ────────────────────────────────────────
+  const markAllRead = useCallback(async () => {
+    setItems(prev => prev.map(n => ({ ...n, read: true })));
+    await authedFetch("/api/notifications/mark-all-read", { method: "POST" }).catch(() => {});
+  }, []);
 
-    const tick = async () => {
-      try {
-        const now = Date.now();
-        const dayAgo = new Date(now - 24 * 60 * 60 * 1000).toISOString();
-        const nowIso = new Date(now).toISOString();
-        const twoHoursAgo = new Date(now - 2 * 60 * 60 * 1000).toISOString();
+  const dismiss = useCallback(async (id: string) => {
+    const n = itemsRef.current.find(x => x.id === id);
+    setItems(prev => prev.filter(x => x.id !== id));
+    if (n && !n.local) {
+      await authedFetch(`/api/notifications/${id}/dismiss`, { method: "POST" }).catch(() => {});
+    }
+  }, []);
 
-        // 1) Auto-activate: bookings where start has passed but status is pre-active
-        const { data: toActivate } = await supabase
-          .from("bookings")
-          .select("id, tvl_ref, client_name, status, date_time")
-          .in("status", ["Confirmed", "Pending"])
-          .gte("date_time", dayAgo)
-          .lte("date_time", nowIso)
-          .limit(20);
+  const clearAll = useCallback(async () => {
+    setItems([]);
+    await authedFetch("/api/notifications/clear-all", { method: "POST" }).catch(() => {});
+  }, []);
 
-        if (toActivate && toActivate.length > 0) {
-          const { data: { session } } = await supabase.auth.getSession();
-          const token = session?.access_token;
-          for (const bk of toActivate) {
-            try {
-              const res = await fetch(`/api/bookings/${bk.id}/status`, {
-                method: "PUT",
-                headers: {
-                  "Content-Type": "application/json",
-                  ...(token ? { Authorization: `Bearer ${token}` } : {}),
-                },
-                body: JSON.stringify({ status: "Active" }),
-              });
-              if (res.ok) {
-                push(
-                  "booking_started",
-                  "Job Started",
-                  `${bk.tvl_ref ?? ""} · ${bk.client_name ?? ""} is now Active`,
-                  `/bookings/${bk.id}`
-                );
-              }
-            } catch {}
-          }
-        }
-
-        // 2) Reminders: Active bookings whose start was >= 2h ago, not yet reminded
-        const { data: toRemind } = await supabase
-          .from("bookings")
-          .select("id, tvl_ref, client_name, status, date_time, payment_status")
-          .eq("status", "Active")
-          .lte("date_time", twoHoursAgo)
-          .gte("date_time", dayAgo)
-          .limit(20);
-
-        if (toRemind && toRemind.length > 0) {
-          const reminded = loadReminded();
-          let changed = false;
-          for (const bk of toRemind) {
-            if (reminded[bk.id]) continue;
-            push(
-              "booking_reminder",
-              "Action Required",
-              `${bk.tvl_ref ?? ""} · ${bk.client_name ?? ""} — please mark Completed & Paid`,
-              `/bookings/${bk.id}`
-            );
-            reminded[bk.id] = now;
-            changed = true;
-          }
-          // Garbage-collect entries older than 7 days
-          const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
-          for (const k of Object.keys(reminded)) {
-            if (reminded[k] < weekAgo) { delete reminded[k]; changed = true; }
-          }
-          if (changed) saveReminded(reminded);
-        }
-      } catch {}
-    };
-
-    tick();
-    const t = setInterval(tick, 60 * 1000);
-    return () => clearInterval(t);
-  }, [push]);
-
-  // Flight status polling — every 4 minutes
+  // ── Flight status polling (transitional client-side) ─────────────────
   useEffect(() => {
     const pollFlights = async () => {
       try {
@@ -339,37 +273,33 @@ export function useNotifications() {
           .lte("date_time", `${tomorrow}T23:59:59Z`);
 
         if (!bookings || bookings.length === 0) return;
-
         const cache = getFlightCache();
 
-        await Promise.allSettled(
-          bookings.map(async (bk: any) => {
-            if (!bk.flight_number) return;
-            try {
-              const res = await fetch(`/api/flight-tracker/${bk.flight_number.toUpperCase()}?date=${today}`);
-              if (!res.ok) return;
-              const data = await res.json();
-              const newStatus: string = data.status ?? "Unknown";
-              const cacheKey = `${bk.flight_number.toUpperCase()}_${today}`;
-              const prevStatus = cache[cacheKey];
+        await Promise.allSettled(bookings.map(async (bk: any) => {
+          if (!bk.flight_number) return;
+          try {
+            const res = await fetch(`/api/flight-tracker/${bk.flight_number.toUpperCase()}?date=${today}`);
+            if (!res.ok) return;
+            const data = await res.json();
+            const newStatus: string = data.status ?? "Unknown";
+            const cacheKey = `${bk.flight_number.toUpperCase()}_${today}`;
+            const prevStatus = cache[cacheKey];
+            if (prevStatus === newStatus) return;
+            cache[cacheKey] = newStatus;
 
-              if (prevStatus === newStatus) return;
-              cache[cacheKey] = newStatus;
+            const label = `${bk.flight_number.toUpperCase()} · ${bk.client_name ?? ""}`;
+            const link = `/bookings/${bk.id}`;
 
-              const label = `${bk.flight_number.toUpperCase()} · ${bk.client_name ?? ""}`;
-              const link = `/bookings/${bk.id}`;
-
-              if (newStatus === "Landed" && prevStatus !== "Landed") {
-                push("flight_landed", "Flight Landed", `${label} has landed`, link);
-              } else if (newStatus === "Delayed" && prevStatus !== "Delayed") {
-                const delay = data.delay_minutes ? `+${data.delay_minutes}min delay` : "delayed";
-                push("flight_delay", "Flight Delayed", `${label} is ${delay}`, link);
-              } else if (newStatus === "On Time" && prevStatus === "Delayed") {
-                push("flight_ontime", "Flight Now On Time", `${label} delay resolved`, link);
-              }
-            } catch {}
-          })
-        );
+            if (newStatus === "Landed" && prevStatus !== "Landed") {
+              push("flight_landed", "Flight Landed", `${label} has landed`, link, "success");
+            } else if (newStatus === "Delayed" && prevStatus !== "Delayed") {
+              const delay = data.delay_minutes ? `+${data.delay_minutes}min delay` : "delayed";
+              push("flight_delay", "✈️ Flight Delayed", `${label} is ${delay}`, link, "warning");
+            } else if (newStatus === "On Time" && prevStatus === "Delayed") {
+              push("flight_ontime", "Flight Now On Time", `${label} delay resolved`, link, "info");
+            }
+          } catch {}
+        }));
 
         setFlightCache(cache);
       } catch {}
@@ -377,10 +307,7 @@ export function useNotifications() {
 
     pollFlights();
     flightTimerRef.current = setInterval(pollFlights, 4 * 60 * 1000);
-
-    return () => {
-      if (flightTimerRef.current) clearInterval(flightTimerRef.current);
-    };
+    return () => { if (flightTimerRef.current) clearInterval(flightTimerRef.current); };
   }, [push]);
 
   return { items, unreadCount, push, markAllRead, dismiss, clearAll };

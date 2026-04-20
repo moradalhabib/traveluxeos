@@ -2,6 +2,17 @@ import { Router } from "express";
 import { supabase, auditLog, getUserFromToken, getDbClient } from "../lib/supabase";
 import { sendEmail } from "../services/email";
 import { notifyDriverAssigned } from "../services/scheduler";
+import { notifyByRoles, notifyUser, STAFF_ROLES } from "../services/notify";
+
+function bookingShortLabel(b: any) {
+  const ref = b.tvl_ref ?? "TVL-????";
+  const name = b.client_name ?? "client";
+  const svc = b.service_type ?? "booking";
+  const when = b.date_time
+    ? new Date(b.date_time).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+    : "";
+  return { ref, name, svc, when };
+}
 import { bookingConfirmationHtml, paymentReceiptHtml } from "../templates/emailTemplates";
 
 const router = Router();
@@ -227,6 +238,34 @@ router.post("/", async (req, res) => {
 
   const enriched = await enrichBooking(data);
 
+  // ── In-app notifications ────────────────────────────────────────────────
+  {
+    const lbl = bookingShortLabel(enriched);
+    // Broadcast new-booking alert to all staff
+    notifyByRoles(STAFF_ROLES, {
+      type: "booking_new",
+      title: "New Booking",
+      message: `${lbl.ref} · ${lbl.name} · ${lbl.svc}${lbl.when ? " · " + lbl.when : ""}`,
+      link: `/bookings/${data.id}`,
+      entityType: "booking",
+      entityId: data.id,
+      severity: "info",
+    }).catch(() => {});
+
+    // Targeted alert to the assigned operator (if different from the creator)
+    if (data.operator_id && data.operator_id !== user?.id) {
+      notifyUser(data.operator_id, {
+        type: "job_assigned",
+        title: "New Job Assigned to You",
+        message: `${lbl.ref} · ${lbl.name}${lbl.when ? " · " + lbl.when : ""}`,
+        link: `/bookings/${data.id}`,
+        entityType: "booking",
+        entityId: data.id,
+        severity: "info",
+      }).catch(() => {});
+    }
+  }
+
   // Auto-generate invoice for confirmed bookings on creation
   if (data.status === "Confirmed") {
     await autoGenerateInvoice(data.id, user?.id ?? null);
@@ -342,6 +381,41 @@ router.put("/:id", async (req, res) => {
 
   const enriched = await enrichBooking(updated);
 
+  // ── In-app notifications for amendment / status change ──────────────────
+  {
+    const lbl = bookingShortLabel(enriched);
+
+    // Status changed inline via PUT (e.g. Confirmed → Active)
+    if (body.status && prev?.status && body.status !== prev.status) {
+      if (updated.operator_id) {
+        notifyUser(updated.operator_id, {
+          type: "booking_status",
+          title: "Booking Status Updated",
+          message: `${lbl.ref} · ${lbl.name} → ${body.status}`,
+          link: `/bookings/${req.params.id}`,
+          entityType: "booking",
+          entityId: req.params.id,
+          severity: "info",
+        }).catch(() => {});
+      }
+    }
+
+    // General amendment broadcast (only if it was already a confirmed booking,
+    // and not just a status flip we already announced above)
+    const fieldsChanged = Object.keys(body).filter(k => k !== "is_amended" && k !== "status").length;
+    if (fieldsChanged > 0 && prev?.status && prev.status !== "Pending") {
+      notifyByRoles(STAFF_ROLES, {
+        type: "booking_amended",
+        title: "Booking Amended",
+        message: `${lbl.ref} · ${lbl.name} — details updated`,
+        link: `/bookings/${req.params.id}`,
+        entityType: "booking",
+        entityId: req.params.id,
+        severity: "info",
+      }).catch(() => {});
+    }
+  }
+
   // On payment_status → Paid: auto-mark invoice Paid, complete booking, send receipt
   if (body.payment_status === "Paid" && prevPaymentStatus !== "Paid") {
     // Mark invoice as Paid (awaited so failures surface in the audit trail)
@@ -430,6 +504,21 @@ router.post("/:id/cancel", async (req, res) => {
     `Booking ${data.tvl_ref} cancelled. Reason: ${reason}`);
 
   const enriched = await enrichBooking(data);
+
+  // ── In-app notification ─────────────────────────────────────────────────
+  {
+    const lbl = bookingShortLabel(enriched);
+    notifyByRoles(STAFF_ROLES, {
+      type: "booking_cancelled",
+      title: "Booking Cancelled",
+      message: `${lbl.ref} · ${lbl.name}${reason ? " — " + String(reason).slice(0, 80) : ""}`,
+      link: `/bookings/${req.params.id}`,
+      entityType: "booking",
+      entityId: req.params.id,
+      severity: "warning",
+    }).catch(() => {});
+  }
+
   return res.json(enriched);
 });
 

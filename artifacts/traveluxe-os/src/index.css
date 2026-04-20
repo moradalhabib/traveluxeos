@@ -213,4 +213,11 @@
   .border.active-elevate-2:not(.no-active-interaction-elevate)::after {
     inset: -1px;
   }
+
+  /* ── Sonner toast severity colors (Slice 1 · Notifications) ─────────── */
+  [data-sonner-toast].tvl-toast-info     { border-left-color: hsl(var(--primary)) !important; }
+  [data-sonner-toast].tvl-toast-success  { border-left-color: rgb(34 197 94) !important; }
+  [data-sonner-toast].tvl-toast-warning  { border-left-color: rgb(245 158 11) !important; }
+  [data-sonner-toast].tvl-toast-urgent   { border-left-color: rgb(239 68 68) !important; }
+  [data-sonner-toast]                    { cursor: pointer; }
 }
