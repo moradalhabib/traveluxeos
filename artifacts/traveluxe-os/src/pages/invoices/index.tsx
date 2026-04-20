@@ -101,7 +101,7 @@ export default function Invoices() {
       });
     }
     return list;
-  }, [invoices, searchQuery, statusFilter, bookingMap]);
+  }, [invoices, searchQuery, statusFilter, sourceFilter, bookingMap]);
 
   const statuses = ["Generated", "Sent", "Paid", "Overdue"];
 
