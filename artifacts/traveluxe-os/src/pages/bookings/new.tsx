@@ -924,9 +924,17 @@ export default function NewBooking() {
                         <FlightLookupCard
                           flightNumber={watchedFlightNumber}
                           direction={watchedDirection}
-                          onAutoFill={(_dateTime, origin, destination, terminal) => {
-                            // Date/time is left untouched — clients pre-book so the
-                            // operator enters the trip date manually.
+                          onAutoFill={(timeUk, origin, destination, terminal) => {
+                            // The operator manually enters the date because clients
+                            // pre-book. We only set the time portion (UK / GMT) on
+                            // top of whatever date they've already picked. If they
+                            // haven't picked a date yet, the time fill is skipped —
+                            // they can hit Auto-fill again once the date is in.
+                            const currentDt = bookingForm.getValues("date_time") ?? "";
+                            const datePart = currentDt.slice(0, 10); // YYYY-MM-DD
+                            if (datePart && /^\d{4}-\d{2}-\d{2}$/.test(datePart) && timeUk) {
+                              bookingForm.setValue("date_time", `${datePart}T${timeUk}`);
+                            }
                             // The airport is the pickup on Arrival, the drop-off on Departure.
                             // Append the terminal so the chauffeur knows exactly where to go.
                             const term = terminal ? ` Terminal ${terminal}` : "";

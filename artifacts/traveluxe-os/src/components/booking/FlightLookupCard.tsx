@@ -19,7 +19,11 @@ interface FlightStatus {
 interface Props {
   flightNumber: string;
   direction?: string;
-  onAutoFill?: (dateTime: string, origin: string, destination: string, terminal: string | null) => void;
+  // `timeUk` is the flight's scheduled/estimated time as an HH:mm string in
+  // Europe/London (GMT/BST). The consumer is expected to merge it onto the
+  // date the operator manually entered — we never auto-fill the date because
+  // clients pre-book.
+  onAutoFill?: (timeUk: string, origin: string, destination: string, terminal: string | null) => void;
 }
 
 const STATUS_META: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -76,14 +80,18 @@ export function FlightLookupCard({ flightNumber, direction, onAutoFill }: Props)
 
   const handleAutoFill = () => {
     if (!data || !relevantTime || !onAutoFill) return;
+    // Format the time as HH:mm in UK time (Europe/London handles GMT vs BST
+    // automatically) regardless of the operator's browser timezone.
     const dt = new Date(relevantTime);
-    // Format as datetime-local value (YYYY-MM-DDTHH:mm)
-    const local = new Date(dt.getTime() - dt.getTimezoneOffset() * 60000)
-      .toISOString()
-      .slice(0, 16);
+    const ukTime = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/London",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(dt);
     const origin = data.origin ?? "";
     const destination = data.destination ?? "";
-    onAutoFill(local, origin, destination, data.terminal ?? null);
+    onAutoFill(ukTime, origin, destination, data.terminal ?? null);
   };
 
   if (loading) {
@@ -143,7 +151,7 @@ export function FlightLookupCard({ flightNumber, direction, onAutoFill }: Props)
           className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10"
         >
           <Clock className="w-3 h-3 mr-1" />
-          Auto-fill airport {isArrival ? "(pickup)" : "(drop-off)"}{data.terminal ? " & terminal" : ""}
+          Auto-fill time, airport {isArrival ? "(pickup)" : "(drop-off)"}{data.terminal ? " & terminal" : ""}
         </Button>
       )}
 
