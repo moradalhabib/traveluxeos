@@ -4,8 +4,9 @@ import {
   useGetBooking, getGetBookingQueryKey,
   useUpdateBookingStatus, useCancelBooking,
   useAddWaitingTime, useGenerateInvoice, useRateDriver,
-  useUpdateBooking,
+  useUpdateBooking, useListDrivers, getListDriversQueryKey,
 } from "@workspace/api-client-react";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -51,6 +52,30 @@ export default function BookingDetail() {
   const generateInvoice = useGenerateInvoice();
   const rateDriver = useRateDriver();
   const updateBooking = useUpdateBooking();
+  const { data: drivers } = useListDrivers({}, { query: { queryKey: getListDriversQueryKey({}) } });
+  const [assigningDriver, setAssigningDriver] = useState(false);
+
+  const assignDriver = (driverId: string) => {
+    if (!booking) return;
+    setAssigningDriver(true);
+    const value = driverId === "unassigned" ? null : driverId;
+    updateBooking.mutate(
+      { id, data: { driver_id: value } as any },
+      {
+        onSuccess: () => {
+          qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
+          toast({
+            title: value ? "Driver assigned" : "Driver unassigned",
+            description: value
+              ? `${(drivers as any[] | undefined)?.find((d) => d.id === value)?.name ?? ""} assigned to this booking.`
+              : "Driver removed from this booking.",
+          });
+        },
+        onError: (e: any) => toast({ title: "Failed to assign driver", description: e?.message ?? "Try again", variant: "destructive" }),
+        onSettled: () => setAssigningDriver(false),
+      }
+    );
+  };
 
   const [cancelReason, setCancelReason] = useState("");
   const [cancelFee, setCancelFee] = useState(0);
@@ -832,7 +857,36 @@ export default function BookingDetail() {
           </div>
           <div>
             <p className="text-xs text-muted-foreground uppercase mb-2 font-medium">Driver</p>
-            {booking.driver_name ? (
+            {!isResidenceManager ? (
+              <Select
+                value={(booking as any).driver_id ?? "unassigned"}
+                onValueChange={assignDriver}
+                disabled={assigningDriver}
+              >
+                <SelectTrigger className={`h-9 ${(booking as any).driver_id ? "" : "text-destructive"}`}>
+                  <SelectValue placeholder="Tap to assign…">
+                    {booking.driver_name ? (
+                      <span className="flex flex-col items-start leading-tight">
+                        <span className="font-semibold text-foreground">{booking.driver_name}</span>
+                        {booking.driver_vehicle && <span className="text-[11px] text-muted-foreground">{booking.driver_vehicle}</span>}
+                      </span>
+                    ) : (
+                      <span className="font-medium">Tap to assign…</span>
+                    )}
+                  </SelectValue>
+                </SelectTrigger>
+                <SelectContent className="max-h-[55vh] overflow-y-auto">
+                  <SelectItem value="unassigned">Unassigned</SelectItem>
+                  {(drivers as any[] | undefined)?.map((d: any) => (
+                    <SelectItem key={d.id} value={d.id}>
+                      {d.name}
+                      {(d.vehicle_model || d.vehicle_type) ? ` · ${d.vehicle_model || d.vehicle_type}` : ""}
+                      {d.plate ? ` (${d.plate})` : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            ) : booking.driver_name ? (
               <>
                 <span className="font-bold block">{booking.driver_name}</span>
                 <span className="text-xs text-muted-foreground">{booking.driver_vehicle}</span>
