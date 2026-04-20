@@ -31,8 +31,8 @@ router.get("/summary", async (_req, res) => {
     supabase.from("bookings").select("price, additional_charges, status").gte("date_time", weekStart.toISOString()),
     supabase.from("bookings").select("price, additional_charges, status").gte("date_time", monthStart.toISOString()),
     supabase.from("bookings").select("id").eq("status", "Active"),
-    supabase.from("bookings").select("id").in("status", ["Confirmed", "Driver Assigned"]).is("driver_id", null),
-    supabase.from("bookings").select("id").in("payment_status", ["Unpaid", "Partial"]).neq("status", "Cancelled"),
+    supabase.from("bookings").select("id, tvl_ref").in("status", ["Confirmed", "Driver Assigned"]).is("driver_id", null),
+    supabase.from("bookings").select("id, tvl_ref").in("payment_status", ["Unpaid", "Partial"]).neq("status", "Cancelled"),
     supabase.from("bookings").select("driver_id, tvl_commission, payment_method, commission_status").eq("payment_method", "Cash").eq("commission_status", "Outstanding"),
     supabase.from("bookings").select("client_id, price, additional_charges").neq("status", "Cancelled"),
     supabase.from("bookings").select("driver_id").neq("status", "Cancelled"),
@@ -207,6 +207,18 @@ router.get("/summary", async (_req, res) => {
     } : null,
   }));
 
+  // Exclude Odoo-imported items from headline KPIs (operator only cares about new TVL workflow)
+  // Odoo bookings have tvl_ref starting with "S" (e.g. S00017). New ones use TVL- prefix.
+  // Odoo invoices have invoice_number containing "/" (e.g. INV/2026/00001). New ones use INV-XXXX.
+  const isOdooBookingRef = (ref?: string | null) => !!ref && /^S\d/i.test(ref);
+  const noDriverJobsNew = (noDriverJobs ?? []).filter((b: any) => !isOdooBookingRef(b.tvl_ref));
+
+  const { data: unpaidInvoiceNumbers } = await supabase
+    .from("invoices")
+    .select("invoice_number")
+    .not("status", "in", '("Paid","Cancelled")');
+  const unpaidInvoicesNew = (unpaidInvoiceNumbers ?? []).filter((i: any) => !(i.invoice_number ?? "").includes("/"));
+
   return res.json({
     bookings_today: (todayBookings ?? []).length,
     bookings_this_week: (weekBookings ?? []).length,
@@ -216,11 +228,13 @@ router.get("/summary", async (_req, res) => {
     revenue_this_week: calcRevenue(weekBookings as any),
     revenue_this_month: calcRevenue(monthBookings as any),
     active_jobs: (activeJobs ?? []).length,
-    jobs_without_driver: (noDriverJobs ?? []).length,
+    jobs_without_driver: noDriverJobsNew.length,
+    jobs_without_driver_total_including_odoo: (noDriverJobs ?? []).length,
     pending_payments: (pendingPayments ?? []).length,
     outstanding_commissions: outstandingCommissions,
     pending_payouts: pendingPayouts,
-    unpaid_invoices_count: (unpaidInvoices ?? []).length,
+    unpaid_invoices_count: unpaidInvoicesNew.length,
+    unpaid_invoices_count_total_including_odoo: (unpaidInvoices ?? []).length,
     top_clients: topClients,
     top_drivers: topDrivers,
     booking_sources: bookingSources,
