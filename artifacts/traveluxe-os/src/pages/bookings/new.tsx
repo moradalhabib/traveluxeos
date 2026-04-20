@@ -836,55 +836,26 @@ export default function NewBooking() {
           <Form {...bookingForm}>
             <form onSubmit={bookingForm.handleSubmit(onBookingSubmit)} className="space-y-5">
 
-              {/* Service & Schedule */}
+              {/* Service */}
               <Card className="border-primary/10">
-                <CardHeader className="pb-3"><CardTitle className="text-base">Service & Schedule</CardTitle></CardHeader>
+                <CardHeader className="pb-3"><CardTitle className="text-base">Service</CardTitle></CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
-                    <FormField control={bookingForm.control} name="service_type" render={({ field }) => (
-                      <FormItem className="col-span-2">
-                        <FormLabel>Service Type</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                          <SelectContent>
-                            <SelectItem value="Airport Transfer">Airport Transfer</SelectItem>
-                            <SelectItem value="Tour">Tour</SelectItem>
-                            <SelectItem value="As Directed">As Directed</SelectItem>
-                            <SelectItem value="Apartment">Apartment</SelectItem>
-                            <SelectItem value="Hotel">Hotel</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    {/* Date & Time only for transport services. For Hotel and Apartment
-                        the booking is bracketed by Check-in / Check-out instead. */}
-                    {!isHotel && !isAccommodation && (
-                      <FormField control={bookingForm.control} name="date_time" render={({ field }) => (
-                        <FormItem className="col-span-2">
-                          <FormLabel>Date & Time</FormLabel>
-                          <FormControl><Input type="datetime-local" {...field} /></FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
-                    )}
-                    <FormField control={bookingForm.control} name="source" render={({ field }) => (
-                      <FormItem className="col-span-2">
-                        <FormLabel>Source</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl><SelectTrigger><SelectValue placeholder="Source" /></SelectTrigger></FormControl>
-                          <SelectContent>
-                            <SelectItem value="WhatsApp">WhatsApp</SelectItem>
-                            <SelectItem value="Snapchat">Snapchat</SelectItem>
-                            <SelectItem value="Referral">Referral</SelectItem>
-                            <SelectItem value="Returning Client">Returning Client</SelectItem>
-                            <SelectItem value="Other">Other</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                  </div>
+                  <FormField control={bookingForm.control} name="service_type" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Service Type</FormLabel>
+                      <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                        <SelectContent>
+                          <SelectItem value="Airport Transfer">Airport Transfer</SelectItem>
+                          <SelectItem value="Tour">Tour</SelectItem>
+                          <SelectItem value="As Directed">As Directed</SelectItem>
+                          <SelectItem value="Apartment">Apartment</SelectItem>
+                          <SelectItem value="Hotel">Hotel</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
                 </CardContent>
               </Card>
 
@@ -896,6 +867,18 @@ export default function NewBooking() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
+                  {/* Date & Time lives with Journey Details for every transport
+                      service. Hotel and Apartment use Check-in / Check-out
+                      instead, so we hide it for those. */}
+                  {!isHotel && !isAccommodation && (
+                    <FormField control={bookingForm.control} name="date_time" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Date & Time</FormLabel>
+                        <FormControl><Input type="datetime-local" {...field} /></FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  )}
                   {serviceType === "Airport Transfer" && (
                     <>
                       <div className="grid grid-cols-2 gap-3">
