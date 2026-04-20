@@ -24,11 +24,15 @@ router.get("/", async (_req, res) => {
   const invoices = data ?? [];
   const nowMs = Date.now();
 
-  // Find invoices that should flip to Overdue
+  // Find invoices that should flip to Overdue.
+  // Imported Odoo invoices (number contains "/", e.g. INV/2026/00001) are
+  // historical records that have already been settled in the old system —
+  // never auto-flip them, regardless of date.
   const overdueIds: string[] = invoices
     .filter(inv => {
       if (inv.status !== "Generated" && inv.status !== "Sent") return false;
       if (!inv.generated_at) return false;
+      if (inv.invoice_number && String(inv.invoice_number).includes("/")) return false;
       const dueMs = new Date(inv.generated_at).getTime() + PAYMENT_TERMS_DAYS * 86_400_000;
       return nowMs > dueMs;
     })
