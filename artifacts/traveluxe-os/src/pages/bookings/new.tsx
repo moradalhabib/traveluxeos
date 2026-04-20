@@ -1528,7 +1528,7 @@ export default function NewBooking() {
                             defaultValue={field.value}
                           >
                             <FormControl><SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger></FormControl>
-                            <SelectContent>
+                            <SelectContent className="max-h-[55vh] overflow-y-auto">
                               <SelectItem value="unassigned">Unassigned</SelectItem>
                               {drivers?.map((driver: any) => (
                                 <SelectItem key={driver.id} value={driver.id}>
