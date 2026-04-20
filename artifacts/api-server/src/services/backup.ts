@@ -1,5 +1,73 @@
 import { supabase, auditLog, getServiceRoleClient } from "../lib/supabase";
 import { sendEmail } from "./email";
+import { objectStorageClient } from "../lib/objectStorage";
+
+const BUCKET_ID = process.env.DEFAULT_OBJECT_STORAGE_BUCKET_ID ?? "";
+const PRIVATE_DIR = process.env.PRIVATE_OBJECT_DIR ?? "";
+
+function backupCloudPrefix(): string | null {
+  if (!BUCKET_ID || !PRIVATE_DIR) return null;
+  // PRIVATE_OBJECT_DIR is in the form "/<bucket>/<.private>" — extract the
+  // path inside the bucket then append our backups subdirectory.
+  const parts = PRIVATE_DIR.split("/").filter(Boolean);
+  // Drop the leading bucket-id segment (matches BUCKET_ID); keep the rest.
+  const inner = parts[0] === BUCKET_ID ? parts.slice(1).join("/") : parts.join("/");
+  return `${inner}/backups`.replace(/\/+$/, "");
+}
+
+export interface CloudBackupEntry {
+  name: string;
+  bytes: number;
+  uploadedAt: string;
+}
+
+export async function uploadBackupToCloud(
+  filename: string,
+  json: string,
+): Promise<{ uploaded: boolean; path?: string; reason?: string }> {
+  const prefix = backupCloudPrefix();
+  if (!prefix || !BUCKET_ID) {
+    return { uploaded: false, reason: "Object storage not configured" };
+  }
+  try {
+    const objectName = `${prefix}/${filename}`;
+    const file = objectStorageClient.bucket(BUCKET_ID).file(objectName);
+    await file.save(json, {
+      contentType: "application/json",
+      resumable: false,
+      metadata: {
+        cacheControl: "private, max-age=0",
+        metadata: { product: "Traveluxe OS", kind: "daily-backup" },
+      },
+    });
+    return { uploaded: true, path: objectName };
+  } catch (e: any) {
+    return { uploaded: false, reason: e?.message ?? "unknown" };
+  }
+}
+
+export async function listCloudBackups(limit = 30): Promise<CloudBackupEntry[]> {
+  const prefix = backupCloudPrefix();
+  if (!prefix || !BUCKET_ID) return [];
+  try {
+    const [files] = await objectStorageClient
+      .bucket(BUCKET_ID)
+      .getFiles({ prefix: `${prefix}/` });
+    const entries: CloudBackupEntry[] = files
+      .map((f) => ({
+        name: f.name.split("/").pop() ?? f.name,
+        bytes: Number(f.metadata?.size ?? 0),
+        uploadedAt:
+          (f.metadata?.updated as string | undefined) ??
+          (f.metadata?.timeCreated as string | undefined) ??
+          new Date(0).toISOString(),
+      }))
+      .sort((a, b) => (a.uploadedAt < b.uploadedAt ? 1 : -1));
+    return entries.slice(0, limit);
+  } catch {
+    return [];
+  }
+}
 
 const BACKUP_TABLES = [
   "users",
@@ -101,36 +169,68 @@ async function getBackupRecipients(): Promise<string[]> {
     .in("role", ["super_admin", "admin"])
     .eq("active", true);
   const emails = (data ?? []).map((u: any) => u.email).filter(Boolean);
+  // Always include the monitored hosted-domain mailbox. Our SMTP relay
+  // (cPanel) is configured to accept mail to traveluxelondon.com addresses
+  // but may reject relay to external domains like gmail.com — including
+  // info@ guarantees at least one delivered copy.
+  const fallback = process.env.SMTP_REPLY_TO ?? "info@traveluxelondon.com";
+  emails.push(fallback);
   return Array.from(new Set(emails));
 }
 
-export async function emailDailyBackup(): Promise<{ sent: boolean; bytes: number; rowCounts: Record<string, number> }> {
+export async function emailDailyBackup(): Promise<{
+  sent: boolean;
+  bytes: number;
+  rowCounts: Record<string, number>;
+  cloudUploaded?: boolean;
+  cloudReason?: string;
+  emailReason?: string;
+}> {
   const recipients = await getBackupRecipients();
   const backup = await generateBackup();
 
+  // Always attempt the cloud upload first — this is the durable copy and
+  // does NOT depend on SMTP being healthy. Email is the convenience copy.
+  const cloud = await uploadBackupToCloud(backup.filename, backup.json);
+
+  let emailSent = false;
+  let emailReason: string | undefined;
   if (recipients.length === 0) {
+    emailReason = "no super_admin/admin recipients";
     console.warn("[Backup] No super_admin / admin recipients to email backup to");
-    return { sent: false, bytes: backup.bytes, rowCounts: backup.rowCounts };
+  } else {
+    const result = await sendEmail({
+      to: recipients.join(", "),
+      subject: `Traveluxe Daily Backup — ${backup.generatedAt.slice(0, 10)}`,
+      html: backupEmailHtml(backup),
+      attachments: [{
+        filename: backup.filename,
+        content: backup.json,
+        contentType: "application/json",
+      }],
+    });
+    emailSent = result.sent;
+    emailReason = result.reason;
   }
 
-  const result = await sendEmail({
-    to: recipients.join(", "),
-    subject: `Traveluxe Daily Backup — ${backup.generatedAt.slice(0, 10)}`,
-    html: backupEmailHtml(backup),
-    attachments: [{
-      filename: backup.filename,
-      content: backup.json,
-      contentType: "application/json",
-    }],
-  });
+  const status = cloud.uploaded
+    ? (emailSent ? "OK (cloud + email)" : `cloud OK / email FAILED: ${emailReason ?? "unknown"}`)
+    : (emailSent ? `email OK / cloud FAILED: ${cloud.reason ?? "unknown"}` : `FAILED (cloud: ${cloud.reason}; email: ${emailReason})`);
 
   await auditLog(
     "daily_backup_sent",
     "system",
     "00000000-0000-0000-0000-000000000000",
     null,
-    `Daily backup ${result.sent ? "emailed" : "FAILED"} (${(backup.bytes / 1024).toFixed(1)} KB) to ${recipients.length} recipient(s)`
+    `Daily backup ${status} (${(backup.bytes / 1024).toFixed(1)} KB${recipients.length ? `, ${recipients.length} recipient(s)` : ""})`
   ).catch(() => {});
 
-  return { sent: result.sent, bytes: backup.bytes, rowCounts: backup.rowCounts };
+  return {
+    sent: emailSent,
+    bytes: backup.bytes,
+    rowCounts: backup.rowCounts,
+    cloudUploaded: cloud.uploaded,
+    cloudReason: cloud.reason,
+    emailReason,
+  };
 }

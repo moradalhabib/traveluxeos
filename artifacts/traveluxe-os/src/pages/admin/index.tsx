@@ -305,10 +305,129 @@ function ImportTab() {
   );
 }
 
+// ─── Backup status card ──────────────────────────────────────────────────────
+interface BackupStatus {
+  cloudConfigured: boolean;
+  lastCloudBackup: { name: string; bytes: number; uploadedAt: string } | null;
+  lastEmailedBackup: { at: string; detail: string } | null;
+  lastAttempt: { at: string; action: string; detail: string } | null;
+  cloudHistory: Array<{ name: string; bytes: number; uploadedAt: string }>;
+  auditHistory: Array<{ at: string; action: string; detail: string }>;
+}
+
+function relativeTime(iso: string): string {
+  const ms = Date.now() - new Date(iso).getTime();
+  if (ms < 0) return 'just now';
+  const m = Math.floor(ms / 60_000);
+  if (m < 1) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
+}
+
+function BackupStatusCard({ status, loading }: { status: BackupStatus | null; loading: boolean }) {
+  if (loading) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
+        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        <p className="text-xs text-muted-foreground">Checking backup status…</p>
+      </div>
+    );
+  }
+  if (!status) return null;
+
+  const lastCloud = status.lastCloudBackup;
+  const cloudAgeHours = lastCloud
+    ? (Date.now() - new Date(lastCloud.uploadedAt).getTime()) / 3_600_000
+    : Infinity;
+  // Healthy = cloud copy in last 30h (some buffer over the 24h interval)
+  const healthy = cloudAgeHours < 30;
+  const stale = cloudAgeHours >= 30 && cloudAgeHours < 72;
+  const tone = healthy
+    ? { bg: 'bg-emerald-50 dark:bg-emerald-950/20', border: 'border-emerald-300/50 dark:border-emerald-800/40', dot: 'bg-emerald-500', text: 'text-emerald-700 dark:text-emerald-400', label: 'Healthy' }
+    : stale
+      ? { bg: 'bg-amber-50 dark:bg-amber-950/20', border: 'border-amber-300/50 dark:border-amber-800/40', dot: 'bg-amber-500', text: 'text-amber-700 dark:text-amber-400', label: 'Stale' }
+      : { bg: 'bg-red-50 dark:bg-red-950/20', border: 'border-red-300/50 dark:border-red-800/40', dot: 'bg-red-500', text: 'text-red-700 dark:text-red-400', label: lastCloud ? 'Overdue' : 'No backup yet' };
+
+  return (
+    <div className={`rounded-xl border ${tone.border} ${tone.bg} p-4 space-y-3`}>
+      <div className="flex items-center gap-3">
+        <span className={`w-2.5 h-2.5 rounded-full ${tone.dot} animate-pulse`} />
+        <p className="font-semibold text-sm text-foreground">Backup status: <span className={tone.text}>{tone.label}</span></p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+        <div className="rounded-lg bg-background/60 p-3 border border-border/50">
+          <p className="text-muted-foreground mb-1">Last cloud backup</p>
+          {lastCloud ? (
+            <>
+              <p className="font-semibold text-foreground">{relativeTime(lastCloud.uploadedAt)}</p>
+              <p className="text-muted-foreground mt-0.5">{(lastCloud.bytes / 1024).toFixed(1)} KB · {format(new Date(lastCloud.uploadedAt), 'dd MMM HH:mm')}</p>
+            </>
+          ) : (
+            <p className="font-semibold text-foreground">Never</p>
+          )}
+        </div>
+        <div className="rounded-lg bg-background/60 p-3 border border-border/50">
+          <p className="text-muted-foreground mb-1">Last email backup</p>
+          {status.lastEmailedBackup ? (
+            <>
+              <p className="font-semibold text-foreground">{relativeTime(status.lastEmailedBackup.at)}</p>
+              <p className="text-muted-foreground mt-0.5">{format(new Date(status.lastEmailedBackup.at), 'dd MMM HH:mm')}</p>
+            </>
+          ) : (
+            <p className="font-semibold text-foreground">Never</p>
+          )}
+        </div>
+      </div>
+
+      {status.lastAttempt && status.lastAttempt.detail?.includes('FAILED') && (
+        <div className="text-xs rounded-lg p-2 bg-red-100/50 dark:bg-red-950/30 text-red-700 dark:text-red-400 border border-red-300/50">
+          <span className="font-semibold">Last attempt:</span> {status.lastAttempt.detail}
+        </div>
+      )}
+
+      {status.cloudHistory.length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer text-muted-foreground hover:text-foreground select-none">View archive ({status.cloudHistory.length} backup{status.cloudHistory.length !== 1 ? 's' : ''} in cloud storage)</summary>
+          <div className="mt-2 space-y-1 max-h-44 overflow-auto rounded-lg bg-background/60 p-2 border border-border/50">
+            {status.cloudHistory.map((h) => (
+              <div key={h.name} className="flex items-center justify-between gap-2 py-0.5">
+                <span className="font-mono text-[10px] text-muted-foreground truncate">{h.name}</span>
+                <span className="text-[10px] text-muted-foreground whitespace-nowrap">{(h.bytes / 1024).toFixed(0)} KB · {format(new Date(h.uploadedAt), 'dd MMM HH:mm')}</span>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
 // ─── Export tab ───────────────────────────────────────────────────────────────
 function ExportTab() {
   const { toast } = useToast();
   const [loading, setLoading] = useState<string | null>(null);
+  const [status, setStatus] = useState<BackupStatus | null>(null);
+  const [statusLoading, setStatusLoading] = useState(true);
+
+  const fetchStatus = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
+      const res = await fetch(`${baseUrl}/api/admin/backup/status`, {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      });
+      if (res.ok) setStatus(await res.json());
+    } catch {
+      // non-fatal
+    }
+    setStatusLoading(false);
+  };
+
+  useEffect(() => { fetchStatus(); }, []);
 
   const exportClients = async () => {
     setLoading('clients');
@@ -455,6 +574,8 @@ function ExportTab() {
         <h2 className="font-semibold text-foreground mb-1">Export &amp; Backup</h2>
         <p className="text-sm text-muted-foreground">Download your data at any time. CSV files open in Excel and Google Sheets.</p>
       </div>
+
+      <BackupStatusCard status={status} loading={statusLoading} />
 
       <div className="space-y-3">
         {exportOptions.map(({ id, icon: Icon, title, description, format: fmt, action }) => (

@@ -10,6 +10,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@google-cloud/storage": "^7.19.0",
     "@supabase/supabase-js": "^2.103.3",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
@@ -18,6 +19,7 @@
     "date-fns": "^3.6.0",
     "drizzle-orm": "catalog:",
     "express": "^5",
+    "google-auth-library": "^10.6.2",
     "node-fetch": "^3.3.2",
     "nodemailer": "^8.0.5",
     "pino": "^9",
