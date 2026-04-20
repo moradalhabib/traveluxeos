@@ -898,12 +898,10 @@ export default function NewBooking() {
                             </FormItem>
                           )} />
                           <div className="grid grid-cols-3 gap-3">
-                            <FormItem>
-                              <FormLabel>Date</FormLabel>
-                              <FormControl>
-                                <Input type="date" value={dateVal} onChange={(e) => writeDate(e.target.value)} />
-                              </FormControl>
-                            </FormItem>
+                            <div className="space-y-2">
+                              <Label>Date</Label>
+                              <Input type="date" value={dateVal} onChange={(e) => writeDate(e.target.value)} />
+                            </div>
                             <FormField control={bookingForm.control} name="flight_number" render={({ field }) => (
                               <FormItem>
                                 <FormLabel>Flight No.</FormLabel>
@@ -911,12 +909,10 @@ export default function NewBooking() {
                                 <FormMessage />
                               </FormItem>
                             )} />
-                            <FormItem>
-                              <FormLabel>Time <span className="text-[10px] text-muted-foreground font-normal">(UK)</span></FormLabel>
-                              <FormControl>
-                                <Input type="time" value={timeVal} onChange={(e) => writeTime(e.target.value)} />
-                              </FormControl>
-                            </FormItem>
+                            <div className="space-y-2">
+                              <Label>Time <span className="text-[10px] text-muted-foreground font-normal">(UK)</span></Label>
+                              <Input type="time" value={timeVal} onChange={(e) => writeTime(e.target.value)} />
+                            </div>
                           </div>
                         </>
                       );
@@ -924,18 +920,14 @@ export default function NewBooking() {
                     // Tour, As Directed → just Date + Time side by side.
                     return (
                       <div className="grid grid-cols-2 gap-3">
-                        <FormItem>
-                          <FormLabel>Date</FormLabel>
-                          <FormControl>
-                            <Input type="date" value={dateVal} onChange={(e) => writeDate(e.target.value)} />
-                          </FormControl>
-                        </FormItem>
-                        <FormItem>
-                          <FormLabel>Time <span className="text-[10px] text-muted-foreground font-normal">(UK)</span></FormLabel>
-                          <FormControl>
-                            <Input type="time" value={timeVal} onChange={(e) => writeTime(e.target.value)} />
-                          </FormControl>
-                        </FormItem>
+                        <div className="space-y-2">
+                          <Label>Date</Label>
+                          <Input type="date" value={dateVal} onChange={(e) => writeDate(e.target.value)} />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Time <span className="text-[10px] text-muted-foreground font-normal">(UK)</span></Label>
+                          <Input type="time" value={timeVal} onChange={(e) => writeTime(e.target.value)} />
+                        </div>
                       </div>
                     );
                   })()}
