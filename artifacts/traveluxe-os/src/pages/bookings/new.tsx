@@ -867,48 +867,85 @@ export default function NewBooking() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {/* Date & Time lives with Journey Details for every transport
-                      service. Hotel and Apartment use Check-in / Check-out
-                      instead, so we hide it for those. */}
-                  {!isHotel && !isAccommodation && (
-                    <FormField control={bookingForm.control} name="date_time" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Date & Time</FormLabel>
-                        <FormControl><Input type="datetime-local" {...field} /></FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                  )}
+                  {/* Date / Time are shown for every transport service in the
+                      order the operator asked for: Date → (Flight No.) → Time.
+                      Hotel / Apartment use Check-in / Check-out instead. */}
+                  {!isHotel && !isAccommodation && (() => {
+                    const dt = bookingForm.watch("date_time") ?? "";
+                    const dateVal = dt.slice(0, 10);
+                    const timeVal = dt.slice(11, 16);
+                    const writeDate = (d: string) =>
+                      bookingForm.setValue("date_time", d ? `${d}T${timeVal || "00:00"}` : "");
+                    const writeTime = (t: string) =>
+                      bookingForm.setValue(
+                        "date_time",
+                        dateVal ? `${dateVal}T${t || "00:00"}` : (t ? `${new Date().toISOString().slice(0,10)}T${t}` : ""),
+                      );
+                    if (serviceType === "Airport Transfer") {
+                      return (
+                        <>
+                          <FormField control={bookingForm.control} name="direction" render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Direction</FormLabel>
+                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
+                                <SelectContent>
+                                  <SelectItem value="Arrival">Arrival</SelectItem>
+                                  <SelectItem value="Departure">Departure</SelectItem>
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                          <div className="grid grid-cols-3 gap-3">
+                            <FormItem>
+                              <FormLabel>Date</FormLabel>
+                              <FormControl>
+                                <Input type="date" value={dateVal} onChange={(e) => writeDate(e.target.value)} />
+                              </FormControl>
+                            </FormItem>
+                            <FormField control={bookingForm.control} name="flight_number" render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Flight No.</FormLabel>
+                                <FormControl><Input placeholder="BA123" {...field} className="uppercase" /></FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )} />
+                            <FormItem>
+                              <FormLabel>Time <span className="text-[10px] text-muted-foreground font-normal">(UK)</span></FormLabel>
+                              <FormControl>
+                                <Input type="time" value={timeVal} onChange={(e) => writeTime(e.target.value)} />
+                              </FormControl>
+                            </FormItem>
+                          </div>
+                        </>
+                      );
+                    }
+                    // Tour, As Directed → just Date + Time side by side.
+                    return (
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormItem>
+                          <FormLabel>Date</FormLabel>
+                          <FormControl>
+                            <Input type="date" value={dateVal} onChange={(e) => writeDate(e.target.value)} />
+                          </FormControl>
+                        </FormItem>
+                        <FormItem>
+                          <FormLabel>Time <span className="text-[10px] text-muted-foreground font-normal">(UK)</span></FormLabel>
+                          <FormControl>
+                            <Input type="time" value={timeVal} onChange={(e) => writeTime(e.target.value)} />
+                          </FormControl>
+                        </FormItem>
+                      </div>
+                    );
+                  })()}
                   {serviceType === "Airport Transfer" && (
                     <>
-                      <div className="grid grid-cols-2 gap-3">
-                        <FormField control={bookingForm.control} name="direction" render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Direction</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                              <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                              <SelectContent>
-                                <SelectItem value="Arrival">Arrival</SelectItem>
-                                <SelectItem value="Departure">Departure</SelectItem>
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
-                        <FormField control={bookingForm.control} name="flight_number" render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Flight No.</FormLabel>
-                            <FormControl><Input placeholder="BA123" {...field} className="uppercase" /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
-                      </div>
-                      {serviceType === "Airport Transfer" && (
-                        <FlightLookupCard
-                          flightNumber={watchedFlightNumber}
-                          direction={watchedDirection}
-                          date={(bookingForm.watch("date_time") ?? "").slice(0, 10)}
-                          onAutoFill={(timeUk, origin, destination, terminal) => {
+                      <FlightLookupCard
+                        flightNumber={watchedFlightNumber}
+                        direction={watchedDirection}
+                        date={(bookingForm.watch("date_time") ?? "").slice(0, 10)}
+                        onAutoFill={(timeUk, origin, destination, terminal) => {
                             // The operator manually enters the date because clients
                             // pre-book. We only set the time portion (UK / GMT) on
                             // top of whatever date they've already picked. If they
@@ -926,11 +963,10 @@ export default function NewBooking() {
                               bookingForm.setValue("pickup", `${origin}${term}`);
                             }
                             if (watchedDirection === "Departure" && destination) {
-                              bookingForm.setValue("dropoff", `${destination}${term}`);
-                            }
-                          }}
-                        />
-                      )}
+                            bookingForm.setValue("dropoff", `${destination}${term}`);
+                          }
+                        }}
+                      />
                       <FormField control={bookingForm.control} name="nameboard" render={({ field }) => (
                         <FormItem>
                           <FormLabel>
