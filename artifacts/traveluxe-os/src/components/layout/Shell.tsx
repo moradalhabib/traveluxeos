@@ -5,12 +5,13 @@ import {
   LayoutDashboard, Users, FileText, CalendarRange,
   Briefcase, PlaneTakeoff, Car, Calculator, MessageSquare,
   LineChart, Search, Settings, LogOut, Plus, X, Lock, Receipt, Layers, Home,
-  Megaphone
+  Megaphone, PhoneCall
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { useFollowUpBadge } from "@/hooks/use-follow-up-badge";
 
 // ─── Nav definitions per role ───────────────────────────────────────────────
 
@@ -18,6 +19,7 @@ const OPERATOR_SIDEBAR = [
   { href: "/",             label: "Dashboard",    icon: LayoutDashboard },
   { href: "/jobs",         label: "Jobs Board",   icon: Briefcase },
   { href: "/bookings",     label: "Bookings",     icon: CalendarRange },
+  { href: "/follow-ups",   label: "Follow-Ups",   icon: PhoneCall, badge: true },
   { href: "/services",     label: "Services",     icon: Layers },
   { href: "/clients",      label: "Clients",      icon: Users },
   { href: "/analytics",    label: "Intel",        icon: LineChart },
@@ -34,6 +36,7 @@ const OPERATOR_SIDEBAR = [
 ];
 
 const OPERATOR_MORE = [
+  { href: "/follow-ups",   label: "Follow-Ups",   icon: PhoneCall, badge: true },
   { href: "/analytics",    label: "Intel",        icon: LineChart },
   { href: "/quotes",       label: "Quotes",       icon: FileText },
   { href: "/invoices",     label: "Invoices",     icon: Receipt },
@@ -156,6 +159,7 @@ export function Shell({ children }: { children: ReactNode }) {
   const { user, logout, isLocked } = useAuth();
   const [location, setLocation] = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
+  const followUpBadge = useFollowUpBadge();
 
   if (!user) return <>{children}</>;
 
@@ -224,10 +228,16 @@ export function Shell({ children }: { children: ReactNode }) {
         <nav className="flex-1 px-4 space-y-1 overflow-y-auto">
           {sidebarItems.map((item) => {
             const isActive = location === item.href || (item.href !== "/" && location.startsWith(item.href));
+            const showBadge = (item as any).badge && followUpBadge > 0;
             return (
               <Link key={item.href} href={item.href} className={`flex items-center gap-3 px-3 py-2.5 rounded-md transition-colors ${isActive ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-secondary hover:text-foreground'}`}>
                 <item.icon className="w-5 h-5 flex-shrink-0" />
-                <span className="font-medium">{item.label}</span>
+                <span className="font-medium flex-1">{item.label}</span>
+                {showBadge && (
+                  <span className="ml-auto flex-shrink-0 min-w-[18px] h-[18px] rounded-full bg-destructive text-[10px] font-bold text-white flex items-center justify-center px-1">
+                    {followUpBadge > 9 ? "9+" : followUpBadge}
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -367,12 +377,18 @@ export function Shell({ children }: { children: ReactNode }) {
                 <div className="px-5 pb-4 grid grid-cols-3 gap-3">
                   {moreItems.map((item) => {
                     const isActive = location === item.href || (item.href !== '/' && location.startsWith(item.href));
+                    const showBadge = (item as any).badge && followUpBadge > 0;
                     return (
                       <button
                         key={item.href}
                         onClick={() => { setLocation(item.href); setMoreOpen(false); }}
-                        className={`flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-all ${isActive ? 'bg-primary/10 border-primary/50 text-primary' : 'bg-secondary/30 border-border text-muted-foreground hover:bg-secondary hover:text-foreground'}`}
+                        className={`relative flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-all ${isActive ? 'bg-primary/10 border-primary/50 text-primary' : 'bg-secondary/30 border-border text-muted-foreground hover:bg-secondary hover:text-foreground'}`}
                       >
+                        {showBadge && (
+                          <span className="absolute top-2 right-2 min-w-[16px] h-4 rounded-full bg-destructive text-[9px] font-bold text-white flex items-center justify-center px-1">
+                            {followUpBadge > 9 ? "9+" : followUpBadge}
+                          </span>
+                        )}
                         <item.icon className="w-5 h-5" />
                         <span className="text-[11px] font-medium">{item.label}</span>
                       </button>

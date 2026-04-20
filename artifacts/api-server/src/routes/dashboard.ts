@@ -309,6 +309,19 @@ router.get("/summary", async (_req, res) => {
     }
   }
 
+  // Follow-ups pending count (graceful — table may not exist yet)
+  let followUpsPending = 0;
+  let followUpsOverdue = 0;
+  try {
+    const todayDateStr = new Date().toISOString().split("T")[0];
+    const [{ count: fpCount }, { count: foCount }] = await Promise.all([
+      supabase.from("follow_ups").select("id", { count: "exact", head: true }).eq("status", "pending"),
+      supabase.from("follow_ups").select("id", { count: "exact", head: true }).eq("status", "pending").lt("due_date", todayDateStr),
+    ]);
+    followUpsPending = fpCount ?? 0;
+    followUpsOverdue = foCount ?? 0;
+  } catch { /* table not yet created */ }
+
   return res.json({
     bookings_today: (todayBookings ?? []).length,
     bookings_this_week: (weekBookings ?? []).length,
@@ -331,6 +344,8 @@ router.get("/summary", async (_req, res) => {
     pending_requests,
     awaiting_return,
     arrival_followups: arrivalFollowUps,
+    follow_ups_pending: followUpsPending,
+    follow_ups_overdue: followUpsOverdue,
   });
 });
 

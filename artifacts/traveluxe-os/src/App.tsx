@@ -39,6 +39,7 @@ import Admin from "@/pages/admin/index";
 import Services from "@/pages/services/index";
 import Analytics from "@/pages/analytics/index";
 import Marketing from "@/pages/marketing/index";
+import FollowUps from "@/pages/follow-ups/index";
 
 const queryClient = new QueryClient();
 
@@ -116,6 +117,7 @@ function Router() {
       <ProtectedRoute path="/analytics" component={Analytics} blockResidenceManager={true} />
       <ProtectedRoute path="/admin" component={Admin} reqAdmin={true} />
       <ProtectedRoute path="/marketing" component={Marketing} reqAdmin={true} />
+      <ProtectedRoute path="/follow-ups" component={FollowUps} blockResidenceManager={true} />
 
       <Route component={NotFound} />
     </Switch>

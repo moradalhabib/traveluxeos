@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, PlaneLanding, X, Plus, CheckCheck, PhoneOff, RotateCcw } from "lucide-react";
+import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, PlaneLanding, X, Plus, CheckCheck, PhoneOff, RotateCcw, PhoneCall } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase as supabaseClient } from "@/lib/supabase";
@@ -377,6 +377,29 @@ export default function Dashboard() {
 
       {/* KPI Cards */}
       <div className="grid grid-cols-2 gap-3">
+        {/* Follow-Ups */}
+        <Link href="/follow-ups">
+          <Card className={`border-border bg-card hover:border-primary/30 transition-colors cursor-pointer ${(s?.follow_ups_pending ?? 0) > 0 ? "border-l-4 border-l-destructive" : ""}`}>
+            <CardHeader className="flex flex-row items-center justify-between pb-1 pt-4 px-4 space-y-0">
+              <CardTitle className="text-xs font-medium text-muted-foreground">Follow-Ups</CardTitle>
+              <div className="flex items-center gap-1.5">
+                {(s?.follow_ups_overdue ?? 0) > 0 && (
+                  <span className="text-[9px] font-bold text-destructive">⚠️</span>
+                )}
+                <PhoneCall className={`w-4 h-4 ${(s?.follow_ups_pending ?? 0) > 0 ? "text-destructive" : "text-primary"}`} />
+              </div>
+            </CardHeader>
+            <CardContent className="px-4 pb-4">
+              <div className={`text-2xl font-bold ${(s?.follow_ups_pending ?? 0) > 0 ? "text-destructive" : "text-foreground"}`}>
+                {s?.follow_ups_pending ?? 0}
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {(s?.follow_ups_overdue ?? 0) > 0 ? `${s.follow_ups_overdue} overdue` : "Pending check-ins"}
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+
         {/* Active Jobs */}
         <Link href="/jobs?status=Active">
           <Card className="border-border bg-card hover:border-primary/30 transition-colors cursor-pointer">

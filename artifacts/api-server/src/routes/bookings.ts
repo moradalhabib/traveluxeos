@@ -6,6 +6,27 @@ import { bookingConfirmationHtml, paymentReceiptHtml } from "../templates/emailT
 
 const router = Router();
 
+// ─── Auto-create follow-up for Arrival Airport Transfers ─────────────────────
+async function autoCreateFollowUp(bookingId: string, booking: any) {
+  if (booking.service_type !== "Airport Transfer" || booking.direction !== "Arrival") return;
+  const { data: existing } = await supabase
+    .from("follow_ups")
+    .select("id")
+    .eq("booking_id", bookingId)
+    .maybeSingle();
+  if (existing) return;
+  const base = booking.date_time ? new Date(booking.date_time) : new Date();
+  const due = new Date(base);
+  due.setDate(due.getDate() + 3);
+  await supabase.from("follow_ups").insert({
+    booking_id: bookingId,
+    client_id: booking.client_id ?? null,
+    driver_id: booking.driver_id ?? null,
+    due_date: due.toISOString().split("T")[0],
+    status: "pending",
+  });
+}
+
 async function fetchDriverSafely(driverId: string | null) {
   if (!driverId) return null;
   // Try with staff_no first (post-migration). Fall back without it if column is missing.
@@ -345,6 +366,18 @@ router.put("/:id", async (req, res) => {
 
     sendPaymentReceiptEmail(enriched).catch(err =>
       console.error("[Email] Receipt send error:", err?.message)
+    );
+
+    // Auto-create follow-up if this was an Arrival transfer
+    autoCreateFollowUp(req.params.id, updated).catch(err =>
+      console.error("[FollowUp] auto-create error:", err?.message)
+    );
+  }
+
+  // Manual status change to Completed → auto-create follow-up
+  if (body.status === "Completed" && prev?.status !== "Completed") {
+    autoCreateFollowUp(req.params.id, updated).catch(err =>
+      console.error("[FollowUp] auto-create error:", err?.message)
     );
   }
 

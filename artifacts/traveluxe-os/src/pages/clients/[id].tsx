@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useLocation } from "wouter";
 import { useGetClient, getGetClientQueryKey, useListClients } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -7,12 +7,14 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { MessageSquare, Edit, ArrowLeft, Ban, Plus, CalendarRange, Trash2, Crown, Sparkles, ShieldCheck, Lock, Star } from "lucide-react";
+import { MessageSquare, Edit, ArrowLeft, Ban, Plus, CalendarRange, Trash2, Crown, Sparkles, ShieldCheck, Lock, Star, PhoneCall, CheckCheck, RotateCcw, PhoneOff } from "lucide-react";
 import { format, differenceInMonths } from "date-fns";
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+
+const API_BASE = `${import.meta.env.VITE_API_URL ?? ""}/api`;
 
 // ── Recognition tier (operator-only, never shown to client) ────────────────
 type Tier = "Guest" | "Patron" | "Ambassador" | "Maison";
@@ -63,6 +65,28 @@ export default function ClientDetail() {
   const { data: client, isLoading } = useGetClient(id, {
     query: { enabled: !!id, queryKey: getGetClientQueryKey(id) }
   });
+
+  // Follow-up history state
+  const [fuHistory, setFuHistory] = useState<any[]>([]);
+  const [fuStats, setFuStats] = useState<{ total: number; return_booked: number } | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const token = session?.access_token ?? "";
+        const res = await fetch(`${API_BASE}/follow-ups/client/${id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          setFuHistory(json.history ?? []);
+          setFuStats(json.stats ?? null);
+        }
+      } catch { /* ignore */ }
+    })();
+  }, [id]);
 
   // Edit dialog state
   const [editOpen, setEditOpen] = useState(false);
@@ -443,6 +467,87 @@ export default function ClientDetail() {
           )}
         </CardContent>
       </Card>
+
+      {/* Follow-Up History */}
+      {(fuHistory.length > 0 || fuStats) && (
+        <Card className="border-primary/10 bg-card">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <PhoneCall className="w-4 h-4 text-primary" />
+                  Follow-Up History
+                </CardTitle>
+                {fuStats && (
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    {fuStats.total} total · {fuStats.return_booked} return{fuStats.return_booked !== 1 ? "s" : ""} booked
+                    {fuStats.total > 0 && (
+                      <span className="text-primary ml-1">
+                        ({Math.round((fuStats.return_booked / fuStats.total) * 100)}% conversion)
+                      </span>
+                    )}
+                  </p>
+                )}
+              </div>
+              <Link href="/follow-ups">
+                <Button size="sm" variant="outline" className="text-xs h-8">View all</Button>
+              </Link>
+            </div>
+          </CardHeader>
+          <CardContent className="pt-0">
+            {fuHistory.length === 0 ? (
+              <p className="text-sm text-muted-foreground py-4 text-center">No follow-ups yet</p>
+            ) : (
+              <div className="space-y-2">
+                {fuHistory.map((fu: any) => {
+                  const statusIcons: Record<string, any> = {
+                    done: <CheckCheck className="w-3.5 h-3.5 text-green-400" />,
+                    booked_return: <RotateCcw className="w-3.5 h-3.5 text-blue-400" />,
+                    no_response: <PhoneOff className="w-3.5 h-3.5 text-muted-foreground" />,
+                    pending: <PhoneCall className="w-3.5 h-3.5 text-amber-400" />,
+                  };
+                  const statusColors: Record<string, string> = {
+                    done: "text-green-400 border-green-500/30 bg-green-500/10",
+                    booked_return: "text-blue-400 border-blue-500/30 bg-blue-500/10",
+                    no_response: "text-muted-foreground border-border bg-secondary/30",
+                    pending: "text-amber-400 border-amber-500/30 bg-amber-500/10",
+                  };
+                  return (
+                    <div key={fu.id} className="flex items-center gap-3 p-3 rounded-xl border border-border bg-background/50">
+                      <div className="w-7 h-7 rounded-full bg-secondary flex items-center justify-center flex-shrink-0">
+                        {statusIcons[fu.status] ?? <PhoneCall className="w-3.5 h-3.5 text-muted-foreground" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Link href={`/bookings/${fu.booking_id}`}>
+                            <span className="text-xs font-semibold text-primary hover:underline cursor-pointer">
+                              {fu.booking?.tvl_ref ?? "—"}
+                            </span>
+                          </Link>
+                          <Badge variant="outline" className={`text-[10px] ${statusColors[fu.status] ?? ""}`}>
+                            {fu.status === "done" ? "Done" : fu.status === "booked_return" ? "Return Booked" : fu.status === "no_response" ? "No Response" : "Pending"}
+                          </Badge>
+                        </div>
+                        {fu.notes && (
+                          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">{fu.notes}</p>
+                        )}
+                      </div>
+                      <div className="text-right flex-shrink-0">
+                        <div className="text-[11px] text-muted-foreground">
+                          {fu.booking?.date_time ? format(new Date(fu.booking.date_time), "dd MMM yy") : "—"}
+                        </div>
+                        {fu.completed_by_name && (
+                          <div className="text-[10px] text-muted-foreground/60">{fu.completed_by_name}</div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Danger zone */}
       <div className="flex gap-3 pt-2">
