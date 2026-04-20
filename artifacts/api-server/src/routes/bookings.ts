@@ -87,19 +87,25 @@ async function sendPaymentReceiptEmail(booking: any) {
 }
 
 router.get("/", async (req, res) => {
-  const { status, service_type, date_from, date_to, driver_id, operator_id, payment_status } = req.query;
+  const { status, service_type, date_from, date_to, driver_id, operator_id, payment_status, imported } = req.query;
   const db = getDbClient(req.headers.authorization);
 
   let query = db
     .from("bookings")
     .select("*, clients(name, vip_tier), drivers(name, vehicle_type, vehicle_model), users!bookings_operator_id_fkey(name)")
-    // Newest bookings first (UI sorts further on date_time as needed).
+    // Newest bookings first (UI may re-sort further on date_time as needed).
     .order("date_time", { ascending: false, nullsFirst: false });
 
-  // Hide imported Odoo bookings (legacy refs starting with 'S'). New bookings
-  // use the 'TVL-' ref pattern. Operators going forward only need to see fresh
-  // bookings; Odoo records remain in the DB for archival/audit only.
-  query = query.not("tvl_ref", "like", "S%");
+  // Imported Odoo bookings have legacy refs starting with 'S' (e.g. S01089).
+  // New bookings use the 'TVL-' pattern. By default the operator's day-to-day
+  // views exclude these legacy records so aggregate stats aren't polluted;
+  // the dedicated "Imported (Odoo)" sub-tabs pass ?imported=only to show them.
+  const importedMode = String(imported ?? "exclude");   // exclude | only | all
+  if (importedMode === "exclude") {
+    query = query.not("tvl_ref", "like", "S%");
+  } else if (importedMode === "only") {
+    query = query.like("tvl_ref", "S%");
+  }
 
   if (status) query = query.eq("status", String(status));
   if (service_type) query = query.eq("service_type", String(service_type));

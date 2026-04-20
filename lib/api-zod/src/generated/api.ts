@@ -401,6 +401,12 @@ export const ListBookingsQueryParams = zod.object({
   driver_id: zod.coerce.string().optional(),
   operator_id: zod.coerce.string().optional(),
   payment_status: zod.coerce.string().optional(),
+  imported: zod
+    .enum(["exclude", "only", "all"])
+    .optional()
+    .describe(
+      "Filter for legacy Odoo imports. exclude (default) hides them, only shows just them, all returns both.",
+    ),
 });
 
 export const ListBookingsResponseItem = zod.object({

@@ -16,12 +16,18 @@ export default function Bookings() {
 
   const [status, setStatus] = useState<string>("");
   const [search, setSearch] = useState<string>("");
+  const [source, setSource] = useState<"active" | "imported">("active");
   const urlSearch = useSearch();
   const upcomingOnly = new URLSearchParams(urlSearch).get("upcoming") === "1";
 
+  // The "Imported (Odoo)" sub-tab pulls archived legacy bookings; the default
+  // "Active" tab excludes them so day-to-day operations aren't cluttered with
+  // historic records that no longer require attention.
+  const importedParam = source === "imported" ? ("only" as const) : ("exclude" as const);
+  const params = { status: status || undefined, imported: importedParam };
   const { data: rawBookings, isLoading } = useListBookings(
-    { status: status || undefined },
-    { query: { enabled: true, queryKey: getListBookingsQueryKey({ status: status || undefined }) } }
+    params,
+    { query: { enabled: true, queryKey: getListBookingsQueryKey(params) } }
   );
 
   // Residence Managers only ever see Apartment bookings
@@ -106,6 +112,34 @@ export default function Bookings() {
           </Link>
         )}
       </div>
+
+      {/* Source tabs — keep imported Odoo data segregated from active ops */}
+      {!isResidenceManager && (
+        <div className="flex gap-1 border border-border rounded-xl p-1 bg-secondary/20 w-full sm:w-fit">
+          <button
+            onClick={() => setSource("active")}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+              source === "active"
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="tab-bookings-active"
+          >
+            Active
+          </button>
+          <button
+            onClick={() => setSource("imported")}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+              source === "imported"
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="tab-bookings-imported"
+          >
+            Imported (Odoo)
+          </button>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-col md:flex-row gap-4">

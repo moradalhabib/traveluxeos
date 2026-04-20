@@ -41,6 +41,7 @@ export * from "./globalSearchParams";
 export * from "./healthStatus";
 export * from "./invoice";
 export * from "./listAuditLogParams";
+export * from "./listBookingsImported";
 export * from "./listBookingsParams";
 export * from "./listClientsParams";
 export * from "./listDriversParams";

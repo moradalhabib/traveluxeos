@@ -330,6 +330,12 @@ paths:
           in: query
           schema:
             type: string
+        - name: imported
+          in: query
+          description: "Filter for legacy Odoo imports. exclude (default) hides them, only shows just them, all returns both."
+          schema:
+            type: string
+            enum: [exclude, only, all]
       responses:
         "200":
           description: List of bookings

@@ -9,7 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import {
   ArrowLeft, ArrowRight, PlaneTakeoff, Car, Map, Building2, Hotel,
-  CalendarRange, TrendingUp, Clock, CheckCircle2, Plus, Package, Tag
+  CalendarRange, Clock, CheckCircle2, Plus, Package, Tag
 } from "lucide-react";
 import { Link } from "wouter";
 
@@ -108,31 +108,51 @@ export default function Services() {
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [selectedKey, setSelectedKey] = useState<ServiceKey | null>(null);
   const [statusFilter, setStatusFilter] = useState("All");
-  const [activeTab, setActiveTab] = useState<"bookings" | "catalogue">("bookings");
+  const [activeTab, setActiveTab] = useState<"bookings" | "catalogue" | "imported">("bookings");
 
-  // Use the same API endpoint as Jobs Board / Bookings list so this view
-  // always reflects the current source of truth (auto-refetch on focus, no
-  // RLS divergence, no stale cache after creating a new booking).
+  // Active (non-Odoo) bookings — drives all overview cards, stats and the
+  // primary "Bookings" sub-tab. Imported Odoo bookings are pulled separately
+  // and only appear in the dedicated "Imported (Odoo)" sub-tab to avoid
+  // polluting day-to-day operational counts.
+  const activeParams = { imported: "exclude" as const };
   const { data: rawBookings, isLoading: loadingBookings } = useListBookings(
-    {},
-    { query: { enabled: true, queryKey: getListBookingsQueryKey({}) } }
+    activeParams,
+    { query: { enabled: true, queryKey: getListBookingsQueryKey(activeParams) } }
   );
 
-  const bookings: Booking[] = useMemo(() => {
-    return ((rawBookings ?? []) as any[]).map((b) => ({
-      id: b.id,
-      tvl_ref: b.tvl_ref ?? "",
-      client_name: b.client_name ?? b.clients?.name ?? "—",
-      service_type: (b.service_type ?? "").toString().trim(),
-      date_time: b.date_time ?? null,
-      status: b.status ?? "",
-      price: Number(b.price ?? 0),
-      driver_name: b.driver_name ?? b.drivers?.name ?? null,
-      payment_status: b.payment_status ?? null,
-      pickup: b.pickup ?? null,
-      dropoff: b.dropoff ?? null,
-    }));
-  }, [rawBookings]);
+  const importedParams = { imported: "only" as const };
+  const { data: rawImported, isLoading: loadingImported } = useListBookings(
+    importedParams,
+    {
+      query: {
+        enabled: activeTab === "imported" && !!selectedKey,
+        queryKey: getListBookingsQueryKey(importedParams),
+      },
+    }
+  );
+
+  const mapBooking = (b: any): Booking => ({
+    id: b.id,
+    tvl_ref: b.tvl_ref ?? "",
+    client_name: b.client_name ?? b.clients?.name ?? "—",
+    service_type: (b.service_type ?? "").toString().trim(),
+    date_time: b.date_time ?? null,
+    status: b.status ?? "",
+    price: Number(b.price ?? 0),
+    driver_name: b.driver_name ?? b.drivers?.name ?? null,
+    payment_status: b.payment_status ?? null,
+    pickup: b.pickup ?? null,
+    dropoff: b.dropoff ?? null,
+  });
+
+  const bookings: Booking[] = useMemo(
+    () => ((rawBookings ?? []) as any[]).map(mapBooking),
+    [rawBookings]
+  );
+  const importedBookings: Booking[] = useMemo(
+    () => ((rawImported ?? []) as any[]).map(mapBooking),
+    [rawImported]
+  );
 
   useEffect(() => {
     if (!selectedKey) return;
@@ -159,14 +179,16 @@ export default function Services() {
   const isUpcoming = (b: Booking) =>
     !!b.date_time && new Date(b.date_time).getTime() >= startOfToday;
 
+  // Stats reflect ACTIVE (non-Odoo) bookings only. Aggregate revenue is
+  // intentionally omitted from the Services view so operators aren't shown
+  // misleading totals that mix active ops with archived legacy data.
   const statsFor = (key: ServiceKey) => {
     const svcBookings = bookings.filter(b => canonicalKey(b.service_type) === key);
     const active = svcBookings.filter(b =>
       ACTIVE_STATUSES.includes(b.status) && isUpcoming(b)
     ).length;
-    const revenue = svcBookings.filter(b => b.status !== "Cancelled").reduce((s, b) => s + Number(b.price || 0), 0);
     const completed = svcBookings.filter(b => b.status === "Completed" || b.status === "Invoiced").length;
-    return { total: svcBookings.length, active, revenue, completed };
+    return { total: svcBookings.length, active, completed };
   };
 
   // Sort upcoming first (earliest → latest), then past (most recent → oldest)
@@ -192,6 +214,17 @@ export default function Services() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedKey, bookings, statusFilter, startOfToday]);
 
+  const filteredImported = useMemo(() => {
+    if (!selectedKey) return [];
+    return [...importedBookings]
+      .filter(b => canonicalKey(b.service_type) === selectedKey)
+      .sort((a, b) => {
+        const ta = a.date_time ? new Date(a.date_time).getTime() : 0;
+        const tb = b.date_time ? new Date(b.date_time).getTime() : 0;
+        return tb - ta;   // most recent first
+      });
+  }, [selectedKey, importedBookings]);
+
   const catalogueProducts = useMemo(() => {
     if (!selectedKey) return [];
     return products.filter(p => {
@@ -202,10 +235,7 @@ export default function Services() {
 
   const allStats = useMemo(() => {
     const nonCancelled = bookings.filter(b => b.status !== "Cancelled");
-    return {
-      total: nonCancelled.length,
-      revenue: nonCancelled.reduce((s, b) => s + Number(b.price || 0), 0),
-    };
+    return { total: nonCancelled.length };
   }, [bookings]);
 
   // ─── Detail view for a selected service ────────────────────────────────────
@@ -238,14 +268,13 @@ export default function Services() {
           </Link>
         </div>
 
-        {/* Stats strip */}
-        <div className={`grid gap-3 ${isSuperAdmin ? "grid-cols-4" : "grid-cols-3"}`}>
+        {/* Stats strip — revenue intentionally omitted (see Finance for £ totals) */}
+        <div className="grid gap-3 grid-cols-3">
           {[
-            { label: "Total",     value: stats.total,                       icon: <CalendarRange className="w-4 h-4" />,                     show: true },
-            { label: "Active",    value: stats.active,                      icon: <Clock className="w-4 h-4 text-amber-400" />,              show: true },
-            { label: "Completed", value: stats.completed,                   icon: <CheckCircle2 className="w-4 h-4 text-green-400" />,       show: true },
-            { label: "Revenue",   value: `£${stats.revenue.toLocaleString()}`, icon: <TrendingUp className="w-4 h-4 text-primary" />,        show: isSuperAdmin },
-          ].filter(item => item.show).map(item => (
+            { label: "Total",     value: stats.total,     icon: <CalendarRange className="w-4 h-4" /> },
+            { label: "Active",    value: stats.active,    icon: <Clock className="w-4 h-4 text-amber-400" /> },
+            { label: "Completed", value: stats.completed, icon: <CheckCircle2 className="w-4 h-4 text-green-400" /> },
+          ].map(item => (
             <div key={item.label} className="bg-card border border-border rounded-xl p-3 text-center">
               <div className="flex justify-center mb-1 text-muted-foreground">{item.icon}</div>
               <div className="text-lg font-bold text-foreground">{item.value}</div>
@@ -263,6 +292,7 @@ export default function Services() {
                 ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
+            data-testid="tab-svc-bookings"
           >
             <CalendarRange className="w-3.5 h-3.5" />
             Bookings
@@ -277,6 +307,7 @@ export default function Services() {
                 ? "bg-card text-foreground shadow-sm"
                 : "text-muted-foreground hover:text-foreground"
             }`}
+            data-testid="tab-svc-catalogue"
           >
             <Package className="w-3.5 h-3.5" />
             Catalogue
@@ -285,6 +316,18 @@ export default function Services() {
                 {catalogueProducts.length}
               </span>
             )}
+          </button>
+          <button
+            onClick={() => setActiveTab("imported")}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium rounded-lg transition-all ${
+              activeTab === "imported"
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+            data-testid="tab-svc-imported"
+          >
+            <CalendarRange className="w-3.5 h-3.5" />
+            Imported
           </button>
         </div>
 
@@ -467,6 +510,73 @@ export default function Services() {
             )}
           </>
         )}
+
+        {/* ── Imported (Odoo) tab ─────────────────────────────────────────────── */}
+        {activeTab === "imported" && (
+          <>
+            <div className="flex items-start gap-2 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5">
+              <CalendarRange className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-muted-foreground">
+                Archived bookings imported from Odoo (refs starting with <span className="font-mono text-foreground">S</span>).
+                These records are read-only and excluded from active stats and revenue figures.
+              </p>
+            </div>
+
+            {loadingImported ? (
+              <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-20" />)}</div>
+            ) : filteredImported.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-16 border border-dashed border-border rounded-2xl text-center">
+                <CalendarRange className="w-10 h-10 text-muted-foreground/30 mb-3" />
+                <p className="text-muted-foreground font-medium">No imported {svc.label} bookings</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filteredImported.map(booking => (
+                  <Link key={booking.id} href={`/bookings/${booking.id}`}>
+                    <Card className="border-border hover:border-primary/40 transition-all cursor-pointer bg-card/60 hover:bg-secondary/5 opacity-90">
+                      <CardContent className="p-0">
+                        <div className="flex items-stretch">
+                          <div className="w-1 rounded-l-xl flex-shrink-0 bg-muted-foreground/30" />
+                          <div className="flex-1 px-4 py-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-mono text-xs font-bold text-muted-foreground">{booking.tvl_ref}</span>
+                                  <Badge variant="outline" className="text-[9px] border-amber-500/30 text-amber-400/80">
+                                    Odoo
+                                  </Badge>
+                                  <span className="text-sm font-semibold text-foreground">{booking.client_name}</span>
+                                </div>
+                                <div className="flex items-center gap-3 mt-1 flex-wrap">
+                                  {booking.date_time && (
+                                    <span className="text-xs text-muted-foreground">
+                                      📅 {format(new Date(booking.date_time), "dd MMM yyyy")}
+                                    </span>
+                                  )}
+                                  {booking.pickup && (
+                                    <span className="text-xs text-muted-foreground truncate max-w-[180px]">
+                                      📍 {booking.pickup}{booking.dropoff ? ` → ${booking.dropoff}` : ""}
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <Badge variant="outline" className={`text-[10px] ${STATUS_COLORS[booking.status] ?? "border-border text-muted-foreground"}`}>
+                                {booking.status}
+                              </Badge>
+                            </div>
+                          </div>
+                          <div className="flex items-center pr-3">
+                            <ArrowRight className="w-4 h-4 text-muted-foreground/40" />
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                ))}
+              </div>
+            )}
+          </>
+        )}
       </div>
     );
   }
@@ -478,7 +588,7 @@ export default function Services() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Services</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {allStats.total} bookings{isSuperAdmin ? ` · £${allStats.revenue.toLocaleString()} total revenue` : ""}
+            {allStats.total} active bookings
           </p>
         </div>
         <Link href="/bookings/new">
@@ -511,7 +621,7 @@ export default function Services() {
 
                 <div className="font-bold text-lg text-foreground leading-tight">{svc.label}</div>
 
-                <div className={`grid gap-2 mt-4 pt-4 border-t border-white/10 ${isSuperAdmin ? "grid-cols-3" : "grid-cols-2"}`}>
+                <div className="grid gap-2 mt-4 pt-4 border-t border-white/10 grid-cols-2">
                   <div>
                     <div className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Bookings</div>
                     <div className="font-bold text-foreground">{stats.total}</div>
@@ -522,14 +632,6 @@ export default function Services() {
                       {stats.active}
                     </div>
                   </div>
-                  {isSuperAdmin && (
-                    <div>
-                      <div className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Revenue</div>
-                      <div className="font-bold text-primary">
-                        {stats.revenue > 0 ? `£${stats.revenue.toLocaleString()}` : "—"}
-                      </div>
-                    </div>
-                  )}
                 </div>
               </button>
             );

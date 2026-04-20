@@ -106,19 +106,6 @@ export interface Booking {
   updated_at?: string;
   created_by?: string;
   duration?: number;
-  extras?: string;
-  // Tour fields
-  tour_name?: string;
-  meeting_point?: string;
-  guide_included?: boolean;
-  itinerary?: string;
-  // Accommodation fields
-  property_name?: string;
-  property_address?: string;
-  check_in_date?: string;
-  check_out_date?: string;
-  nights?: number;
-  property_contact?: string;
 }
 
 export type ClientWithHistory = Client & {
@@ -248,19 +235,6 @@ export interface CreateBookingBody {
   return_booking_id?: string;
   notes?: string;
   duration?: number;
-  extras?: string;
-  // Tour fields
-  tour_name?: string;
-  meeting_point?: string;
-  guide_included?: boolean;
-  itinerary?: string;
-  // Accommodation fields
-  property_name?: string;
-  property_address?: string;
-  check_in_date?: string;
-  check_out_date?: string;
-  nights?: number;
-  property_contact?: string;
 }
 
 export interface CancelBookingBody {
@@ -499,7 +473,20 @@ export type ListBookingsParams = {
   driver_id?: string;
   operator_id?: string;
   payment_status?: string;
+  /**
+   * Filter for legacy Odoo imports. exclude (default) hides them, only shows just them, all returns both.
+   */
+  imported?: ListBookingsImported;
 };
+
+export type ListBookingsImported =
+  (typeof ListBookingsImported)[keyof typeof ListBookingsImported];
+
+export const ListBookingsImported = {
+  exclude: "exclude",
+  only: "only",
+  all: "all",
+} as const;
 
 export type ListDriversParams = {
   status?: string;

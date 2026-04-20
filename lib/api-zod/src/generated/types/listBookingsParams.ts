@@ -5,6 +5,7 @@
  * Traveluxe OS API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ListBookingsImported } from "./listBookingsImported";
 
 export type ListBookingsParams = {
   status?: string;
@@ -14,4 +15,8 @@ export type ListBookingsParams = {
   driver_id?: string;
   operator_id?: string;
   payment_status?: string;
+  /**
+   * Filter for legacy Odoo imports. exclude (default) hides them, only shows just them, all returns both.
+   */
+  imported?: ListBookingsImported;
 };
