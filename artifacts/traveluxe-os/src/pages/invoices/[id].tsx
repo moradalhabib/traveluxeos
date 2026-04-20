@@ -57,6 +57,34 @@ export default function InvoiceDetail() {
     }
   };
 
+  const [emailSending, setEmailSending] = useState(false);
+  const sendInvoiceEmail = async () => {
+    setEmailSending(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+      const res = await fetch(`${base}/api/invoices/${id}/send-email`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Failed to send email");
+      await queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
+      toast({
+        title: "Invoice emailed",
+        description: `Sent to ${body.sent_to}. Status set to Sent.`,
+      });
+    } catch (e: any) {
+      toast({ title: "Email failed", description: e.message, variant: "destructive" });
+    } finally {
+      setEmailSending(false);
+    }
+  };
+
   const { data: invoices, isLoading: invLoading } = useListInvoices(
     { query: { enabled: true, queryKey: getListInvoicesQueryKey() } }
   );
@@ -314,6 +342,13 @@ export default function InvoiceDetail() {
         </Button>
         <div className="flex flex-wrap gap-2">
           {/* Status actions — contextual to current status */}
+          {(invoice.status === "Generated" || invoice.status === "Sent" || invoice.status === "Overdue") && (
+            <Button variant="outline" size="sm" disabled={emailSending} onClick={sendInvoiceEmail}
+              className="border-primary/40 text-primary hover:bg-primary/10">
+              <Mail className="w-3.5 h-3.5 mr-1.5" />
+              {emailSending ? "Sending…" : (invoice.status === "Generated" ? "Send to Client" : "Resend Email")}
+            </Button>
+          )}
           {invoice.status === "Generated" && (
             <Button variant="outline" size="sm" disabled={statusUpdating} onClick={() => updateStatus("Sent")}
               className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10">

@@ -549,6 +549,12 @@ export default function BookingDetail() {
 
       {/* Status actions */}
       {booking.status !== 'Completed' && booking.status !== 'Cancelled' && (
+        <div className="flex flex-col gap-2">
+          {booking.status !== 'Active' && (
+            <p className="text-xs text-muted-foreground italic">
+              💡 The system auto-activates this booking at its scheduled start time. Use <em>Mark Active</em> only to override.
+            </p>
+          )}
         <div className="flex gap-2 flex-wrap">
           {booking.status !== 'Active' && (
             <Button variant="outline" size="sm" onClick={() => handleUpdateStatus('Active')} className="text-green-400 hover:bg-green-500/10 border-green-500/30">
@@ -593,6 +599,7 @@ export default function BookingDetail() {
               <DialogFooter><Button variant="destructive" onClick={handleCancel}>Confirm Cancellation</Button></DialogFooter>
             </DialogContent>
           </Dialog>
+        </div>
         </div>
       )}
 

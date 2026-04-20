@@ -20,6 +20,7 @@ export default function Invoices() {
   const [selectedBookingId, setSelectedBookingId] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
+  const [sourceFilter, setSourceFilter] = useState<"new" | "imported" | "all">("new");
   const { toast } = useToast();
 
   const { data: invoices, isLoading, refetch } = useListInvoices(
@@ -72,9 +73,18 @@ export default function Invoices() {
     !(invoices ?? []).some(inv => inv.booking_id === b.id)
   );
 
+  // Detect Odoo-imported invoices (number contains "/", e.g. INV/2026/00001)
+  // vs new app-generated ones (e.g. INV-0003).
+  const isImported = (num?: string | null) => !!num && num.includes("/");
+
+  const newCount = (invoices ?? []).filter(inv => !isImported(inv.invoice_number)).length;
+  const importedCount = (invoices ?? []).filter(inv => isImported(inv.invoice_number)).length;
+
   // Filter invoices
   const filteredInvoices = useMemo(() => {
     let list = invoices ?? [];
+    if (sourceFilter === "new") list = list.filter(inv => !isImported(inv.invoice_number));
+    else if (sourceFilter === "imported") list = list.filter(inv => isImported(inv.invoice_number));
     if (statusFilter !== "all") {
       list = list.filter(inv => inv.status === statusFilter);
     }
@@ -111,6 +121,27 @@ export default function Invoices() {
           <Plus className="w-4 h-4 mr-2" />
           Generate Invoice
         </Button>
+      </div>
+
+      {/* Source tabs — keep imported Odoo invoices out of the way */}
+      <div className="flex gap-1 bg-card border border-border rounded-lg p-1 w-fit">
+        {([
+          { key: "new", label: "New", count: newCount },
+          { key: "imported", label: "Imported (Odoo)", count: importedCount },
+          { key: "all", label: "All", count: invoices?.length ?? 0 },
+        ] as const).map(t => (
+          <button
+            key={t.key}
+            onClick={() => setSourceFilter(t.key)}
+            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
+              sourceFilter === t.key
+                ? "bg-primary/15 text-primary font-semibold"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            {t.label} <span className="text-xs opacity-70">({t.count})</span>
+          </button>
+        ))}
       </div>
 
       {/* Search + Filter */}

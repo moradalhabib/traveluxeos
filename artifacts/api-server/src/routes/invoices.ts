@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { supabase, auditLog, getUserFromToken } from "../lib/supabase";
+import { sendEmail } from "../services/email";
+import { bookingConfirmationHtml } from "../templates/emailTemplates";
 
 const router = Router();
 
@@ -104,6 +106,73 @@ router.post("/generate", async (req, res) => {
     `Invoice ${data.invoice_number} generated for booking ${booking_id}`);
 
   return res.status(201).json(data);
+});
+
+/**
+ * POST /invoices/:id/send-email
+ * Sends the invoice/booking confirmation to the client by email and flips
+ * status to "Sent". Useful for imported (Odoo) invoices that never got emailed,
+ * or for manual resend.
+ */
+router.post("/:id/send-email", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user) return res.status(401).json({ error: "Unauthorised" });
+
+  const { data: invoice, error: invErr } = await supabase
+    .from("invoices")
+    .select("*")
+    .eq("id", req.params.id)
+    .single();
+  if (invErr || !invoice) return res.status(404).json({ error: "Invoice not found" });
+
+  const { data: booking, error: bkErr } = await supabase
+    .from("bookings")
+    .select("*")
+    .eq("id", invoice.booking_id)
+    .single();
+  if (bkErr || !booking) return res.status(404).json({ error: "Booking not found" });
+
+  const { data: client } = await supabase
+    .from("clients")
+    .select("name, email, vip_tier")
+    .eq("id", booking.client_id)
+    .single();
+
+  const email = client?.email;
+  if (!email) {
+    return res.status(400).json({
+      error: `No email on file for ${client?.name ?? "client"}. Add one on the client profile, then try again.`,
+    });
+  }
+
+  const enriched = {
+    ...booking,
+    client_name: client?.name ?? null,
+    client_email: email,
+    client_vip_tier: client?.vip_tier ?? null,
+  };
+
+  try {
+    await sendEmail({
+      to: email,
+      subject: `Invoice ${invoice.invoice_number} — Traveluxe London — ${booking.tvl_ref ?? ""}`,
+      html: bookingConfirmationHtml(enriched, invoice.invoice_number),
+      account: "invoice",
+    });
+  } catch (e: any) {
+    console.error("[Invoice email] send failed:", e?.message);
+    return res.status(502).json({ error: `Failed to send email: ${e?.message ?? "unknown"}` });
+  }
+
+  // Flip Generated → Sent (don't downgrade Paid/Overdue)
+  if (invoice.status === "Generated") {
+    await supabase.from("invoices").update({ status: "Sent" }).eq("id", invoice.id);
+  }
+
+  await auditLog("send_invoice_email", "invoice", invoice.id, user.id,
+    `Invoice ${invoice.invoice_number} emailed to ${email}`);
+
+  return res.json({ ok: true, sent_to: email, invoice_number: invoice.invoice_number });
 });
 
 export default router;
