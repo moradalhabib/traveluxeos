@@ -59,7 +59,6 @@ export default function ClientDetail() {
   const [, setLocation] = useLocation();
   const id = params.id as string;
   const qc = useQueryClient();
-  const { token } = useAuth();
 
   const { data: client, isLoading } = useGetClient(id, {
     query: { enabled: !!id, queryKey: getGetClientQueryKey(id) }

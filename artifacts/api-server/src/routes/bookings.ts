@@ -281,7 +281,7 @@ router.put("/:id", async (req, res) => {
   const db = getDbClient(req.headers.authorization);
 
   // Capture previous payment_status before update
-  const { data: prev } = await db.from("bookings").select("payment_status, status").eq("id", req.params.id).single();
+  const { data: prev } = await db.from("bookings").select("payment_status, status, driver_id").eq("id", req.params.id).single();
   const prevPaymentStatus = prev?.payment_status;
 
   // Apply same whitelist as POST to avoid unknown-column errors on update
