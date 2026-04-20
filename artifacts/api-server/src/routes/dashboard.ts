@@ -132,6 +132,81 @@ router.get("/summary", async (_req, res) => {
 
   const bookingSources = Object.entries(sourceMap).map(([source, count]) => ({ source, count }));
 
+  // ---------- FOLLOW-UPS ----------
+  // Pending Requests: bookings still awaiting confirmation
+  const { data: pendingRows } = await supabase
+    .from("bookings")
+    .select("id, tvl_ref, service_type, direction, pickup, dropoff, date_time, created_at, client_id")
+    .eq("status", "Pending")
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  // Awaiting Return Trip: completed Arrival airport transfers with no return booking yet
+  const sixtyDaysAgo = new Date();
+  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+  const { data: arrivalRows } = await supabase
+    .from("bookings")
+    .select("id, tvl_ref, pickup, dropoff, date_time, client_id, return_booking_id, notes")
+    .eq("service_type", "Airport Transfer")
+    .eq("direction", "Arrival")
+    .eq("status", "Completed")
+    .is("return_booking_id", null)
+    .gte("date_time", sixtyDaysAgo.toISOString())
+    .order("date_time", { ascending: false })
+    .limit(100);
+
+  const awaitingReturnRaw = (arrivalRows ?? []).filter((b: any) =>
+    !(b.notes ?? "").includes("[NO_RETURN]")
+  );
+
+  // Hydrate client details for both lists
+  const followupClientIds = Array.from(new Set([
+    ...(pendingRows ?? []).map((b: any) => b.client_id).filter(Boolean),
+    ...awaitingReturnRaw.map((b: any) => b.client_id).filter(Boolean),
+  ]));
+
+  const { data: followupClients } = await supabase
+    .from("clients")
+    .select("id, name, whatsapp, email, vip_tier")
+    .in("id", followupClientIds.length > 0 ? followupClientIds : ["00000000-0000-0000-0000-000000000000"]);
+
+  const clientLookup: Record<string, any> = {};
+  (followupClients ?? []).forEach((c: any) => { clientLookup[c.id] = c; });
+
+  const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+
+  const pending_requests = (pendingRows ?? []).map((b: any) => ({
+    id: b.id,
+    tvl_ref: b.tvl_ref,
+    service_type: b.service_type,
+    direction: b.direction,
+    pickup: b.pickup,
+    dropoff: b.dropoff,
+    date_time: b.date_time,
+    days_waiting: daysSince(b.created_at),
+    client: clientLookup[b.client_id] ? {
+      id: b.client_id,
+      name: clientLookup[b.client_id].name,
+      whatsapp: clientLookup[b.client_id].whatsapp,
+      vip_tier: clientLookup[b.client_id].vip_tier,
+    } : null,
+  }));
+
+  const awaiting_return = awaitingReturnRaw.map((b: any) => ({
+    id: b.id,
+    tvl_ref: b.tvl_ref,
+    pickup: b.pickup,
+    dropoff: b.dropoff,
+    arrival_date: b.date_time,
+    days_since_arrival: daysSince(b.date_time),
+    client: clientLookup[b.client_id] ? {
+      id: b.client_id,
+      name: clientLookup[b.client_id].name,
+      whatsapp: clientLookup[b.client_id].whatsapp,
+      vip_tier: clientLookup[b.client_id].vip_tier,
+    } : null,
+  }));
+
   return res.json({
     bookings_today: (todayBookings ?? []).length,
     bookings_this_week: (weekBookings ?? []).length,

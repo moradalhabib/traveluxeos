@@ -366,6 +366,35 @@ router.post("/:id/cancel", async (req, res) => {
   return res.json(enriched);
 });
 
+router.post("/:id/dismiss-return-followup", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+
+  const { data: existing, error: fetchErr } = await supabase
+    .from("bookings")
+    .select("id, tvl_ref, notes")
+    .eq("id", req.params.id)
+    .single();
+  if (fetchErr || !existing) return res.status(404).json({ error: "Booking not found" });
+
+  const currentNotes = existing.notes ?? "";
+  const newNotes = currentNotes.includes("[NO_RETURN]")
+    ? currentNotes
+    : (currentNotes.trim() ? currentNotes.trim() + "\n[NO_RETURN] Operator marked: no return trip needed." : "[NO_RETURN] Operator marked: no return trip needed.");
+
+  const { data, error } = await supabase
+    .from("bookings")
+    .update({ notes: newNotes })
+    .eq("id", req.params.id)
+    .select()
+    .single();
+  if (error) return res.status(400).json({ error: error.message });
+
+  await auditLog("dismiss_return_followup", "booking", req.params.id, user?.id ?? null,
+    `Return follow-up dismissed for ${existing.tvl_ref}`);
+
+  return res.json({ ok: true, id: data.id });
+});
+
 router.put("/:id/status", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
   const { status } = req.body;

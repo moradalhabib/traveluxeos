@@ -1,12 +1,29 @@
 import { useGetDashboardSummary, getGetDashboardSummaryQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator } from "lucide-react";
-import { Link } from "wouter";
+import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, PlaneLanding, X, Plus } from "lucide-react";
+import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { supabase as supabaseClient } from "@/lib/supabase";
+import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
+
+const FOLLOWUP_BASE = `${import.meta.env.VITE_API_URL ?? ""}/api`;
+
+function whatsappLink(num?: string | null, message?: string) {
+  if (!num) return null;
+  const clean = num.replace(/[^0-9]/g, "");
+  if (!clean) return null;
+  const text = message ? `?text=${encodeURIComponent(message)}` : "";
+  return `https://wa.me/${clean}${text}`;
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
+  const qc = useQueryClient();
   const isSuperAdmin = user?.role === "super_admin";
 
   const { data: summary, isLoading } = useGetDashboardSummary({
@@ -14,6 +31,43 @@ export default function Dashboard() {
   });
 
   const s = summary as any;
+  const pendingRequests: any[] = s?.pending_requests ?? [];
+  const awaitingReturn: any[] = s?.awaiting_return ?? [];
+
+  const logReturn = async (bookingId: string, ref: string) => {
+    if (!confirm(`Create a return Departure booking from ${ref}?\n\nA new Confirmed booking will be created with pickup/dropoff swapped. You'll be taken to it next to set the date/time.`)) return;
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      const res = await fetch(`${FOLLOWUP_BASE}/bookings/${bookingId}/return`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session?.access_token ?? ""}`, "Content-Type": "application/json" },
+        body: "{}",
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed");
+      toast({ title: "Return created", description: `${json.tvl_ref} — set the departure date next.` });
+      qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+      navigate(`/bookings/${json.id}`);
+    } catch (e: any) {
+      toast({ title: "Could not create return", description: e.message, variant: "destructive" });
+    }
+  };
+
+  const dismissReturn = async (bookingId: string, ref: string) => {
+    if (!confirm(`Mark ${ref} as not needing a return trip? It will disappear from this list.`)) return;
+    try {
+      const { data: { session } } = await supabaseClient.auth.getSession();
+      const res = await fetch(`${FOLLOWUP_BASE}/bookings/${bookingId}/dismiss-return-followup`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
+      });
+      if (!res.ok) throw new Error((await res.json()).error || "Failed");
+      toast({ title: "Removed", description: `${ref} cleared from follow-ups.` });
+      qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+    } catch (e: any) {
+      toast({ title: "Could not dismiss", description: e.message, variant: "destructive" });
+    }
+  };
 
   if (isLoading) {
     return (
@@ -38,6 +92,141 @@ export default function Dashboard() {
           {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
         </p>
       </div>
+
+      {/* Follow-Up Section */}
+      {(pendingRequests.length > 0 || awaitingReturn.length > 0) && (
+        <Card className="border-amber-500/30 bg-amber-500/5">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Clock className="w-4 h-4 text-amber-400" />
+              Follow-Up
+              <span className="text-xs font-normal text-muted-foreground ml-1">
+                ({pendingRequests.length + awaitingReturn.length})
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-5">
+
+            {/* Pending Requests */}
+            {pendingRequests.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-400 flex items-center gap-1.5">
+                    <Plus className="w-3 h-3" /> Pending Requests ({pendingRequests.length})
+                  </h3>
+                  <span className="text-[10px] text-muted-foreground">awaiting confirmation</span>
+                </div>
+                <div className="space-y-2">
+                  {pendingRequests.slice(0, 6).map((b) => {
+                    const wa = whatsappLink(b.client?.whatsapp,
+                      `Hi ${b.client?.name ?? ""} — confirming your booking ${b.tvl_ref}: ${b.pickup} → ${b.dropoff}. Shall we proceed?`);
+                    return (
+                      <div key={b.id} className="rounded-lg border border-border bg-card p-2.5 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Link href={`/bookings/${b.id}`}>
+                              <span className="text-sm font-semibold text-primary hover:underline cursor-pointer">{b.tvl_ref}</span>
+                            </Link>
+                            <span className="text-xs text-muted-foreground">·</span>
+                            <span className="text-xs text-foreground truncate">{b.client?.name ?? "—"}</span>
+                            {b.client?.vip_tier && b.client.vip_tier !== "Standard" && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary uppercase">{b.client.vip_tier}</span>
+                            )}
+                            <span className="text-[10px] text-amber-400 ml-auto">
+                              {b.days_waiting === 0 ? "today" : `${b.days_waiting}d waiting`}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+                            {b.service_type}{b.direction ? ` · ${b.direction}` : ""} · {b.pickup} → {b.dropoff}
+                          </div>
+                        </div>
+                        <div className="flex gap-1 flex-shrink-0">
+                          {wa && (
+                            <a href={wa} target="_blank" rel="noreferrer">
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]">
+                                <MessageCircle className="w-3 h-3 mr-1" /> Message
+                              </Button>
+                            </a>
+                          )}
+                          <Button size="sm" className="h-7 px-2 text-[11px]" onClick={() => navigate(`/bookings/${b.id}`)}>
+                            Review
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {pendingRequests.length > 6 && (
+                    <Link href="/bookings?status=Pending">
+                      <p className="text-xs text-amber-400 hover:underline cursor-pointer text-center pt-1">
+                        + {pendingRequests.length - 6} more pending →
+                      </p>
+                    </Link>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Awaiting Return Trip */}
+            {awaitingReturn.length > 0 && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-400 flex items-center gap-1.5">
+                    <PlaneLanding className="w-3 h-3" /> Awaiting Return Trip ({awaitingReturn.length})
+                  </h3>
+                  <span className="text-[10px] text-muted-foreground">arrived, no departure logged</span>
+                </div>
+                <div className="space-y-2">
+                  {awaitingReturn.slice(0, 6).map((b) => {
+                    const wa = whatsappLink(b.client?.whatsapp,
+                      `Hi ${b.client?.name ?? ""} — hope your stay in London is going well. When you'd like to plan your return airport transfer, just reply here and we'll arrange it. — Traveluxe`);
+                    return (
+                      <div key={b.id} className="rounded-lg border border-border bg-card p-2.5 flex items-center gap-3">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <Link href={`/bookings/${b.id}`}>
+                              <span className="text-sm font-semibold text-primary hover:underline cursor-pointer">{b.tvl_ref}</span>
+                            </Link>
+                            <span className="text-xs text-muted-foreground">·</span>
+                            <span className="text-xs text-foreground truncate">{b.client?.name ?? "—"}</span>
+                            {b.client?.vip_tier && b.client.vip_tier !== "Standard" && (
+                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary uppercase">{b.client.vip_tier}</span>
+                            )}
+                            <span className="text-[10px] text-amber-400 ml-auto">
+                              arrived {b.days_since_arrival}d ago
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+                            Arrival: {b.pickup} → {b.dropoff}
+                          </div>
+                        </div>
+                        <div className="flex gap-1 flex-shrink-0">
+                          {wa && (
+                            <a href={wa} target="_blank" rel="noreferrer">
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]">
+                                <MessageCircle className="w-3 h-3 mr-1" /> Message
+                              </Button>
+                            </a>
+                          )}
+                          <Button size="sm" className="h-7 px-2 text-[11px]"
+                            onClick={() => navigate(`/bookings/new?return_from=${b.id}`)}>
+                            Log Return
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0"
+                            onClick={() => dismissReturn(b.id, b.tvl_ref)}
+                            title="Mark as not needing return trip">
+                            <X className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+          </CardContent>
+        </Card>
+      )}
 
       {/* Urgent: jobs without driver */}
       {s?.jobs_without_driver ? (
