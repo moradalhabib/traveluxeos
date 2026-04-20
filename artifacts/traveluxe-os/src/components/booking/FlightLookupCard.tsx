@@ -19,6 +19,10 @@ interface FlightStatus {
 interface Props {
   flightNumber: string;
   direction?: string;
+  // YYYY-MM-DD — the booking date the operator has entered. We query
+  // AviationStack for that specific date so pre-bookings resolve correctly.
+  // If empty, the lookup is paused until a date is entered.
+  date?: string;
   // `timeUk` is the flight's scheduled/estimated time as an HH:mm string in
   // Europe/London (GMT/BST). The consumer is expected to merge it onto the
   // date the operator manually entered — we never auto-fill the date because
@@ -34,30 +38,46 @@ const STATUS_META: Record<string, { label: string; color: string; icon: React.Re
   "Unknown":  { label: "Unknown",  color: "text-muted-foreground border-border",               icon: <Clock className="w-3.5 h-3.5" /> },
 };
 
-export function FlightLookupCard({ flightNumber, direction, onAutoFill }: Props) {
+export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: Props) {
   const [data, setData] = useState<FlightStatus | null>(null);
   const [loading, setLoading] = useState(false);
+  const [notFound, setNotFound] = useState(false);
   const [lastFetched, setLastFetched] = useState("");
 
   useEffect(() => {
     const normalized = flightNumber?.toUpperCase().replace(/\s/g, "");
     if (!normalized || normalized.length < 3) {
       setData(null);
+      setNotFound(false);
       return;
     }
-    if (normalized === lastFetched) return;
+    // Need a date to query — pre-bookings can be weeks out.
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      setData(null);
+      setNotFound(false);
+      return;
+    }
+    const cacheKey = `${normalized}|${date}`;
+    if (cacheKey === lastFetched) return;
 
     const timer = setTimeout(async () => {
       setLoading(true);
+      setNotFound(false);
       try {
-        const today = new Date().toISOString().split("T")[0];
-        const res = await fetch(`/api/flight-tracker/${normalized}?date=${today}`);
+        const res = await fetch(`/api/flight-tracker/${normalized}?date=${date}`);
         if (res.ok) {
           const json = await res.json();
-          if (json && json.status !== undefined) {
+          if (json && json.status !== undefined && (json.origin || json.destination || json.scheduled_time)) {
             setData(json);
-            setLastFetched(normalized);
+          } else {
+            setData(null);
+            setNotFound(true);
           }
+          setLastFetched(cacheKey);
+        } else {
+          setData(null);
+          setNotFound(true);
+          setLastFetched(cacheKey);
         }
       } catch {
         // silent — no disruptive error
@@ -67,9 +87,19 @@ export function FlightLookupCard({ flightNumber, direction, onAutoFill }: Props)
     }, 900);
 
     return () => clearTimeout(timer);
-  }, [flightNumber]);
+  }, [flightNumber, date]);
 
   if (!flightNumber || flightNumber.length < 3) return null;
+
+  // Helpful hint when the operator hasn't entered a date yet.
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return (
+      <div className="px-3 py-2.5 rounded-xl border border-border bg-card/50 text-xs text-muted-foreground">
+        Enter the booking date above to look up live data for{" "}
+        <span className="font-mono text-foreground">{flightNumber.toUpperCase()}</span>.
+      </div>
+    );
+  }
 
   const meta = STATUS_META[data?.status ?? "Unknown"] ?? STATUS_META["Unknown"];
   const isArrival = direction !== "Departure";
@@ -103,7 +133,17 @@ export function FlightLookupCard({ flightNumber, direction, onAutoFill }: Props)
     );
   }
 
-  if (!data) return null;
+  if (!data) {
+    if (notFound) {
+      return (
+        <div className="px-3 py-2.5 rounded-xl border border-amber-500/20 bg-amber-500/5 text-xs text-amber-300/90">
+          No live data for <span className="font-mono">{flightNumber.toUpperCase()}</span> on{" "}
+          {format(new Date(`${date}T00:00:00`), "dd MMM yyyy")}. Enter pickup, drop-off and time manually.
+        </div>
+      );
+    }
+    return null;
+  }
 
   return (
     <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 space-y-2">

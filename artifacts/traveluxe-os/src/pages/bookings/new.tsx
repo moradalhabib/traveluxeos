@@ -907,6 +907,7 @@ export default function NewBooking() {
                         <FlightLookupCard
                           flightNumber={watchedFlightNumber}
                           direction={watchedDirection}
+                          date={(bookingForm.watch("date_time") ?? "").slice(0, 10)}
                           onAutoFill={(timeUk, origin, destination, terminal) => {
                             // The operator manually enters the date because clients
                             // pre-book. We only set the time portion (UK / GMT) on
