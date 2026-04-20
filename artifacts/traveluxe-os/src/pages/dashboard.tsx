@@ -210,41 +210,62 @@ export default function Dashboard() {
                     const wa = whatsappLink(b.client?.whatsapp,
                       `Hi ${b.client?.name ?? ""} — hope your stay in London is going well. When you'd like to plan your return airport transfer, just reply here and we'll arrange it. — Traveluxe`);
                     return (
-                      <div key={b.id} className="rounded-lg border border-border bg-card p-2.5 flex items-center gap-3">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <Link href={`/bookings/${b.id}`}>
-                              <span className="text-sm font-semibold text-primary hover:underline cursor-pointer">{b.tvl_ref}</span>
-                            </Link>
-                            <span className="text-xs text-muted-foreground">·</span>
-                            <span className="text-xs text-foreground truncate">{b.client?.name ?? "—"}</span>
-                            {b.client?.vip_tier && b.client.vip_tier !== "Standard" && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary uppercase">{b.client.vip_tier}</span>
-                            )}
-                            <span className="text-[10px] text-amber-400 ml-auto">
-                              arrived {b.days_since_arrival}d ago
-                            </span>
+                      <div key={b.id} className="rounded-lg border border-border bg-card p-2.5 space-y-2">
+                        {/* Info row */}
+                        <div className="flex items-start gap-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <Link href={`/bookings/${b.id}`}>
+                                <span className="text-sm font-semibold text-primary hover:underline cursor-pointer">{b.tvl_ref}</span>
+                              </Link>
+                              <span className="text-xs text-muted-foreground">·</span>
+                              <span className="text-xs text-foreground truncate">{b.client?.name ?? "—"}</span>
+                              {b.client?.vip_tier && b.client.vip_tier !== "Standard" && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary uppercase">{b.client.vip_tier}</span>
+                              )}
+                              <span className="text-[10px] text-amber-400 ml-auto">
+                                arrived {Math.abs(b.days_since_arrival)}d ago
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+                              Arrival: {b.pickup} → {b.dropoff}
+                            </div>
                           </div>
-                          <div className="text-[11px] text-muted-foreground truncate mt-0.5">
-                            Arrival: {b.pickup} → {b.dropoff}
-                          </div>
-                        </div>
-                        <div className="flex gap-1 flex-shrink-0">
-                          {wa && (
-                            <a href={wa} target="_blank" rel="noreferrer">
-                              <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]">
-                                <MessageCircle className="w-3 h-3 mr-1" /> Message
-                              </Button>
-                            </a>
-                          )}
-                          <Button size="sm" className="h-7 px-2 text-[11px]"
-                            onClick={() => navigate(`/bookings/new?return_from=${b.id}`)}>
-                            Log Return
-                          </Button>
-                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0"
+                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 flex-shrink-0"
                             onClick={() => dismissReturn(b.id, b.tvl_ref)}
                             title="Mark as not needing return trip">
                             <X className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
+                        {/* Action row */}
+                        <div className="flex gap-1.5 pt-0.5 border-t border-border/50 flex-wrap">
+                          {wa && (
+                            <a href={wa} target="_blank" rel="noreferrer">
+                              <Button size="sm" variant="outline" className="h-7 px-2 text-[11px] border-green-600/40 text-green-400 hover:bg-green-500/10">
+                                <MessageCircle className="w-3 h-3 mr-1" /> WhatsApp
+                              </Button>
+                            </a>
+                          )}
+                          <Button size="sm" variant="outline"
+                            disabled={!!markingFollowUp[b.id]}
+                            onClick={() => markFollowUp(b.id, b.client?.id ?? null, null, "done")}
+                            className="h-7 px-2 text-[11px] text-green-400 border-green-500/30 hover:bg-green-500/10">
+                            <CheckCheck className="w-3 h-3 mr-1" />
+                            {markingFollowUp[b.id] === "done" ? "Saving…" : "Done"}
+                          </Button>
+                          <Button size="sm" variant="outline"
+                            disabled={!!markingFollowUp[b.id]}
+                            onClick={() => markFollowUp(b.id, b.client?.id ?? null, null, "booked_return")}
+                            className="h-7 px-2 text-[11px] text-blue-400 border-blue-500/30 hover:bg-blue-500/10">
+                            <RotateCcw className="w-3 h-3 mr-1" />
+                            {markingFollowUp[b.id] === "booked_return" ? "Saving…" : "Return Booked"}
+                          </Button>
+                          <Button size="sm" variant="outline"
+                            disabled={!!markingFollowUp[b.id]}
+                            onClick={() => markFollowUp(b.id, b.client?.id ?? null, null, "no_response")}
+                            className="h-7 px-2 text-[11px] text-muted-foreground border-border hover:bg-secondary/30">
+                            <PhoneOff className="w-3 h-3 mr-1" />
+                            {markingFollowUp[b.id] === "no_response" ? "Saving…" : "No Response"}
                           </Button>
                         </div>
                       </div>
@@ -379,23 +400,21 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-3">
         {/* Follow-Ups */}
         <Link href="/follow-ups">
-          <Card className={`border-border bg-card hover:border-primary/30 transition-colors cursor-pointer ${(s?.follow_ups_pending ?? 0) > 0 ? "border-l-4 border-l-destructive" : ""}`}>
+          <Card className="border-border bg-card hover:border-primary/30 transition-colors cursor-pointer">
             <CardHeader className="flex flex-row items-center justify-between pb-1 pt-4 px-4 space-y-0">
               <CardTitle className="text-xs font-medium text-muted-foreground">Follow-Ups</CardTitle>
               <div className="flex items-center gap-1.5">
-                {(s?.follow_ups_overdue ?? 0) > 0 && (
-                  <span className="text-[9px] font-bold text-destructive">⚠️</span>
+                {((s?.follow_ups_pending ?? 0) + arrivalFollowUps.length) > 0 && (
+                  <span className="text-[11px] font-bold text-destructive leading-none">⚠️</span>
                 )}
-                <PhoneCall className={`w-4 h-4 ${(s?.follow_ups_pending ?? 0) > 0 ? "text-destructive" : "text-primary"}`} />
+                <PhoneCall className={`w-4 h-4 ${((s?.follow_ups_pending ?? 0) + arrivalFollowUps.length) > 0 ? "text-destructive" : "text-primary"}`} />
               </div>
             </CardHeader>
             <CardContent className="px-4 pb-4">
-              <div className={`text-2xl font-bold ${(s?.follow_ups_pending ?? 0) > 0 ? "text-destructive" : "text-foreground"}`}>
-                {s?.follow_ups_pending ?? 0}
+              <div className={`text-2xl font-bold ${((s?.follow_ups_pending ?? 0) + arrivalFollowUps.length) > 0 ? "text-destructive" : "text-foreground"}`}>
+                {(s?.follow_ups_pending ?? 0) + arrivalFollowUps.length}
               </div>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                {(s?.follow_ups_overdue ?? 0) > 0 ? `${s.follow_ups_overdue} overdue` : "Pending check-ins"}
-              </p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">Due Today / Overdue</p>
             </CardContent>
           </Card>
         </Link>
