@@ -93,7 +93,13 @@ router.get("/", async (req, res) => {
   let query = db
     .from("bookings")
     .select("*, clients(name, vip_tier), drivers(name, vehicle_type, vehicle_model), users!bookings_operator_id_fkey(name)")
-    .order("date_time", { ascending: true });
+    // Newest bookings first (UI sorts further on date_time as needed).
+    .order("date_time", { ascending: false, nullsFirst: false });
+
+  // Hide imported Odoo bookings (legacy refs starting with 'S'). New bookings
+  // use the 'TVL-' ref pattern. Operators going forward only need to see fresh
+  // bookings; Odoo records remain in the DB for archival/audit only.
+  query = query.not("tvl_ref", "like", "S%");
 
   if (status) query = query.eq("status", String(status));
   if (service_type) query = query.eq("service_type", String(service_type));

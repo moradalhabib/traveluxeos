@@ -134,7 +134,7 @@ router.get("/", async (_req, res) => {
 
   const { data: bookings, error } = await supabase
     .from("bookings")
-    .select("id, tvl_ref, flight_number, date_time, client_id, driver_id, clients(name), drivers(name)")
+    .select("id, tvl_ref, flight_number, date_time, pickup, dropoff, destination, client_id, driver_id, clients(name), drivers(name)")
     .eq("service_type", "Airport Transfer")
     .eq("direction", "Arrival")
     .not("flight_number", "is", null)
