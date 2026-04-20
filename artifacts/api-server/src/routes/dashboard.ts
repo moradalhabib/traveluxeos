@@ -219,6 +219,96 @@ router.get("/summary", async (_req, res) => {
     .not("status", "in", '("Paid","Cancelled")');
   const unpaidInvoicesNew = (unpaidInvoiceNumbers ?? []).filter((i: any) => !(i.invoice_number ?? "").includes("/"));
 
+  // ---------- ARRIVAL FOLLOW-UPS ----------
+  // Arrivals that happened ~3 days ago and have no follow_up record yet
+  const threeDaysAgo = new Date();
+  threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+  const fiveDaysAgo = new Date();
+  fiveDaysAgo.setDate(fiveDaysAgo.getDate() - 5);
+
+  const { data: arrivalFollowUpRows } = await supabase
+    .from("bookings")
+    .select("id, tvl_ref, pickup, dropoff, date_time, client_id, driver_id")
+    .eq("service_type", "Airport Transfer")
+    .eq("direction", "Arrival")
+    .in("status", ["Completed", "Active"])
+    .gte("date_time", fiveDaysAgo.toISOString())
+    .lte("date_time", new Date().toISOString())
+    .order("date_time", { ascending: false })
+    .limit(100);
+
+  let arrivalFollowUps: any[] = [];
+  if (arrivalFollowUpRows && arrivalFollowUpRows.length > 0) {
+    const arrivalBookingIds = arrivalFollowUpRows.map((b: any) => b.id);
+
+    // Find which of these already have a follow_up record
+    // (gracefully handles case where follow_ups table doesn't exist yet)
+    const { data: existingFollowUps, error: fuError } = await supabase
+      .from("follow_ups")
+      .select("booking_id")
+      .in("booking_id", arrivalBookingIds);
+
+    // If the table doesn't exist yet, skip follow-ups section entirely
+    if (fuError && fuError.message?.includes("does not exist")) {
+      return res.json({
+        bookings_today: (todayBookings ?? []).length,
+        bookings_this_week: (weekBookings ?? []).length,
+        bookings_this_month: (monthBookings ?? []).length,
+        upcoming_bookings: (upcomingBookings ?? []).length,
+        revenue_today: calcRevenue(todayBookings as any),
+        revenue_this_week: calcRevenue(weekBookings as any),
+        revenue_this_month: calcRevenue(monthBookings as any),
+        active_jobs: (activeJobs ?? []).length,
+        jobs_without_driver: noDriverJobsNew.length,
+        jobs_without_driver_total_including_odoo: (noDriverJobs ?? []).length,
+        pending_payments: (pendingPayments ?? []).length,
+        outstanding_commissions: outstandingCommissions,
+        pending_payouts: pendingPayouts,
+        unpaid_invoices_count: unpaidInvoicesNew.length,
+        unpaid_invoices_count_total_including_odoo: (unpaidInvoices ?? []).length,
+        top_clients: topClients,
+        top_drivers: topDrivers,
+        booking_sources: bookingSources,
+        pending_requests,
+        awaiting_return,
+        arrival_followups: [],
+      });
+    }
+
+    const followedUpIds = new Set((existingFollowUps ?? []).map((f: any) => f.booking_id));
+    const needsFollowUp = arrivalFollowUpRows.filter((b: any) => !followedUpIds.has(b.id));
+
+    if (needsFollowUp.length > 0) {
+      const clientIds = [...new Set(needsFollowUp.map((b: any) => b.client_id).filter(Boolean))];
+      const driverIds = [...new Set(needsFollowUp.map((b: any) => b.driver_id).filter(Boolean))];
+
+      const [{ data: fuClients }, { data: fuDrivers }] = await Promise.all([
+        supabase.from("clients").select("id, name, whatsapp, vip_tier")
+          .in("id", clientIds.length > 0 ? clientIds : ["00000000-0000-0000-0000-000000000000"]),
+        supabase.from("drivers").select("id, name")
+          .in("id", driverIds.length > 0 ? driverIds : ["00000000-0000-0000-0000-000000000000"]),
+      ]);
+
+      const clientMap: Record<string, any> = {};
+      (fuClients ?? []).forEach((c: any) => { clientMap[c.id] = c; });
+      const driverMap: Record<string, any> = {};
+      (fuDrivers ?? []).forEach((d: any) => { driverMap[d.id] = d; });
+
+      arrivalFollowUps = needsFollowUp.map((b: any) => ({
+        id: b.id,
+        tvl_ref: b.tvl_ref,
+        arrival_date: b.date_time,
+        days_since_arrival: daysSince(b.date_time),
+        pickup: b.pickup,
+        dropoff: b.dropoff,
+        client_id: b.client_id,
+        driver_id: b.driver_id,
+        client: clientMap[b.client_id] ?? null,
+        driver: driverMap[b.driver_id] ?? null,
+      }));
+    }
+  }
+
   return res.json({
     bookings_today: (todayBookings ?? []).length,
     bookings_this_week: (weekBookings ?? []).length,
@@ -238,6 +328,9 @@ router.get("/summary", async (_req, res) => {
     top_clients: topClients,
     top_drivers: topDrivers,
     booking_sources: bookingSources,
+    pending_requests,
+    awaiting_return,
+    arrival_followups: arrivalFollowUps,
   });
 });
 
