@@ -924,8 +924,9 @@ export default function NewBooking() {
                         <FlightLookupCard
                           flightNumber={watchedFlightNumber}
                           direction={watchedDirection}
-                          onAutoFill={(dateTime, origin, destination, terminal) => {
-                            bookingForm.setValue("date_time", dateTime);
+                          onAutoFill={(_dateTime, origin, destination, terminal) => {
+                            // Date/time is left untouched — clients pre-book so the
+                            // operator enters the trip date manually.
                             // The airport is the pickup on Arrival, the drop-off on Departure.
                             // Append the terminal so the chauffeur knows exactly where to go.
                             const term = terminal ? ` Terminal ${terminal}` : "";

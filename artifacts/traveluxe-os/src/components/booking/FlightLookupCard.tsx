@@ -143,7 +143,7 @@ export function FlightLookupCard({ flightNumber, direction, onAutoFill }: Props)
           className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10"
         >
           <Clock className="w-3 h-3 mr-1" />
-          Auto-fill time, airport {isArrival ? "(pickup)" : "(drop-off)"}{data.terminal ? " & terminal" : ""}
+          Auto-fill airport {isArrival ? "(pickup)" : "(drop-off)"}{data.terminal ? " & terminal" : ""}
         </Button>
       )}
 
