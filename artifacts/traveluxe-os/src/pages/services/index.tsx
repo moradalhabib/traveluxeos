@@ -149,20 +149,48 @@ export default function Services() {
       });
   }, [selectedKey]);
 
+  // "Active" = truly upcoming jobs (today onwards) in a working status.
+  // Imported Odoo bookings with stale Confirmed/Pending status from past
+  // dates are excluded so the count reflects what actually needs attention.
+  const startOfToday = useMemo(() => {
+    const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime();
+  }, []);
+  const ACTIVE_STATUSES = ["Confirmed", "Driver Assigned", "Pending", "In Progress"];
+  const isUpcoming = (b: Booking) =>
+    !!b.date_time && new Date(b.date_time).getTime() >= startOfToday;
+
   const statsFor = (key: ServiceKey) => {
     const svcBookings = bookings.filter(b => canonicalKey(b.service_type) === key);
-    const active = svcBookings.filter(b => ["Confirmed", "Driver Assigned", "Pending", "In Progress"].includes(b.status)).length;
+    const active = svcBookings.filter(b =>
+      ACTIVE_STATUSES.includes(b.status) && isUpcoming(b)
+    ).length;
     const revenue = svcBookings.filter(b => b.status !== "Cancelled").reduce((s, b) => s + Number(b.price || 0), 0);
     const completed = svcBookings.filter(b => b.status === "Completed" || b.status === "Invoiced").length;
     return { total: svcBookings.length, active, revenue, completed };
   };
 
+  // Sort upcoming first (earliest → latest), then past (most recent → oldest)
+  const sortByUpcomingThenRecent = (list: Booking[]) => {
+    return [...list].sort((a, b) => {
+      const ta = a.date_time ? new Date(a.date_time).getTime() : 0;
+      const tb = b.date_time ? new Date(b.date_time).getTime() : 0;
+      const aUp = ta >= startOfToday;
+      const bUp = tb >= startOfToday;
+      if (aUp && !bUp) return -1;
+      if (!aUp && bUp) return 1;
+      if (aUp && bUp) return ta - tb;       // upcoming: soonest first
+      return tb - ta;                       // past: most recent first
+    });
+  };
+
   const filteredBookings = useMemo(() => {
     if (!selectedKey) return [];
-    return bookings
+    const list = bookings
       .filter(b => canonicalKey(b.service_type) === selectedKey)
       .filter(b => statusFilter === "All" || b.status === statusFilter);
-  }, [selectedKey, bookings, statusFilter]);
+    return sortByUpcomingThenRecent(list);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKey, bookings, statusFilter, startOfToday]);
 
   const catalogueProducts = useMemo(() => {
     if (!selectedKey) return [];
