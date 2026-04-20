@@ -26,7 +26,6 @@ router.get("/", async (req, res) => {
   const { data, error } = await q;
   if (error) return res.status(400).json({ error: error.message });
 
-  // Also return unread count (cheap separate query)
   const { count: unreadCount } = await db
     .from("notifications")
     .select("id", { count: "exact", head: true })
@@ -34,7 +33,7 @@ router.get("/", async (req, res) => {
     .eq("dismissed", false)
     .eq("read", false);
 
-  res.json({ items: data ?? [], unread_count: unreadCount ?? 0 });
+  return res.json({ items: data ?? [], unread_count: unreadCount ?? 0 });
 });
 
 // POST /api/notifications/mark-all-read
@@ -49,7 +48,7 @@ router.post("/mark-all-read", async (req, res) => {
     .eq("user_id", user.id)
     .eq("read", false);
   if (error) return res.status(400).json({ error: error.message });
-  res.json({ ok: true });
+  return res.json({ ok: true });
 });
 
 // POST /api/notifications/:id/read
@@ -63,7 +62,7 @@ router.post("/:id/read", async (req, res) => {
     .eq("id", req.params.id)
     .eq("user_id", user.id);
   if (error) return res.status(400).json({ error: error.message });
-  res.json({ ok: true });
+  return res.json({ ok: true });
 });
 
 // POST /api/notifications/:id/dismiss  (soft-hide; keeps audit trail)
@@ -77,10 +76,10 @@ router.post("/:id/dismiss", async (req, res) => {
     .eq("id", req.params.id)
     .eq("user_id", user.id);
   if (error) return res.status(400).json({ error: error.message });
-  res.json({ ok: true });
+  return res.json({ ok: true });
 });
 
-// POST /api/notifications/clear-all  (soft-hide all current notifications for this user)
+// POST /api/notifications/clear-all
 router.post("/clear-all", async (req, res) => {
   const user = await getUserFromToken(auth(req));
   if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -91,10 +90,10 @@ router.post("/clear-all", async (req, res) => {
     .eq("user_id", user.id)
     .eq("dismissed", false);
   if (error) return res.status(400).json({ error: error.message });
-  res.json({ ok: true });
+  return res.json({ ok: true });
 });
 
-// GET /api/notifications/prefs
+// GET /api/notifications/prefs/me
 router.get("/prefs/me", async (req, res) => {
   const user = await getUserFromToken(auth(req));
   if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -106,8 +105,7 @@ router.get("/prefs/me", async (req, res) => {
     .maybeSingle();
   if (error) return res.status(400).json({ error: error.message });
 
-  // Defaults if no row yet
-  res.json(data ?? {
+  return res.json(data ?? {
     user_id: user.id,
     booking_new: true,
     booking_status: true,
@@ -123,7 +121,7 @@ router.get("/prefs/me", async (req, res) => {
   });
 });
 
-// PUT /api/notifications/prefs
+// PUT /api/notifications/prefs/me
 router.put("/prefs/me", async (req, res) => {
   const user = await getUserFromToken(auth(req));
   if (!user) return res.status(401).json({ error: "Unauthorized" });
@@ -143,7 +141,7 @@ router.put("/prefs/me", async (req, res) => {
     .select()
     .single();
   if (error) return res.status(400).json({ error: error.message });
-  res.json(data);
+  return res.json(data);
 });
 
 export default router;
