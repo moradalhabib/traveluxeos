@@ -19,7 +19,7 @@ interface FlightStatus {
 interface Props {
   flightNumber: string;
   direction?: string;
-  onAutoFill?: (dateTime: string, origin: string, destination: string) => void;
+  onAutoFill?: (dateTime: string, origin: string, destination: string, terminal: string | null) => void;
 }
 
 const STATUS_META: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
@@ -83,7 +83,7 @@ export function FlightLookupCard({ flightNumber, direction, onAutoFill }: Props)
       .slice(0, 16);
     const origin = data.origin ?? "";
     const destination = data.destination ?? "";
-    onAutoFill(local, origin, destination);
+    onAutoFill(local, origin, destination, data.terminal ?? null);
   };
 
   if (loading) {
@@ -143,7 +143,7 @@ export function FlightLookupCard({ flightNumber, direction, onAutoFill }: Props)
           className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10"
         >
           <Clock className="w-3 h-3 mr-1" />
-          Auto-fill date & time
+          Auto-fill time, airport {isArrival ? "(pickup)" : "(drop-off)"}{data.terminal ? " & terminal" : ""}
         </Button>
       )}
 

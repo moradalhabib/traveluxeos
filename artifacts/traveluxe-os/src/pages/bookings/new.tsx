@@ -924,13 +924,16 @@ export default function NewBooking() {
                         <FlightLookupCard
                           flightNumber={watchedFlightNumber}
                           direction={watchedDirection}
-                          onAutoFill={(dateTime, origin, destination) => {
+                          onAutoFill={(dateTime, origin, destination, terminal) => {
                             bookingForm.setValue("date_time", dateTime);
+                            // The airport is the pickup on Arrival, the drop-off on Departure.
+                            // Append the terminal so the chauffeur knows exactly where to go.
+                            const term = terminal ? ` Terminal ${terminal}` : "";
                             if (watchedDirection === "Arrival" && origin) {
-                              bookingForm.setValue("pickup", origin);
+                              bookingForm.setValue("pickup", `${origin}${term}`);
                             }
                             if (watchedDirection === "Departure" && destination) {
-                              bookingForm.setValue("dropoff", destination);
+                              bookingForm.setValue("dropoff", `${destination}${term}`);
                             }
                           }}
                         />
