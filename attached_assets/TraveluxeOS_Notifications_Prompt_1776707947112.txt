@@ -1,0 +1,179 @@
+Please implement a fully functional notification system for Traveluxe OS. This is critical for operations — alerts must appear on screen for operators in real time even when they are on a different page of the app.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HOW NOTIFICATIONS MUST WORK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+THREE layers of notification — all three must work together:
+
+1. IN-APP TOAST ALERT — a notification banner slides in from the top right of the screen regardless of which page the operator is on. It shows for 8 seconds then dismisses. Operator can also manually dismiss it. Clicking the toast takes them directly to the relevant booking, job, or message.
+
+2. NOTIFICATION BELL — the bell icon in the top right of every page shows a red badge with unread count. Clicking it opens a notification drawer showing all recent notifications with timestamps. Unread notifications are highlighted. Operator can mark all as read.
+
+3. BROWSER PUSH NOTIFICATION — if the operator has added the app to their home screen (PWA) or has the app open in a background tab, a push notification appears on their device even if they are not actively looking at the app. This uses the Web Push API via Supabase real-time.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NOTIFICATION TRIGGERS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The following events must trigger notifications. Each notification specifies who receives it.
+
+NEW BOOKING CREATED:
+- Trigger: any new booking is created in the system
+- Who receives: all Operators and Admins
+- Message: "New booking TVL-XXXX — [Client Name] — [Service Type] on [Date]"
+- Clicking takes to the job sheet
+
+JOB ASSIGNED TO OPERATOR:
+- Trigger: a booking is assigned to a specific operator
+- Who receives: that operator only
+- Message: "You have been assigned TVL-XXXX — [Client Name] — [Date] at [Time]"
+
+DRIVER NOT ASSIGNED — 3 HOUR WARNING:
+- Trigger: a confirmed booking is within 3 hours and no driver has been assigned
+- Who receives: all Operators and Admins
+- Message: "⚠️ URGENT — TVL-XXXX has no driver assigned — job in [X] hours"
+- This notification repeats every 30 minutes until a driver is assigned
+- Notification is red / urgent styling
+
+DRIVER NOT ASSIGNED — 24 HOUR WARNING:
+- Trigger: a confirmed booking is within 24 hours and no driver has been assigned
+- Who receives: all Operators and Admins
+- Message: "⚠️ TVL-XXXX has no driver assigned — job tomorrow at [Time]"
+
+FLIGHT DELAYED:
+- Trigger: flight tracker detects a delay of 30 minutes or more on an arrival booking
+- Who receives: the operator assigned to that booking, plus all Admins
+- Message: "✈️ Flight [number] for TVL-XXXX is delayed [X] mins — new ETA [time]"
+- Clicking takes to the flight tracker and job sheet
+- Notification is amber / warning styling
+
+BOOKING STATUS CHANGED:
+- Trigger: any booking status changes (Confirmed → Active → Completed etc.)
+- Who receives: the operator assigned to that booking
+- Message: "TVL-XXXX status updated to [New Status]"
+
+BOOKING AMENDED:
+- Trigger: any booking is edited after confirmation
+- Who receives: all Operators and Admins
+- Message: "TVL-XXXX has been amended — check updated details"
+
+BOOKING CANCELLED:
+- Trigger: any booking is cancelled
+- Who receives: all Operators and Admins
+- Message: "TVL-XXXX has been cancelled — [Reason]"
+
+NEW DIRECT MESSAGE:
+- Trigger: an operator receives a direct message from another team member
+- Who receives: the recipient operator only
+- Message: "[Sender name]: [first 50 characters of message]..."
+- Clicking takes to the Messages page and opens that conversation
+
+NEW ANNOUNCEMENT:
+- Trigger: Admin or Super Admin posts in the Announcements channel
+- Who receives: all staff
+- Message: "📢 New announcement from [Name] — tap to read"
+
+NEW TASK ASSIGNED:
+- Trigger: a task is assigned to an operator
+- Who receives: that operator only
+- Message: "📋 New task assigned to you: [Task title] — due [Date]"
+
+TASK OVERDUE:
+- Trigger: a task passes its due date and is not marked complete
+- Who receives: the assigned operator and all Admins
+- Message: "⚠️ Overdue task: [Task title] — assigned to [Name]"
+
+FOLLOW-UP DUE:
+- Trigger: a client request or follow-up reaches its follow-up date
+- Who receives: the operator assigned to it
+- Message: "📞 Follow-up due: [Client Name] — [Service type] request"
+- Clicking takes to the request detail page
+
+COMMISSION OUTSTANDING — WEEKLY:
+- Trigger: every Monday morning at 9am if any driver has outstanding cash commission
+- Who receives: Super Admin and Operators
+- Message: "💰 Weekly commission check — [X] drivers have outstanding balances totalling £[X]"
+- Clicking takes to the Commissions page
+
+UNPAID INVOICE REMINDER:
+- Trigger: any booking has been Completed for more than 7 days with payment status still Unpaid
+- Who receives: Super Admin and Admins
+- Message: "💳 TVL-XXXX invoice unpaid for 7+ days — [Client Name] — £[Amount]"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NOTIFICATION CENTRE (Bell drawer)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+When operator clicks the bell icon:
+- Drawer slides in from the right
+- Shows last 50 notifications for that user
+- Each notification shows:
+  — Icon (color coded by type: red=urgent / amber=warning / blue=info / green=success)
+  — Message text
+  — Timestamp (e.g. "2 minutes ago" / "Today 14:30" / "Yesterday")
+  — Unread dot on notifications not yet seen
+- Tap any notification to go directly to the relevant page
+- "Mark all as read" button at top
+- "Clear all" button (only clears from view — does not delete from log)
+
+BADGE COUNT:
+- Bell icon shows red badge with count of unread notifications
+- Badge disappears when all notifications are marked as read
+- Badge updates in real time via Supabase real-time
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NOTIFICATION PREFERENCES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Each user can control which notifications they receive. Accessible from their profile or settings:
+
+- New booking created: On / Off
+- Job assigned to me: always On (cannot be turned off)
+- Driver not assigned — 3hr warning: On / Off
+- Driver not assigned — 24hr warning: On / Off
+- Flight delay alert: On / Off
+- Booking amended: On / Off
+- Booking cancelled: On / Off
+- New direct message: always On (cannot be turned off)
+- New announcement: always On (cannot be turned off)
+- New task assigned: always On (cannot be turned off)
+- Task overdue: On / Off
+- Follow-up due: On / Off
+- Commission outstanding weekly: On / Off (Admin / Super Admin only)
+- Unpaid invoice reminder: On / Off (Admin / Super Admin only)
+
+Preferences saved per user in Supabase and persist across sessions and devices.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TOAST NOTIFICATION DESIGN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Toast alerts appear in the top right corner of the screen:
+- Width: 320px
+- Dark background (#1a1a1a) with gold left border for standard notifications
+- Red left border for urgent notifications (no driver, cancellations)
+- Amber left border for warnings (flight delay, overdue)
+- Contains: icon, title (bold), message, timestamp, dismiss X button
+- Stacks if multiple notifications arrive at once (max 3 visible at a time)
+- Smooth slide-in and slide-out animation
+- On mobile: appears at top center full width
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DATABASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Add notifications table to Supabase:
+- notifications (id, user_id, type, title, message, entity_type, entity_id, read, created_at)
+- Index on user_id and read for fast queries
+- Real-time enabled on notifications table so bell badge updates instantly
+- Notifications are never deleted — only marked as read
+- Row Level Security: users can only see their own notifications
+
+Scheduled triggers (use Supabase pg_cron or Edge Functions):
+- 3-hour driver warning: check every 15 minutes
+- 24-hour driver warning: check every hour
+- Weekly commission summary: every Monday at 9am
+- Unpaid invoice reminder: check daily at 10am
+- Follow-up due: check daily at 8am
+- Task overdue: check daily at 8am

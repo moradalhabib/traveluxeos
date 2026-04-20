@@ -1,0 +1,338 @@
+Please make the following improvements across Traveluxe OS. These are refinements to existing modules — do not remove any existing functionality. Keep all data intact. Maintain the dark luxury design with gold accents throughout.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. CLIENTS PAGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ADD FILTERS AND SORTING:
+- Sort by: A-Z name / Z-A name / Most recent booking / Oldest booking / Most bookings / Highest spend
+- Filter by: VIP Tier (Standard / VIP / VVIP) / Nationality / Has email (Yes/No) / Status (Active / Inactive)
+- Active filter chips shown at top so operator can see what filters are applied
+- Filter and sort persist while on the page
+
+IMPROVE CLIENT CARDS:
+- Show client full name prominently at top (not phone number as the title)
+- Show nationality flag emoji next to nationality
+- Show VIP badge clearly
+- Show last booking date
+- Show total bookings and total spent
+- WhatsApp button and View Profile button clearly visible
+
+CLIENT SEARCH:
+- Search must only return clients where the name, phone, or email actually matches the query — no partial or unrelated results
+- Results must be exact or close match only
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. GLOBAL SEARCH
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Fix search relevance — currently unrelated client profiles are appearing in results:
+- Client results must only show where the search term matches: name, WhatsApp number, or email
+- Booking results must only show where search term matches: TVL reference, client name, pickup, dropoff, or flight number
+- Driver results must only show where search term matches: driver name or vehicle
+- Minimum 2 characters before search activates
+- Results must be ranked by relevance — exact name match first, then partial matches
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. INTEL / ANALYTICS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Improve the Intel summary to be genuinely useful for a concierge operation:
+
+SMART INSIGHTS — auto-generated, update daily:
+- "You have [X] clients who haven't booked in 90+ days — consider a re-engagement campaign"
+- "Your busiest service this month is [service type] generating £[X]"
+- "[Driver name] has completed the most jobs this month ([X] jobs) — top performer"
+- "You have [X] unpaid invoices totalling £[X] — follow up recommended"
+- "Your highest value client this month is [name] with £[X] in bookings"
+- "[Month] is historically your strongest month — consider preparing offers now"
+- "You have [X] bookings with no driver assigned in the next 7 days — urgent"
+- "Booking source breakdown: [X]% WhatsApp, [X]% Referral — show where leads come from"
+
+CHARTS:
+- Revenue by month bar chart — current year
+- Bookings by service type pie chart
+- Top 5 clients by spend — leaderboard style
+- Top 5 drivers by jobs completed
+
+FILTERS on Intel page:
+- Filter by: This Month / Last Month / This Year / All Time
+- Filter by service type
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. REPLACE QUOTES WITH CLIENT REQUESTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Remove the Quotes module entirely and replace it with a Client Requests module. Rename in nav to "Requests". This is for storing future client requests that cannot yet be booked — for example a client requesting an apartment 3 months ahead, or a future tour enquiry.
+
+REQUEST FIELDS:
+- Link to existing client (WhatsApp number scan — same duplicate detection flow)
+- Service type: Airport Transfer / Tour / Car Rental / Apartment / Hotel / Other
+- Request description (free text — what the client wants)
+- Requested date or date range
+- Estimated value £
+- Priority: Low / Medium / High / Urgent
+- Follow-up date (when to contact the client)
+- Status: New / Following Up / Ready to Book / Converted / Declined / Expired
+- Assigned operator
+- Internal notes
+
+REQUEST LIST VIEW:
+- Sorted by follow-up date by default — most urgent first
+- Filter by: Status / Priority / Service type / Assigned operator / Date range
+- Color coded by priority: Urgent = red / High = amber / Medium = blue / Low = grey
+- Overdue follow-ups (follow-up date passed and still open) highlighted in red with "OVERDUE" badge
+- "Convert to Booking" button on each request — pre-fills a new booking with all available request details, marks request as Converted
+
+NOTIFICATIONS:
+- When a request's follow-up date arrives, show an alert on the dashboard and send a push notification to the assigned operator: "Follow-up due: [Client name] — [Service type] request"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. DRIVER DIRECTORY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FIX EDIT PROFILE — this is currently broken. The edit button must open a fully working form where all driver details can be updated and saved.
+
+REMOVE vehicle type field entirely. Keep only:
+- Vehicle make and model as one combined field (e.g. "Mercedes Benz V-Class", "BMW 5 Series", "Ford Tourneo")
+- This is how operators refer to vehicles in real life
+
+DRIVER PROFILE PAGE IMPROVEMENTS:
+Display clearly:
+- Driver name, WhatsApp button, Active/Inactive badge, vehicle make and model
+- Average rating with star display
+
+JOB HISTORY TAB on driver profile:
+- Full list of all jobs ever assigned to this driver
+- Per job: TVL reference, date, client name, service type, route summary, fare, TVL commission, commission status
+- Filter by: Date range / Service type / Commission status
+- Sort by: Date (newest first default) / Amount
+
+COMMISSION TAB on driver profile:
+- Split into two clear sections:
+  OUTSTANDING (cash jobs — driver owes TVL):
+  - List of all unpaid cash job commissions
+  - Per job: TVL ref, date, fare, commission amount owed
+  - Total outstanding amount in gold at top
+  - "Mark All as Settled" button + "Send WhatsApp Statement" button
+
+  SETTLED (paid):
+  - Full history of all settled commission payments
+  - Per settlement: date settled, jobs included, total amount
+
+DRIVER LIST VIEW IMPROVEMENTS:
+- Show vehicle make and model on driver card (not just type)
+- Show total jobs completed
+- Show current outstanding commission amount — highlighted in amber if owed
+- Filter by: Status (Active/Inactive) / Vehicle type / Has outstanding commission
+- Sort by: Name A-Z / Most jobs / Highest outstanding commission
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. JOBS BOARD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ORGANISATION:
+- Default sort: by date and time ascending — earliest job at top
+- Group jobs by date with clear date headers showing:
+  TODAY — Monday 20 April 2026
+  TOMORROW — Tuesday 21 April 2026
+  And so on for future dates
+  Each date header shows count: "3 jobs"
+
+JOB CARDS — show more detail so operator can identify job without opening job sheet:
+- TVL reference (bold)
+- Client name + VIP badge if applicable
+- SERVICE TYPE badge clearly visible and color coded:
+  ✈️ Airport Transfer — Arrival or ✈️ Airport Transfer — Departure (state which one clearly)
+  🗺️ Tour
+  🚗 Car Rental
+  🏨 Apartment / Hotel
+- Date AND time prominently displayed
+- Route: Pickup → Dropoff clearly shown
+- Flight number if airport transfer arrival
+- Driver assigned (name) OR "⚠️ No Driver" in red
+- Status badge
+- Payment status badge (Paid / Unpaid / Partial)
+- Price
+
+FILTERS on Jobs Board:
+- Filter by: Today / Tomorrow / This Week / All Upcoming / All
+- Filter by: Service type / Status / Driver / Operator
+- Sort by: Time (default) / Client name / Status
+
+ALERTS:
+- Red banner at top for jobs within 3 hours with no driver assigned
+- Each alert shows: TVL ref, client name, time remaining, "Assign Driver" shortcut button
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. BOOKINGS PAGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+BOOKING CARDS — improve detail shown without opening job sheet:
+- Service type clearly labeled with icon and color:
+  ✈️ Airport Transfer — ARRIVAL (green badge)
+  ✈️ Airport Transfer — DEPARTURE (blue badge)
+  🗺️ Tour
+  🚗 Car Rental — As Directed
+  🏨 Apartment
+  🏨 Hotel
+- Date, time, and day of week shown (e.g. "Tue 21 Apr · 15:05")
+- Route: Pickup → Dropoff on one line
+- Flight number shown if arrival
+- Driver assigned or "No Driver ⚠️"
+- Status badge, payment badge, price
+
+FILTERS:
+- Filter by: Status (All / Pending / Confirmed / Active / Completed / Cancelled / Invoiced)
+- Filter by: Service type / Date range / Driver / Operator / Payment status
+- Sort by: Date (newest / oldest) / Status / Amount
+- Search bar: by TVL ref, client name, pickup, flight number
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+8. FOLLOW-UPS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ORGANISATION:
+- Default sort: Overdue first, then by follow-up date ascending
+- Priority badges: Urgent / High / Medium / Low — color coded
+
+FOLLOW-UP CARDS:
+- Client name, VIP badge, last booking date
+- Service type of the follow-up (return journey, new booking, upsell)
+- Follow-up due date — shown as "Overdue by X days" in red if past due
+- Assigned operator
+- Quick notes preview
+
+FILTERS:
+- Filter by: Overdue / Today / This Week / All
+- Filter by: Status (Pending / Done / Return Booked / No Response)
+- Sort by: Due date / Priority / Client name
+
+DIRECT BOOKING SHORTCUT — CRITICAL:
+- When operator clicks a follow-up card and opens the client profile from it, there must be a prominent "Create New Booking for This Client" button at the top
+- Clicking it opens the New Booking form with the client's WhatsApp number already filled in and confirmed — operator goes straight to filling booking details
+- This removes all friction from the follow-up → new booking workflow
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+9. SERVICES PAGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+VISUAL IMPROVEMENT — each service card should show 3 clear stats:
+- BOOKINGS (total all time)
+- ACTIVE (currently running jobs)
+- UPCOMING (confirmed jobs in the next 7 days)
+
+Each service card should also show:
+- Revenue this month
+- A "View All" button that takes operator to the Bookings page pre-filtered to that service type
+
+Make the service cards more visually distinct — each service has its own strong color and clear icon. Suggested:
+- Airport Transfer: deep blue with plane icon ✈️
+- Tours: forest green with map icon 🗺️
+- Car Rental / As Directed: amber with car icon 🚗
+- Apartment: slate with building icon 🏢
+- Hotel: purple with hotel icon 🏨
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+10. COMMISSIONS PAGE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+MAIN VIEW — driver list showing outstanding commissions:
+- Each driver shown as a card with:
+  — Driver name and photo initial
+  — Vehicle make and model
+  — Number of jobs with outstanding commission
+  — Total amount owed to TVL (cash jobs) — shown in amber/gold
+  — Total pending payout from TVL (bank transfer jobs) — shown separately
+  — "Overdue" badge if commission has been outstanding for more than 7 days
+- Sort by: Highest outstanding first (default) / Name A-Z / Most jobs
+- Filter by: Has outstanding balance / Has pending payout / All
+
+CLICKING A DRIVER — opens their commission breakdown:
+Full commission detail page showing:
+- Driver name, vehicle, WhatsApp button
+- Summary strip: Total owed to TVL / Total TVL owes driver / Net position
+
+OWED TO TVL tab (cash jobs):
+- Table: TVL Ref / Date / Client / Service / Fare / Commission Amount / Days Outstanding
+- Total at bottom
+- "Mark All as Settled" button
+- "Send WhatsApp Statement" button — pre-filled with full job breakdown
+
+OWED TO DRIVER tab (bank transfer jobs):
+- Table: TVL Ref / Date / Client / Service / Fare / Driver Receives / Status
+- Total pending payout at bottom
+- "Mark All as Paid" button
+- "Send WhatsApp Confirmation" button
+
+SETTLEMENT HISTORY tab:
+- Full log of all past settlements and payouts for this driver
+- Date, amount, jobs included, settled by
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+11. MARKETING HUB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The Marketing Hub is well built. The following small improvements:
+
+- The "285 clients with email" counter should be clickable — opens a preview of all clients who have an email registered
+- Add a 5th smart segment: "🌍 Gulf Clients" — clients with nationality from UAE, Saudi Arabia, Kuwait, Qatar, Bahrain, Oman — these are Traveluxe's core market
+- On the Custom Filter builder, the "Has email address" field should always default to Yes and not be changeable — you can only export clients with emails, so this should not be a variable option
+- Campaign Log: add a column showing how many of the exported clients actually had a valid email (to track list quality over time)
+- Add an "estimated open rate" note beneath the export button: "Mailchimp average open rate for travel companies is 20-25% — a list of [X] clients could reach [Y] opens"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. ADMIN PANEL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+USERS TAB — fix the invite flow:
+- Remove the instruction box that says "go to Supabase dashboard to invite users" — this must happen inside the app
+- Add a proper "Invite Team Member" button that sends the invite directly from within Traveluxe OS
+- When clicked: modal opens with fields — Full Name, Email, Role (dropdown: Operator / Admin / Viewer)
+- Invite is sent via Supabase Auth invite API — staff receive email with link to set their password
+- Invited but not yet accepted shows as "Pending" with a "Resend Invite" option
+- Hide the Suspend button on the Super Admin's own profile — you cannot suspend yourself
+- Role assignment must be a dropdown inside the app — no SQL required
+
+PRODUCTS TAB:
+- Keep as is — the vehicle catalogue is useful
+- Add ability to mark products as Active / Inactive without deleting
+
+SERVICES TAB:
+- Show revenue per service more prominently
+- Add a toggle to show: This Month / All Time revenue per service
+
+AUDIT TAB:
+- Show operator name (not just "System") on each audit entry
+- Add filter by: Operator / Action type / Date range
+- Make TVL reference on each audit entry a clickable link that opens the booking
+
+ADMIN PANEL DASHBOARD (when clicking Dashboard button):
+- Total bookings today / this week / this month
+- Revenue today / this week / this month (Super Admin only)
+- Active jobs right now
+- Jobs with no driver assigned (urgent — clickable, takes to Jobs Board filtered)
+- Outstanding commission from drivers total
+- Unpaid client invoices total
+- Top 3 busiest upcoming days
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. GENERAL IMPROVEMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+DATES — everywhere in the app dates must show in this format:
+- Full: "Tuesday 21 April 2026"
+- Short: "Tue 21 Apr · 15:05"
+- On Jobs Board date headers: "TOMORROW — Tuesday 21 April 2026" (never just "Tomorrow" alone)
+
+FILTERS — every list page must have filters and sorting. No page should show an unfiltered, unsorted list. Filters must be clearly visible at the top of every list.
+
+EMPTY STATES — when a filtered view returns no results, show a helpful message explaining why and how to adjust the filter. Never show a blank white space.
+
+LOADING STATES — all data loads must show a skeleton loader or spinner — no blank screens while data fetches.
+
+BACK NAVIGATION — every detail page must have a clear "Back" button that returns to the correct list page — not just the browser back button.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Apply all improvements while keeping all existing data and functionality intact. The app is live and in use — do not reset or alter any existing records in the database. Only make frontend and UX improvements as described above.
