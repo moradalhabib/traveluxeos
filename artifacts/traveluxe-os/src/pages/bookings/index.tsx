@@ -62,13 +62,12 @@ export default function Bookings() {
 
   const getStatusColor = (s: string) => {
     switch (s) {
-      case "Confirmed":       return "bg-blue-500/20 text-blue-500 border-blue-500/50";
-      case "Driver Assigned": return "bg-primary/20 text-primary border-primary/50";
-      case "Active":          return "bg-green-500/20 text-green-500 border-green-500/50";
-      case "Completed":       return "bg-gray-500/20 text-gray-500 border-gray-500/50";
-      case "Cancelled":       return "bg-destructive/20 text-destructive border-destructive/50";
-      case "Invoiced":        return "bg-purple-500/20 text-purple-500 border-purple-500/50";
-      default:                return "bg-secondary text-secondary-foreground border-border";
+      case "Pending":   return "bg-amber-500/20 text-amber-500 border-amber-500/50";
+      case "Confirmed": return "bg-blue-500/20 text-blue-500 border-blue-500/50";
+      case "Active":    return "bg-green-500/20 text-green-500 border-green-500/50";
+      case "Completed": return "bg-gray-500/20 text-gray-500 border-gray-500/50";
+      case "Cancelled": return "bg-destructive/20 text-destructive border-destructive/50";
+      default:          return "bg-secondary text-secondary-foreground border-border";
     }
   };
 

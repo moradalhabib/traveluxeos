@@ -14,12 +14,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useQueryClient } from "@tanstack/react-query";
 
 const STATUS_COLORS: Record<string, string> = {
-  'Confirmed':       'bg-blue-500/20 text-blue-400 border-blue-500/50',
-  'Driver Assigned': 'bg-primary/20 text-primary border-primary/50',
-  'Active':          'bg-green-500/20 text-green-400 border-green-500/50',
-  'Completed':       'bg-gray-500/20 text-gray-400 border-gray-500/50',
-  'Cancelled':       'bg-destructive/20 text-destructive border-destructive/50',
-  'Invoiced':        'bg-purple-500/20 text-purple-400 border-purple-500/50',
+  'Pending':   'bg-amber-500/20 text-amber-400 border-amber-500/50',
+  'Confirmed': 'bg-blue-500/20 text-blue-400 border-blue-500/50',
+  'Active':    'bg-green-500/20 text-green-400 border-green-500/50',
+  'Completed': 'bg-gray-500/20 text-gray-400 border-gray-500/50',
+  'Cancelled': 'bg-destructive/20 text-destructive border-destructive/50',
 };
 
 const PAYMENT_COLORS: Record<string, string> = {
@@ -175,11 +174,11 @@ export default function Jobs() {
                     onChange={e => handleStatusChange(e, job.id)}
                     className={`h-7 rounded-full border text-[11px] font-semibold px-2 cursor-pointer appearance-none text-center ${STATUS_COLORS[job.status] ?? 'bg-secondary text-secondary-foreground border-border'}`}
                   >
+                    <option value="Pending">Pending</option>
                     <option value="Confirmed">Confirmed</option>
-                    <option value="Driver Assigned">Driver Assigned</option>
                     <option value="Active">Active</option>
                     <option value="Completed">Completed</option>
-                    <option value="Invoiced">Invoiced</option>
+                    <option value="Cancelled">Cancelled</option>
                   </select>
                   {job.date_time && (
                     <div className="flex flex-col items-end gap-0.5">
