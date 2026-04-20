@@ -38,6 +38,7 @@ import Search from "@/pages/search/index";
 import Admin from "@/pages/admin/index";
 import Services from "@/pages/services/index";
 import Analytics from "@/pages/analytics/index";
+import Marketing from "@/pages/marketing/index";
 
 const queryClient = new QueryClient();
 
@@ -45,7 +46,7 @@ const queryClient = new QueryClient();
 const RESIDENCE_MANAGER_BLOCKED = [
   "/", "/jobs", "/quotes", "/quotes/new", "/flights",
   "/drivers", "/commissions", "/messages", "/finance",
-  "/invoices", "/search", "/services", "/admin",
+  "/invoices", "/search", "/services", "/admin", "/marketing",
 ];
 
 function ProtectedRoute({
@@ -114,6 +115,7 @@ function Router() {
       <ProtectedRoute path="/services" component={Services} blockResidenceManager={true} />
       <ProtectedRoute path="/analytics" component={Analytics} blockResidenceManager={true} />
       <ProtectedRoute path="/admin" component={Admin} reqAdmin={true} />
+      <ProtectedRoute path="/marketing" component={Marketing} reqAdmin={true} />
 
       <Route component={NotFound} />
     </Switch>

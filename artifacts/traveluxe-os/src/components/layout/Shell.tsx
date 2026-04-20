@@ -4,7 +4,8 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   LayoutDashboard, Users, FileText, CalendarRange,
   Briefcase, PlaneTakeoff, Car, Calculator, MessageSquare,
-  LineChart, Search, Settings, LogOut, Plus, X, Lock, Receipt, Layers, Home
+  LineChart, Search, Settings, LogOut, Plus, X, Lock, Receipt, Layers, Home,
+  Megaphone
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +29,7 @@ const OPERATOR_SIDEBAR = [
   { href: "/commissions",  label: "Commissions",  icon: Calculator },
   { href: "/messages",     label: "Messages",     icon: MessageSquare },
   { href: "/finance",      label: "Finance",      icon: LineChart, reqSuperAdmin: true },
+  { href: "/marketing",    label: "Marketing",    icon: Megaphone, reqAdmin: true },
   { href: "/admin",        label: "Admin",        icon: Settings, reqAdmin: true },
 ];
 
@@ -40,6 +42,7 @@ const OPERATOR_MORE = [
   { href: "/commissions",  label: "Commissions",  icon: Calculator },
   { href: "/messages",     label: "Messages",     icon: MessageSquare },
   { href: "/finance",      label: "Finance",      icon: LineChart, reqSuperAdmin: true },
+  { href: "/marketing",    label: "Marketing",    icon: Megaphone, reqAdmin: true },
   { href: "/admin",        label: "Admin",        icon: Settings, reqAdmin: true },
 ];
 

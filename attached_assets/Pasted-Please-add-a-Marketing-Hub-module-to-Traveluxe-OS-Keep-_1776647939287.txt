@@ -1,0 +1,107 @@
+Please add a Marketing Hub module to Traveluxe OS. Keep all existing modules intact. Maintain the same dark luxury design with gold accents throughout.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MODULE — MARKETING HUB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+A smart client segmentation and export tool that allows the admin to identify the right clients for each marketing campaign and export a clean list ready to upload directly to Mailchimp.
+
+Add "Marketing" to the More menu and Admin sidebar. Admin access only.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 1 — SMART SEGMENTS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Display the following pre-built segments as large tappable cards at the top of the Marketing Hub. Each card shows the segment name, description, and a live count of how many clients currently match.
+
+PRE-BUILT SEGMENTS:
+
+🔴 Cold Clients
+Clients who have not made a booking in 90 or more days.
+Description shown: "Haven't heard from them in a while — perfect for a re-engagement campaign"
+
+🟡 Warm Clients
+Clients who last booked between 30 and 90 days ago.
+Description shown: "Still fresh — keep them engaged with new offers"
+
+🟢 Active Clients
+Clients who have booked within the last 30 days.
+Description shown: "Recently active — ideal for upsell or thank you messages"
+
+⭐ VIP & VVIP Clients
+All clients with VIP or VVIP tier regardless of last booking date.
+Description shown: "Your highest value clients — exclusive campaigns only"
+
+Each segment card has a "Preview & Export" button.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 2 — CUSTOM FILTER BUILDER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Below the pre-built segments, a custom filter builder allows admin to combine any filters to create a precise audience.
+
+Filter options (all optional, combinable):
+- Last booking: more than [X] days ago / between [X] and [Y] days ago / within last [X] days
+- VIP Tier: Standard / VIP / VVIP / Any
+- Nationality: free text or dropdown of nationalities present in the system
+- Service type last used: Airport Transfer / Tour / Car Rental / Apartment / Any
+- Minimum total spend: £[amount]
+- Has email address: Yes (always default to Yes — clients without email are excluded automatically)
+
+As the admin adjusts filters, show a live count updating in real time:
+"[X] clients match this filter"
+
+If count is 0 show: "No clients match these filters — try adjusting your criteria"
+
+A "Preview List" button shows the matched clients in a table before exporting:
+Columns shown in preview: Name, Nationality, VIP Tier, Last Booking Date, Total Bookings, Total Spend
+(Email is NOT shown in the preview for privacy — it is only included in the export file)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 3 — EXPORT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CRITICAL — The export file must contain ONLY two columns:
+- First Name (taken from the client's full name — first word only)
+- Email
+
+No other data is included in the export. This format is ready to upload directly to Mailchimp with no editing required.
+
+Export format: CSV only
+File name: Traveluxe_Campaign_[Date].csv
+
+"Export to CSV" button — downloads the file instantly to the device.
+
+Before exporting, show a confirmation prompt:
+"You are about to export [X] client emails. This list will be used for: [Campaign Name field — admin types this in]. Confirm export?"
+
+Admin must type a campaign name before export is allowed. This links the export to the campaign log automatically.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECTION 4 — CAMPAIGN LOG
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Every export is automatically logged in the Campaign Log with:
+- Campaign name (entered by admin before export)
+- Date and time of export
+- Segment or filters used
+- Number of clients exported
+- Exported by (operator name)
+
+The Campaign Log is a read-only table showing all past exports in reverse chronological order — most recent first.
+
+This ensures:
+- You never send the same campaign to the same list twice without knowing
+- Full record of all marketing activity
+- Accountability of who exported what and when
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+IMPORTANT RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Only clients who have an email address registered are ever included in any export
+- Clients marked as Inactive are excluded from all exports automatically
+- The export file contains ONLY first name and email — nothing else
+- Admin access only — operators cannot access the Marketing Hub
+- All exports logged automatically — cannot be deleted from the campaign log
+- Live client counts on segment cards must update in real time as client data changes
