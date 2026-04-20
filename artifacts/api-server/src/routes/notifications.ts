@@ -3,15 +3,17 @@ import { getDbClient, getUserFromToken } from "../lib/supabase";
 
 const router = Router();
 
+const auth = (req: any) => req.headers.authorization;
+
 // GET /api/notifications?limit=50&unread_only=false
 router.get("/", async (req, res) => {
-  const user = await getUserFromToken(req);
+  const user = await getUserFromToken(auth(req));
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
   const limit = Math.min(parseInt(String(req.query.limit ?? "50"), 10) || 50, 200);
   const unreadOnly = String(req.query.unread_only ?? "false") === "true";
 
-  const db = getDbClient(req);
+  const db = getDbClient(auth(req));
   let q = db
     .from("notifications")
     .select("*")
@@ -37,10 +39,10 @@ router.get("/", async (req, res) => {
 
 // POST /api/notifications/mark-all-read
 router.post("/mark-all-read", async (req, res) => {
-  const user = await getUserFromToken(req);
+  const user = await getUserFromToken(auth(req));
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
-  const db = getDbClient(req);
+  const db = getDbClient(auth(req));
   const { error } = await db
     .from("notifications")
     .update({ read: true, read_at: new Date().toISOString() })
@@ -52,9 +54,9 @@ router.post("/mark-all-read", async (req, res) => {
 
 // POST /api/notifications/:id/read
 router.post("/:id/read", async (req, res) => {
-  const user = await getUserFromToken(req);
+  const user = await getUserFromToken(auth(req));
   if (!user) return res.status(401).json({ error: "Unauthorized" });
-  const db = getDbClient(req);
+  const db = getDbClient(auth(req));
   const { error } = await db
     .from("notifications")
     .update({ read: true, read_at: new Date().toISOString() })
@@ -66,9 +68,9 @@ router.post("/:id/read", async (req, res) => {
 
 // POST /api/notifications/:id/dismiss  (soft-hide; keeps audit trail)
 router.post("/:id/dismiss", async (req, res) => {
-  const user = await getUserFromToken(req);
+  const user = await getUserFromToken(auth(req));
   if (!user) return res.status(401).json({ error: "Unauthorized" });
-  const db = getDbClient(req);
+  const db = getDbClient(auth(req));
   const { error } = await db
     .from("notifications")
     .update({ dismissed: true, read: true, read_at: new Date().toISOString() })
@@ -80,9 +82,9 @@ router.post("/:id/dismiss", async (req, res) => {
 
 // POST /api/notifications/clear-all  (soft-hide all current notifications for this user)
 router.post("/clear-all", async (req, res) => {
-  const user = await getUserFromToken(req);
+  const user = await getUserFromToken(auth(req));
   if (!user) return res.status(401).json({ error: "Unauthorized" });
-  const db = getDbClient(req);
+  const db = getDbClient(auth(req));
   const { error } = await db
     .from("notifications")
     .update({ dismissed: true, read: true, read_at: new Date().toISOString() })
@@ -94,9 +96,9 @@ router.post("/clear-all", async (req, res) => {
 
 // GET /api/notifications/prefs
 router.get("/prefs/me", async (req, res) => {
-  const user = await getUserFromToken(req);
+  const user = await getUserFromToken(auth(req));
   if (!user) return res.status(401).json({ error: "Unauthorized" });
-  const db = getDbClient(req);
+  const db = getDbClient(auth(req));
   const { data, error } = await db
     .from("notification_prefs")
     .select("*")
@@ -123,9 +125,9 @@ router.get("/prefs/me", async (req, res) => {
 
 // PUT /api/notifications/prefs
 router.put("/prefs/me", async (req, res) => {
-  const user = await getUserFromToken(req);
+  const user = await getUserFromToken(auth(req));
   if (!user) return res.status(401).json({ error: "Unauthorized" });
-  const db = getDbClient(req);
+  const db = getDbClient(auth(req));
 
   const allowed = [
     "booking_new", "booking_status", "booking_amended", "booking_cancelled",
