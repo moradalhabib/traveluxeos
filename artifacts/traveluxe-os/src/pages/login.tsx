@@ -142,9 +142,11 @@ export default function Login() {
     <div className="min-h-screen w-full flex items-center justify-center bg-background p-4">
       <Card className="w-full max-w-md border-primary/20 shadow-2xl">
         <CardHeader className="space-y-2 text-center pb-8">
-          <div className="mx-auto w-12 h-12 rounded bg-primary flex items-center justify-center mb-4">
-            <span className="text-primary-foreground font-bold text-2xl">T</span>
-          </div>
+          <img
+            src="/TVL_logo_original.png"
+            alt="Traveluxe"
+            className="mx-auto h-24 w-auto object-contain mb-4 drop-shadow-[0_0_25px_rgba(201,168,76,0.25)]"
+          />
           <CardTitle className="text-2xl font-bold tracking-tight uppercase text-foreground">
             Traveluxe OS
           </CardTitle>
