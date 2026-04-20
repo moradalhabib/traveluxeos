@@ -75,6 +75,67 @@ router.patch("/:id/status", async (req, res) => {
 
   if (error) return res.status(400).json({ error: error.message });
 
+  // ── Sync the related booking so the job sheet stays in lock-step ─────────
+  // The reverse direction (booking → invoice) already lives in PUT /bookings/:id.
+  // Here we propagate invoice status changes back to the booking so an operator
+  // can manage either side and see the other update automatically.
+  if (data.booking_id) {
+    const { data: booking } = await supabase
+      .from("bookings")
+      .select("status, payment_status, tvl_ref")
+      .eq("id", data.booking_id)
+      .single();
+
+    const bookingPatch: Record<string, any> = {};
+
+    if (status === "Paid") {
+      if (booking?.payment_status !== "Paid") bookingPatch.payment_status = "Paid";
+      // Auto-complete the job (unless it was already cancelled/completed)
+      if (booking && booking.status !== "Cancelled" && booking.status !== "Completed") {
+        bookingPatch.status = "Completed";
+      }
+    } else if (status === "Cancelled") {
+      // Don't override a Completed booking — that would lose history.
+      if (booking && booking.status !== "Completed" && booking.status !== "Cancelled") {
+        bookingPatch.status = "Cancelled";
+      }
+    } else if (status === "Generated" || status === "Sent" || status === "Overdue") {
+      // Invoice flipped back to unpaid → booking is no longer "Paid".
+      if (booking?.payment_status === "Paid") bookingPatch.payment_status = "Unpaid";
+    }
+
+    if (Object.keys(bookingPatch).length > 0) {
+      const { error: syncErr } = await supabase
+        .from("bookings")
+        .update(bookingPatch)
+        .eq("id", data.booking_id);
+      if (syncErr) {
+        // Surface the failure rather than silently leaving the two records out
+        // of sync. The invoice update already committed, so the operator gets
+        // a clear error and can retry; the audit log records the attempt.
+        console.error("[Invoice→Booking sync] failed:", syncErr.message);
+        await auditLog(
+          "sync_booking_from_invoice_failed",
+          "booking",
+          data.booking_id,
+          user.id,
+          `Booking sync failed after invoice ${data.invoice_number} → ${status}: ${syncErr.message}`,
+        );
+        return res.status(500).json({
+          error: `Invoice updated but failed to sync the related booking: ${syncErr.message}. Please refresh and update the booking manually.`,
+          invoice: data,
+        });
+      }
+      await auditLog(
+        "sync_booking_from_invoice",
+        "booking",
+        data.booking_id,
+        user.id,
+        `Booking ${booking?.tvl_ref ?? ""} synced after invoice ${data.invoice_number} → ${status}: ${JSON.stringify(bookingPatch)}`,
+      );
+    }
+  }
+
   await auditLog("update_invoice_status", "invoice", data.id, user.id,
     `Invoice ${data.invoice_number} marked as ${status}`);
 

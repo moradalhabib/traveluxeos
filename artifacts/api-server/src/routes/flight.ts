@@ -132,13 +132,17 @@ router.get("/", async (_req, res) => {
   tomorrowEnd.setDate(now.getDate() + 2);
   tomorrowEnd.setHours(0, 0, 0, 0);
 
+  // Show every booking with a flight number that's scheduled in the next ~36h
+  // and isn't already Cancelled. We intentionally do NOT filter by `direction`
+  // — many imported Odoo bookings have null direction, and operators still
+  // want live status on those. Completed bookings are kept too so a recently
+  // landed flight remains visible until the day rolls over.
   const { data: bookings, error } = await supabase
     .from("bookings")
-    .select("id, tvl_ref, flight_number, date_time, pickup, dropoff, destination, client_id, driver_id, clients(name), drivers(name)")
+    .select("id, tvl_ref, flight_number, date_time, pickup, dropoff, destination, direction, client_id, driver_id, clients(name), drivers(name)")
     .eq("service_type", "Airport Transfer")
-    .eq("direction", "Arrival")
     .not("flight_number", "is", null)
-    .not("status", "in", '("Cancelled","Completed")')
+    .not("status", "eq", "Cancelled")
     .gte("date_time", todayStart.toISOString())
     .lt("date_time", tomorrowEnd.toISOString())
     .order("date_time", { ascending: true });
@@ -188,14 +192,27 @@ router.get("/", async (_req, res) => {
         }
       }
 
+      // Always surface the booking's pickup/dropoff so the UI never has to
+      // show "Unknown → Unknown" — even when AviationStack returns nothing,
+      // the operator at least sees the airport/destination from the job.
+      const enrichedStatus = flightStatus
+        ? {
+            ...flightStatus,
+            origin: flightStatus.origin ?? b.pickup ?? null,
+            destination: flightStatus.destination ?? b.dropoff ?? b.destination ?? null,
+          }
+        : null;
+
       return {
         booking_id: b.id,
         tvl_ref: b.tvl_ref,
         client_name: b.clients?.name ?? null,
         flight_number: b.flight_number,
         scheduled_time: b.date_time,
+        pickup: b.pickup ?? null,
+        dropoff: b.dropoff ?? b.destination ?? null,
         driver_name: b.drivers?.name ?? null,
-        flight_status: flightStatus,
+        flight_status: enrichedStatus,
       };
     })
   );

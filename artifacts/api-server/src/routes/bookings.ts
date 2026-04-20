@@ -100,7 +100,11 @@ router.get("/", async (req, res) => {
   // New bookings use the 'TVL-' pattern. By default the operator's day-to-day
   // views exclude these legacy records so aggregate stats aren't polluted;
   // the dedicated "Imported (Odoo)" sub-tabs pass ?imported=only to show them.
-  const importedMode = String(imported ?? "exclude");   // exclude | only | all
+  // Strict enum — unknown values default to "exclude" so segregation is never
+  // silently bypassed by a malformed query string.
+  const rawImported = String(imported ?? "exclude").toLowerCase();
+  const importedMode: "exclude" | "only" | "all" =
+    rawImported === "only" ? "only" : rawImported === "all" ? "all" : "exclude";
   if (importedMode === "exclude") {
     query = query.not("tvl_ref", "like", "S%");
   } else if (importedMode === "only") {
@@ -324,12 +328,15 @@ router.put("/:id", async (req, res) => {
 
   // On payment_status → Paid: auto-mark invoice Paid, complete booking, send receipt
   if (body.payment_status === "Paid" && prevPaymentStatus !== "Paid") {
-    // Mark invoice as Paid
-    void supabase
+    // Mark invoice as Paid (awaited so failures surface in the audit trail)
+    const { error: invPaidErr } = await supabase
       .from("invoices")
       .update({ status: "Paid", paid_at: new Date().toISOString() })
       .eq("booking_id", req.params.id)
       .in("status", ["Generated", "Sent", "Overdue"]);
+    if (invPaidErr) {
+      console.error("[Booking→Invoice sync] failed:", invPaidErr.message);
+    }
 
     // Auto-transition booking to Completed (unless already cancelled)
     if (updated.status !== "Cancelled" && updated.status !== "Completed") {
@@ -344,6 +351,26 @@ router.put("/:id", async (req, res) => {
     sendPaymentReceiptEmail(enriched).catch(err =>
       console.error("[Email] Receipt send error:", err?.message)
     );
+  }
+
+  // Reverse path: operator changes booking back to Unpaid (e.g. payment
+  // bounced) → flip the invoice back so the two stay symmetric.
+  if (
+    body.payment_status &&
+    body.payment_status !== "Paid" &&
+    prevPaymentStatus === "Paid"
+  ) {
+    const { error: invUnpayErr } = await supabase
+      .from("invoices")
+      .update({ status: "Sent", paid_at: null })
+      .eq("booking_id", req.params.id)
+      .eq("status", "Paid");
+    if (invUnpayErr) {
+      console.error("[Booking→Invoice unpay sync] failed:", invUnpayErr.message);
+    } else {
+      await auditLog("status_change", "invoice", req.params.id, user?.id ?? null,
+        `Invoice for ${updated.tvl_ref} reverted to Sent (booking marked ${body.payment_status})`);
+    }
   }
 
   return res.json(enriched);
