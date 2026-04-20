@@ -237,20 +237,62 @@ router.post("/settlements", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
   const { driver_id, week_start, week_end, booking_ids, notes } = req.body;
 
+  if (!driver_id) return res.status(400).json({ error: "driver_id is required" });
+  if (!Array.isArray(booking_ids) || booking_ids.length === 0) {
+    return res.status(400).json({ error: "booking_ids must be a non-empty array" });
+  }
+
+  // Server-side authorization: only allow settling jobs that
+  // (a) belong to this driver, (b) are Cash, (c) are still Outstanding,
+  // (d) are not Cancelled. This blocks tampering with client-supplied IDs.
+  const { data: eligible, error: eligibleErr } = await supabase
+    .from("bookings")
+    .select("id, tvl_commission")
+    .in("id", booking_ids)
+    .eq("driver_id", driver_id)
+    .eq("payment_method", "Cash")
+    .eq("commission_status", "Outstanding")
+    .neq("status", "Cancelled");
+
+  if (eligibleErr) return res.status(500).json({ error: eligibleErr.message });
+
+  const eligibleIds = (eligible ?? []).map((b: any) => b.id);
+  if (eligibleIds.length !== booking_ids.length) {
+    return res.status(409).json({
+      error: "Some bookings could not be settled (wrong driver, already settled, cancelled, or not cash). Reload and try again.",
+      eligible_count: eligibleIds.length,
+      requested_count: booking_ids.length,
+    });
+  }
+
+  // Step 1: update bookings first. If this fails or partially fails, we abort
+  // before writing the ledger row, leaving the system in a consistent state.
+  const { data: updatedBookings, error: updateErr } = await supabase
+    .from("bookings")
+    .update({ commission_status: "Settled" })
+    .in("id", eligibleIds)
+    .select("id");
+
+  if (updateErr) return res.status(500).json({ error: `Failed to update bookings: ${updateErr.message}` });
+  if ((updatedBookings ?? []).length !== eligibleIds.length) {
+    return res.status(500).json({ error: "Booking update count mismatch — aborted to preserve ledger integrity" });
+  }
+
+  // Step 2: write the settlement ledger row. If this fails, attempt to roll back
+  // the booking status updates so we don't leave them as Settled with no record.
   const { data, error } = await supabase
     .from("commission_settlements")
-    .insert({ driver_id, week_start, week_end, booking_ids, notes, settled_by: user?.id ?? null })
+    .insert({ driver_id, week_start, week_end, booking_ids: eligibleIds, notes, settled_by: user?.id ?? null })
     .select("*, drivers(name)")
     .single();
 
-  if (error) return res.status(400).json({ error: error.message });
-
-  if (booking_ids?.length > 0) {
-    await supabase.from("bookings").update({ commission_status: "Settled" }).in("id", booking_ids);
+  if (error) {
+    await supabase.from("bookings").update({ commission_status: "Outstanding" }).in("id", eligibleIds);
+    return res.status(500).json({ error: `Failed to record settlement, bookings reverted: ${error.message}` });
   }
 
   await auditLog("commission_settled", "driver", driver_id, user?.id ?? null,
-    `Commission settled for ${week_start} to ${week_end}`);
+    `Commission settled for ${week_start} to ${week_end} (${eligibleIds.length} jobs)`);
 
   return res.status(201).json({ ...data, driver_name: data.drivers?.name ?? null, drivers: undefined });
 });
@@ -259,27 +301,62 @@ router.post("/payouts", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
   const { driver_id, week_start, week_end, booking_ids, notes } = req.body;
 
-  const { data: pendingBookings } = await supabase
+  if (!driver_id) return res.status(400).json({ error: "driver_id is required" });
+  if (!Array.isArray(booking_ids) || booking_ids.length === 0) {
+    return res.status(400).json({ error: "booking_ids must be a non-empty array" });
+  }
+
+  // Server-side authorization: only allow paying out jobs that
+  // (a) belong to this driver, (b) are Bank Transfer or Card, (c) payout still Pending,
+  // (d) not Cancelled. Blocks client tampering.
+  const { data: eligible, error: eligibleErr } = await supabase
     .from("bookings")
-    .select("driver_receives")
-    .in("id", booking_ids ?? []);
+    .select("id, driver_receives")
+    .in("id", booking_ids)
+    .eq("driver_id", driver_id)
+    .in("payment_method", ["Bank Transfer", "Card"])
+    .eq("payout_status", "Pending")
+    .neq("status", "Cancelled");
 
-  const total = (pendingBookings ?? []).reduce((s: number, b: any) => s + (b.driver_receives ?? 0), 0);
+  if (eligibleErr) return res.status(500).json({ error: eligibleErr.message });
 
+  const eligibleIds = (eligible ?? []).map((b: any) => b.id);
+  if (eligibleIds.length !== booking_ids.length) {
+    return res.status(409).json({
+      error: "Some bookings could not be paid out (wrong driver, already paid, cancelled, or not bank/card). Reload and try again.",
+      eligible_count: eligibleIds.length,
+      requested_count: booking_ids.length,
+    });
+  }
+
+  const total = (eligible ?? []).reduce((s: number, b: any) => s + (b.driver_receives ?? 0), 0);
+
+  // Step 1: update bookings first.
+  const { data: updatedBookings, error: updateErr } = await supabase
+    .from("bookings")
+    .update({ payout_status: "Paid" })
+    .in("id", eligibleIds)
+    .select("id");
+
+  if (updateErr) return res.status(500).json({ error: `Failed to update bookings: ${updateErr.message}` });
+  if ((updatedBookings ?? []).length !== eligibleIds.length) {
+    return res.status(500).json({ error: "Booking update count mismatch — aborted to preserve ledger integrity" });
+  }
+
+  // Step 2: write payout ledger row, with rollback on failure.
   const { data, error } = await supabase
     .from("driver_payouts")
-    .insert({ driver_id, week_start, week_end, booking_ids, total_amount: total, notes, paid_by: user?.id ?? null })
+    .insert({ driver_id, week_start, week_end, booking_ids: eligibleIds, total_amount: total, notes, paid_by: user?.id ?? null })
     .select("*, drivers(name)")
     .single();
 
-  if (error) return res.status(400).json({ error: error.message });
-
-  if (booking_ids?.length > 0) {
-    await supabase.from("bookings").update({ payout_status: "Paid" }).in("id", booking_ids);
+  if (error) {
+    await supabase.from("bookings").update({ payout_status: "Pending" }).in("id", eligibleIds);
+    return res.status(500).json({ error: `Failed to record payout, bookings reverted: ${error.message}` });
   }
 
   await auditLog("payout_made", "driver", driver_id, user?.id ?? null,
-    `Payout £${total} made for ${week_start} to ${week_end}`);
+    `Payout £${total} made for ${week_start} to ${week_end} (${eligibleIds.length} jobs)`);
 
   return res.status(201).json({ ...data, driver_name: data.drivers?.name ?? null, drivers: undefined });
 });

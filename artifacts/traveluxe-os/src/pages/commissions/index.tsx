@@ -526,11 +526,7 @@ function DriverHistoryDialog({
   actionPending: boolean;
 }) {
   const open = !!driver;
-  if (!driver) return (
-    <Dialog open={open} onOpenChange={onClose}>
-      <DialogContent />
-    </Dialog>
-  );
+  if (!driver) return null;
 
   const isOwedToTvl = mode === "owed_to_tvl";
 
