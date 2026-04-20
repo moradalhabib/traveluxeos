@@ -183,57 +183,73 @@ export function useNotifications() {
   }, []);
 
   // ── Real-time subscription to current user's notifications ──────────
+  // Uses a per-mount unique channel name to avoid supabase-js deduping
+  // across React strict-mode double-mounts (which would cause
+  // "cannot add postgres_changes callbacks ... after subscribe()").
   useEffect(() => {
-    let mounted = true;
-    let channel: any = null;
+    let cancelled = false;
+    let localChannel: any = null;
+
+    const handleInsert = (payload: any) => {
+      const n = rowToNotif(payload.new);
+      if (payload.new?.dismissed) return;
+      setItems(prev => {
+        if (prev.some(x => x.id === n.id)) return prev;
+        return [n, ...prev].slice(0, MAX_KEEP);
+      });
+      showToast(n, () => {
+        if (n.link && typeof window !== "undefined") window.location.assign(n.link);
+      });
+      browserNotify(n.title, n.message, n.link);
+    };
+
+    const handleUpdate = (payload: any) => {
+      const id = payload.new?.id;
+      if (!id) return;
+      if (payload.new?.dismissed) {
+        setItems(prev => prev.filter(x => x.id !== id));
+        return;
+      }
+      setItems(prev => prev.map(x => x.id === id ? { ...x, read: !!payload.new.read } : x));
+    };
+
     (async () => {
       const { data: { session } } = await supabase.auth.getSession();
       const uid = session?.user?.id;
-      if (!uid || !mounted) return;
+      if (!uid || cancelled) return;
 
-      channel = supabase
-        .channel(`notif:${uid}`)
-        .on(
-          "postgres_changes",
-          { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${uid}` },
-          (payload: any) => {
-            const n = rowToNotif(payload.new);
-            // Avoid showing dismissed rows (server may insert dismissed=false always
-            // but be defensive)
-            if (payload.new?.dismissed) return;
-            setItems(prev => {
-              if (prev.some(x => x.id === n.id)) return prev;
-              return [n, ...prev].slice(0, MAX_KEEP);
-            });
-            showToast(n, () => {
-              if (n.link && typeof window !== "undefined") window.location.assign(n.link);
-            });
-            browserNotify(n.title, n.message, n.link);
-          }
-        )
-        .on(
-          "postgres_changes",
-          { event: "UPDATE", schema: "public", table: "notifications", filter: `user_id=eq.${uid}` },
-          (payload: any) => {
-            const id = payload.new?.id;
-            if (!id) return;
-            if (payload.new?.dismissed) {
-              setItems(prev => prev.filter(x => x.id !== id));
-              return;
-            }
-            setItems(prev => prev.map(x => x.id === id ? { ...x, read: !!payload.new.read } : x));
-          }
-        )
-        .subscribe();
-      channelRef.current = channel;
+      // Unique channel name per mount survives strict-mode double-invoke
+      const chanName = `notif:${uid}:${Math.random().toString(36).slice(2, 10)}`;
+      const ch = supabase.channel(chanName);
+      ch.on(
+        "postgres_changes" as any,
+        { event: "INSERT", schema: "public", table: "notifications", filter: `user_id=eq.${uid}` },
+        handleInsert
+      );
+      ch.on(
+        "postgres_changes" as any,
+        { event: "UPDATE", schema: "public", table: "notifications", filter: `user_id=eq.${uid}` },
+        handleUpdate
+      );
+
+      if (cancelled) {
+        supabase.removeChannel(ch);
+        return;
+      }
+
+      ch.subscribe();
+      localChannel = ch;
+      channelRef.current = ch;
     })();
 
     return () => {
-      mounted = false;
-      if (channelRef.current) {
+      cancelled = true;
+      if (localChannel) {
+        supabase.removeChannel(localChannel);
+      } else if (channelRef.current) {
         supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
       }
+      channelRef.current = null;
     };
   }, []);
 
