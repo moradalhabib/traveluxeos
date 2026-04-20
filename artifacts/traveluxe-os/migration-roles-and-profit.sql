@@ -149,14 +149,18 @@ DROP POLICY IF EXISTS "Payouts select" ON public.driver_payouts;
 CREATE POLICY "Payouts select" ON public.driver_payouts
   FOR SELECT USING (public.can_view_commissions(auth.uid()) = true);
 
--- COMMISSIONS table (if exists)
-DROP POLICY IF EXISTS "Active operators can manage commissions" ON public.commissions;
-DROP POLICY IF EXISTS "Commissions select" ON public.commissions;
-DROP POLICY IF EXISTS "Commissions write" ON public.commissions;
-CREATE POLICY "Commissions select" ON public.commissions
-  FOR SELECT USING (public.can_view_commissions(auth.uid()) = true);
-CREATE POLICY "Commissions write" ON public.commissions
-  FOR ALL USING (public.can_view_commissions(auth.uid()) = true);
+-- COMMISSIONS table — only apply if it exists (this project uses
+-- commission_settlements + driver_payouts; legacy 'commissions' may not exist)
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='commissions') THEN
+    EXECUTE 'DROP POLICY IF EXISTS "Active operators can manage commissions" ON public.commissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Commissions select" ON public.commissions';
+    EXECUTE 'DROP POLICY IF EXISTS "Commissions write" ON public.commissions';
+    EXECUTE 'CREATE POLICY "Commissions select" ON public.commissions FOR SELECT USING (public.can_view_commissions(auth.uid()) = true)';
+    EXECUTE 'CREATE POLICY "Commissions write" ON public.commissions FOR ALL USING (public.can_view_commissions(auth.uid()) = true)';
+  END IF;
+END $$;
 
 -- QUOTES — block viewer entirely
 DROP POLICY IF EXISTS "Active operators can manage quotes" ON public.quotes;
