@@ -309,7 +309,51 @@ router.get("/summary", async (_req, res) => {
     }
   }
 
-  // Follow-ups pending count (graceful — table may not exist yet)
+  // Auto-create pending follow_up rows for any awaiting-return / arrival-followup
+  // bookings that don't already have one — keeps Dashboard prompts and the
+  // /follow-ups page in sync (single source of truth).
+  try {
+    const candidates: Array<{ booking_id: string; client_id: string | null; driver_id: string | null; due_date: string; }> = [];
+    const todayIso = new Date().toISOString().split("T")[0];
+    const dueFromArrival = (arrivalIso: string) => {
+      const d = new Date(arrivalIso); d.setDate(d.getDate() + 3);
+      const calc = d.toISOString().split("T")[0];
+      return calc < todayIso ? todayIso : calc;
+    };
+    awaitingReturnRaw.forEach((b: any) => {
+      if (b?.id) candidates.push({
+        booking_id: b.id,
+        client_id: b.client_id ?? null,
+        driver_id: null,
+        due_date: dueFromArrival(b.date_time),
+      });
+    });
+    arrivalFollowUps.forEach((b: any) => {
+      if (b?.id && !candidates.find(c => c.booking_id === b.id)) candidates.push({
+        booking_id: b.id,
+        client_id: b.client_id ?? null,
+        driver_id: b.driver_id ?? null,
+        due_date: dueFromArrival(b.arrival_date),
+      });
+    });
+
+    if (candidates.length > 0) {
+      const ids = candidates.map(c => c.booking_id);
+      const { data: existing } = await supabase
+        .from("follow_ups")
+        .select("booking_id")
+        .in("booking_id", ids);
+      const have = new Set((existing ?? []).map((r: any) => r.booking_id));
+      const toInsert = candidates.filter(c => !have.has(c.booking_id));
+      if (toInsert.length > 0) {
+        await supabase.from("follow_ups").insert(
+          toInsert.map(c => ({ ...c, status: "pending" }))
+        );
+      }
+    }
+  } catch { /* table not yet created — skip silently */ }
+
+  // Follow-ups pending count
   let followUpsPending = 0;
   let followUpsOverdue = 0;
   try {
