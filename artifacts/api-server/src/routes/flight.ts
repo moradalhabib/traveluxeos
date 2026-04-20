@@ -4,19 +4,33 @@ import { supabase } from "../lib/supabase";
 const router = Router();
 const AVIATIONSTACK_KEY = process.env.VITE_AVIATIONSTACK_KEY;
 
-async function fetchFlightStatus(flightNumber: string, date: string): Promise<any> {
+type LookupResult =
+  | { ok: true; data: any }
+  | { ok: false; reason: "no_key" | "plan_restricted" | "not_active" | "api_error"; message?: string };
+
+async function fetchFlightStatus(flightNumber: string, date: string): Promise<LookupResult> {
   if (!AVIATIONSTACK_KEY || AVIATIONSTACK_KEY === "placeholder") {
-    return null;
+    return { ok: false, reason: "no_key" };
   }
 
   try {
     const url = `http://api.aviationstack.com/v1/flights?access_key=${AVIATIONSTACK_KEY}&flight_iata=${flightNumber}&flight_date=${date}&limit=1`;
     const response = await fetch(url);
-    if (!response.ok) return null;
-
     const json = await response.json() as any;
+
+    // Plan-level restriction (e.g. flight_date is a paid feature on AviationStack)
+    if (json?.error?.code === "function_access_restricted" || json?.error?.code === "usage_limit_reached") {
+      return { ok: false, reason: "plan_restricted", message: json.error.message };
+    }
+    if (!response.ok || json?.error) {
+      return { ok: false, reason: "api_error", message: json?.error?.message };
+    }
+
     const flight = json?.data?.[0];
-    if (!flight) return null;
+    if (!flight) {
+      // Free tier returns empty when the flight is not currently airborne
+      return { ok: false, reason: "not_active" };
+    }
 
     const scheduled = flight.departure?.scheduled ?? flight.arrival?.scheduled ?? null;
     const estimated = flight.departure?.estimated ?? flight.arrival?.estimated ?? null;
@@ -38,18 +52,21 @@ async function fetchFlightStatus(flightNumber: string, date: string): Promise<an
     else if (flightStatus === "diverted") status = "Cancelled";
 
     return {
-      flight_number: flightNumber,
-      origin: flight.departure?.airport ?? null,
-      destination: flight.arrival?.airport ?? null,
-      scheduled_time: scheduled,
-      estimated_time: estimated ?? actual,
-      status,
-      delay_minutes: delayMins,
-      terminal: flight.arrival?.terminal ?? null,
-      last_updated: new Date().toISOString(),
+      ok: true,
+      data: {
+        flight_number: flightNumber,
+        origin: flight.departure?.airport ?? null,
+        destination: flight.arrival?.airport ?? null,
+        scheduled_time: scheduled,
+        estimated_time: estimated ?? actual,
+        status,
+        delay_minutes: delayMins,
+        terminal: flight.arrival?.terminal ?? null,
+        last_updated: new Date().toISOString(),
+      },
     };
-  } catch {
-    return null;
+  } catch (e: any) {
+    return { ok: false, reason: "api_error", message: e?.message };
   }
 }
 
@@ -81,10 +98,10 @@ router.get("/:flight_number", async (req, res) => {
     });
   }
 
-  const flightData = await fetchFlightStatus(flight_number.toUpperCase(), flightDate);
+  const result = await fetchFlightStatus(flight_number.toUpperCase(), flightDate);
 
-  if (flightData) {
-    // Upsert cache
+  if (result.ok) {
+    const flightData = result.data;
     await supabase.from("flight_status_cache").upsert({
       flight_number: flight_number.toUpperCase(),
       date: flightDate,
@@ -115,10 +132,22 @@ router.get("/:flight_number", async (req, res) => {
     });
   }
 
+  // Surface why the lookup didn't yield data so the UI can show an
+  // accurate message (plan limit vs flight-not-yet-active vs misconfig).
+  const unavailableReason = (() => {
+    switch (result.reason) {
+      case "no_key": return "Flight lookup not configured.";
+      case "plan_restricted": return "Flight lookup unavailable on current AviationStack plan (date queries require a paid subscription).";
+      case "not_active": return "Flight not yet trackable — appears once airborne.";
+      case "api_error": return result.message ? `Flight lookup error: ${result.message}` : "Flight lookup temporarily unavailable.";
+    }
+  })();
+
   return res.json({
     flight_number: flight_number.toUpperCase(),
     status: "Unknown",
     delay_minutes: 0,
+    unavailable_reason: unavailableReason,
     last_updated: new Date().toISOString(),
   });
 });
@@ -174,18 +203,18 @@ router.get("/", async (_req, res) => {
           };
         } else {
           const live = await fetchFlightStatus(b.flight_number, flightDate);
-          if (live) {
-            flightStatus = live;
+          if (live.ok) {
+            flightStatus = live.data;
             await supabase.from("flight_status_cache").upsert({
               flight_number: b.flight_number,
               date: flightDate,
-              status: live.status,
-              origin: live.origin,
-              destination: live.destination,
-              scheduled_time: live.scheduled_time,
-              estimated_time: live.estimated_time,
-              delay_minutes: live.delay_minutes,
-              terminal: live.terminal,
+              status: live.data.status,
+              origin: live.data.origin,
+              destination: live.data.destination,
+              scheduled_time: live.data.scheduled_time,
+              estimated_time: live.data.estimated_time,
+              delay_minutes: live.data.delay_minutes,
+              terminal: live.data.terminal,
               last_updated: new Date().toISOString(),
             }, { onConflict: "flight_number,date" });
           }

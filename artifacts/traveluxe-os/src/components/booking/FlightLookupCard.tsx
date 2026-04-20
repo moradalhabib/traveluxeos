@@ -42,6 +42,7 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
   const [data, setData] = useState<FlightStatus | null>(null);
   const [loading, setLoading] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
   const [lastFetched, setLastFetched] = useState("");
 
   useEffect(() => {
@@ -69,14 +70,17 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
           const json = await res.json();
           if (json && json.status !== undefined && (json.origin || json.destination || json.scheduled_time)) {
             setData(json);
+            setUnavailableReason(null);
           } else {
             setData(null);
             setNotFound(true);
+            setUnavailableReason(json?.unavailable_reason ?? null);
           }
           setLastFetched(cacheKey);
         } else {
           setData(null);
           setNotFound(true);
+          setUnavailableReason(null);
           setLastFetched(cacheKey);
         }
       } catch {
@@ -136,9 +140,14 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
   if (!data) {
     if (notFound) {
       return (
-        <div className="px-3 py-2.5 rounded-xl border border-amber-500/20 bg-amber-500/5 text-xs text-amber-300/90">
-          No live data for <span className="font-mono">{flightNumber.toUpperCase()}</span> on{" "}
-          {format(new Date(`${date}T00:00:00`), "dd MMM yyyy")}. Enter pickup, drop-off and time manually.
+        <div className="px-3 py-2.5 rounded-xl border border-amber-500/20 bg-amber-500/5 text-xs text-amber-300/90 space-y-1">
+          <div>
+            No live data for <span className="font-mono">{flightNumber.toUpperCase()}</span> on{" "}
+            {format(new Date(`${date}T00:00:00`), "dd MMM yyyy")}. Enter pickup, drop-off and time manually.
+          </div>
+          {unavailableReason && (
+            <div className="text-[11px] text-amber-300/70 italic">{unavailableReason}</div>
+          )}
         </div>
       );
     }
