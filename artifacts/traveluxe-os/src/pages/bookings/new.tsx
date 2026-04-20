@@ -259,12 +259,25 @@ export default function NewBooking() {
     bookingForm.setValue("tvl_commission", 0);
   }, [isHotel, hotelTotalRevenue, hotelTotalCommission]);
 
-  // Populate client_id from URL param on mount (coming from client profile)
+  // Populate client_id from URL param on mount (coming from client profile
+  // or a request conversion). When `from_request` is present we also prefill
+  // service_type/date_time/notes/price.
   useEffect(() => {
     const params = new URLSearchParams(search);
     const clientId = params.get("client_id");
-    if (clientId) {
-      loadClientById(clientId);
+    if (clientId) loadClientById(clientId);
+
+    const fromRequest = params.get("from_request");
+    if (fromRequest) {
+      const svc = params.get("service_type");
+      const dt  = params.get("date_time");
+      const notes = params.get("notes");
+      const price = params.get("price");
+      if (svc) bookingForm.setValue("service_type", svc as any);
+      if (dt)  bookingForm.setValue("date_time", dt.slice(0, 16));
+      if (notes) bookingForm.setValue("notes", notes);
+      if (price) bookingForm.setValue("price", Number(price));
+      toast({ title: "Prefilled from request", description: "Edit and save to convert." });
     }
   }, []);
 
@@ -549,6 +562,23 @@ export default function NewBooking() {
             }));
             await supabase.from("booking_products").insert(lines);
           }
+
+          // If we came from a Request conversion, mark it Converted
+          const fromRequest = new URLSearchParams(search).get("from_request");
+          if (fromRequest) {
+            try {
+              const { data: { session } } = await supabase.auth.getSession();
+              await fetch(`/api/requests/${fromRequest}`, {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  Authorization: `Bearer ${session?.access_token ?? ""}`,
+                },
+                body: JSON.stringify({ status: "Converted", converted_booking_id: booking.id }),
+              });
+            } catch (e) { console.warn("[request convert] failed to mark converted", e); }
+          }
+
           toast({ title: "Booking created" });
           setLocation(`/bookings/${booking.id}`);
         },

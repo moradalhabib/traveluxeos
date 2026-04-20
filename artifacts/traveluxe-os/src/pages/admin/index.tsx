@@ -933,8 +933,8 @@ function IntegrationTab() {
     { method: "POST", path: "/bookings", desc: "Create a booking — service_type: Airport Transfer | Tour | City Tour | Chauffeur Tour | Apartment / Accommodation | As Directed | Event Transfer" },
     { method: "GET", path: "/bookings?status=eq.Confirmed", desc: "Filter bookings by status" },
     { method: "GET", path: "/bookings?service_type=eq.Tour", desc: "Filter by service type (e.g. Tour, City Tour, Apartment / Accommodation)" },
-    { method: "GET", path: "/quotes", desc: "List all quotes" },
-    { method: "POST", path: "/quotes", desc: "Create a quote" },
+    { method: "GET", path: "/requests", desc: "List all client requests" },
+    { method: "POST", path: "/requests", desc: "Create a client request" },
     { method: "GET", path: "/drivers", desc: "List all drivers and their vehicles" },
     { method: "GET", path: "/commissions", desc: "Commission ledger" },
   ];

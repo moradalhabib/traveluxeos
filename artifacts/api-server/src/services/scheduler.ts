@@ -351,6 +351,8 @@ async function checkNoDriverAlerts() {
 // ─── Follow-up due alerts ──────────────────────────────────────────────────
 async function checkFollowUpsDue() {
   const today = new Date().toISOString().slice(0, 10);
+
+  // 1. Existing follow_ups table
   const { data: due } = await supabase
     .from("follow_ups")
     .select("id, client_id, operator_id, due_date, status, clients(name)")
@@ -358,21 +360,47 @@ async function checkFollowUpsDue() {
     .eq("status", "pending")
     .limit(100);
 
-  if (!due || due.length === 0) return;
+  if (due && due.length > 0) {
+    for (const f of due as any[]) {
+      const clientName = f.clients?.name ?? "client";
+      const targetUser = f.operator_id;
+      if (!targetUser) continue;
+      notifyUser(targetUser, {
+        type: "follow_up_due",
+        title: "📞 Follow-up Due",
+        message: `Follow-up due: ${clientName}`,
+        link: `/follow-ups`,
+        entityType: "follow_up",
+        entityId: f.id,
+        severity: "info",
+        dedupeKey: `follow_up_due:${f.id}:${today}`,
+      }).catch(() => {});
+    }
+  }
 
-  for (const f of due as any[]) {
-    const clientName = f.clients?.name ?? "client";
-    const targetUser = f.operator_id;
-    if (!targetUser) continue;
-    notifyUser(targetUser, {
+  // 2. NEW: requests table (Slice 2) — notify all staff for any request
+  // whose follow_up_date is today or earlier and that's still actionable.
+  const { data: dueRequests } = await supabase
+    .from("requests")
+    .select("id, client_id, client_name, follow_up_date, status, priority, clients(name)")
+    .lte("follow_up_date", today)
+    .in("status", ["New", "Following Up"])
+    .limit(200);
+
+  if (!dueRequests || dueRequests.length === 0) return;
+
+  for (const r of dueRequests as any[]) {
+    const clientName = r.clients?.name ?? r.client_name ?? "client";
+    const isUrgent = r.priority === "Urgent" || r.priority === "High";
+    notifyByRoles(STAFF_ROLES, {
       type: "follow_up_due",
-      title: "📞 Follow-up Due",
-      message: `Follow-up due: ${clientName}`,
-      link: `/follow-ups`,
-      entityType: "follow_up",
-      entityId: f.id,
-      severity: "info",
-      dedupeKey: `follow_up_due:${f.id}:${today}`,
+      title: isUrgent ? "🔥 Urgent Request Follow-up" : "📋 Request Follow-up Due",
+      message: `${clientName} — ${r.priority} priority`,
+      link: `/requests/${r.id}`,
+      entityType: "request",
+      entityId: r.id,
+      severity: isUrgent ? "warning" : "info",
+      dedupeKey: `follow_up_due:request:${r.id}:${today}`,
     }).catch(() => {});
   }
 }

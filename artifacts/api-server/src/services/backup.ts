@@ -75,7 +75,7 @@ const BACKUP_TABLES = [
   "drivers",
   "bookings",
   "booking_products",
-  "quotes",
+  "requests",
   "invoices",
   "commissions",
   "products",

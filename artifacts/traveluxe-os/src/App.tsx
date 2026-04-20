@@ -19,9 +19,9 @@ import Dashboard from "@/pages/dashboard";
 import Clients from "@/pages/clients/index";
 import NewClient from "@/pages/clients/new";
 import ClientDetail from "@/pages/clients/[id]";
-import Quotes from "@/pages/quotes/index";
-import NewQuote from "@/pages/quotes/new";
-import QuoteDetail from "@/pages/quotes/[id]";
+import Requests from "@/pages/requests/index";
+import NewRequest from "@/pages/requests/new";
+import RequestDetail from "@/pages/requests/[id]";
 import Bookings from "@/pages/bookings/index";
 import NewBooking from "@/pages/bookings/new";
 import BookingDetail from "@/pages/bookings/[id]";
@@ -100,9 +100,9 @@ function Router() {
       <ProtectedRoute path="/clients" component={Clients} />
       <ProtectedRoute path="/clients/new" component={NewClient} blockResidenceManager={true} />
       <ProtectedRoute path="/clients/:id" component={ClientDetail} />
-      <ProtectedRoute path="/quotes" component={Quotes} blockResidenceManager={true} />
-      <ProtectedRoute path="/quotes/new" component={NewQuote} blockResidenceManager={true} />
-      <ProtectedRoute path="/quotes/:id" component={QuoteDetail} blockResidenceManager={true} />
+      <ProtectedRoute path="/requests" component={Requests} blockResidenceManager={true} />
+      <ProtectedRoute path="/requests/new" component={NewRequest} blockResidenceManager={true} />
+      <ProtectedRoute path="/requests/:id" component={RequestDetail} blockResidenceManager={true} />
       <ProtectedRoute path="/bookings" component={Bookings} />
       <ProtectedRoute path="/bookings/new" component={NewBooking} blockResidenceManager={true} />
       <ProtectedRoute path="/bookings/:id" component={BookingDetail} />

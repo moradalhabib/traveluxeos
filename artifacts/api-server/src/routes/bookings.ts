@@ -171,7 +171,7 @@ router.get("/", async (req, res) => {
 
 // Exhaustive whitelist of every column in the bookings table
 const BOOKING_COLUMNS = new Set([
-  "client_id","quote_id","service_type","direction","pickup","dropoff",
+  "client_id","service_type","direction","pickup","dropoff",
   "destination","flight_number","date_time","passengers","luggage",
   "vehicle_type","nameboard","special_requests","additional_charges",
   "price","tvl_commission","commission_type","payment_status",

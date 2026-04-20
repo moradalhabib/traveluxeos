@@ -2,7 +2,7 @@ import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import {
-  LayoutDashboard, Users, FileText, CalendarRange,
+  LayoutDashboard, Users, ClipboardList, CalendarRange,
   Briefcase, PlaneTakeoff, Car, Calculator, MessageSquare,
   LineChart, Search, Settings, LogOut, Plus, X, Lock, Receipt, Layers, Home,
   Megaphone, PhoneCall
@@ -31,7 +31,7 @@ const OPERATOR_SIDEBAR = [
   { href: "/clients",      label: "Clients",      icon: Users },
   { href: "/analytics",    label: "Intel",        icon: LineChart },
   { href: "/search",       label: "Search",       icon: Search },
-  { href: "/quotes",       label: "Quotes",       icon: FileText },
+  { href: "/requests",     label: "Requests",     icon: ClipboardList },
   { href: "/invoices",     label: "Invoices",     icon: Receipt },
   { href: "/flights",      label: "Flights",      icon: PlaneTakeoff },
   { href: "/drivers",      label: "Drivers",      icon: Car },
@@ -45,7 +45,7 @@ const OPERATOR_SIDEBAR = [
 const OPERATOR_MORE = [
   { href: "/follow-ups",   label: "Follow-Ups",   icon: PhoneCall, badge: true },
   { href: "/analytics",    label: "Intel",        icon: LineChart },
-  { href: "/quotes",       label: "Quotes",       icon: FileText },
+  { href: "/requests",     label: "Requests",     icon: ClipboardList },
   { href: "/invoices",     label: "Invoices",     icon: Receipt },
   { href: "/flights",      label: "Flights",      icon: PlaneTakeoff },
   { href: "/drivers",      label: "Drivers",      icon: Car },
