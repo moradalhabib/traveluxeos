@@ -1054,7 +1054,7 @@ export default function BookingDetail() {
                     </div>
                   </div>
                   <span className="text-sm font-semibold text-foreground ml-4">
-                    £{(line.total ?? line.unit_price * line.quantity ?? 0).toLocaleString()}
+                    £{(line.total ?? (line.unit_price ?? 0) * (line.quantity ?? 0)).toLocaleString()}
                   </span>
                 </div>
               ))}
@@ -1062,7 +1062,7 @@ export default function BookingDetail() {
             <div className="flex justify-between items-center pt-3 border-t border-border mt-1">
               <span className="text-sm text-muted-foreground">Products Subtotal</span>
               <span className="font-bold text-primary">
-                £{orderLines.reduce((s: number, l: any) => s + (l.total ?? l.unit_price * l.quantity ?? 0), 0).toLocaleString()}
+                £{orderLines.reduce((s: number, l: any) => s + (l.total ?? (l.unit_price ?? 0) * (l.quantity ?? 0)), 0).toLocaleString()}
               </span>
             </div>
           </CardContent>

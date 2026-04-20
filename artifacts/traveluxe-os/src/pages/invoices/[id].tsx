@@ -127,7 +127,7 @@ export default function InvoiceDetail() {
 
   const isLoading = invLoading || bookLoading;
 
-  const productsTotal = orderLines.reduce((s, l) => s + (l.total ?? l.unit_price * l.quantity ?? 0), 0);
+  const productsTotal = orderLines.reduce((s, l) => s + (l.total ?? (l.unit_price ?? 0) * (l.quantity ?? 0)), 0);
   const jobTotal = booking ? Number(booking.price || 0) : 0;
 
   const handlePrint = () => window.print();
@@ -587,7 +587,7 @@ export default function InvoiceDetail() {
                   <div className="col-span-2 text-center text-muted-foreground">{line.quantity}</div>
                   <div className="col-span-2 text-right text-muted-foreground">£{Number(line.unit_price ?? 0).toLocaleString()}</div>
                   <div className="col-span-2 text-right font-semibold text-foreground">
-                    £{Number(line.total ?? line.unit_price * line.quantity ?? 0).toLocaleString()}
+                    £{Number(line.total ?? (line.unit_price ?? 0) * (line.quantity ?? 0)).toLocaleString()}
                   </div>
                 </div>
               ))

@@ -70,7 +70,7 @@ export default function Analytics() {
       .not("status", "eq", "Cancelled")
       .order("date_time", { ascending: true })
       .then(({ data }) => {
-        setBookings((data ?? []) as Booking[]);
+        setBookings((data ?? []) as unknown as Booking[]);
         setLoading(false);
       });
   }, [selectedYear]);
