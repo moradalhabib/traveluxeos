@@ -9,11 +9,18 @@ router.get("/", async (_req, res) => {
   weekStart.setDate(now.getDate() - 7);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
 
+  // Show settled / paid history within the last 90 days so the operator can
+  // see "what's been paid" alongside what's still outstanding.
+  const historyCutoff = new Date(now);
+  historyCutoff.setDate(now.getDate() - 90);
+
   const [
     { data: weekBookings },
     { data: monthBookings },
     { data: outstandingBookings },
     { data: pendingPayoutBookings },
+    { data: settledHistoryBookings },
+    { data: paidHistoryBookings },
     { data: arrangementFeeBookings },
     { data: settlements },
     { data: payouts },
@@ -45,6 +52,22 @@ router.get("/", async (_req, res) => {
       .in("payment_method", ["Bank Transfer", "Card"])
       .eq("payout_status", "Pending")
       .neq("status", "Cancelled"),
+    // Cash jobs already settled (history, last 90d) — for driver detail view
+    supabase
+      .from("bookings")
+      .select("id, tvl_ref, date_time, price, additional_charges, tvl_commission, driver_receives, payment_method, commission_status, payout_status, driver_id, service_type, clients(name)")
+      .eq("payment_method", "Cash")
+      .eq("commission_status", "Settled")
+      .gte("date_time", historyCutoff.toISOString())
+      .neq("status", "Cancelled"),
+    // Bank/Card jobs already paid out (history, last 90d) — for driver detail view
+    supabase
+      .from("bookings")
+      .select("id, tvl_ref, date_time, price, additional_charges, tvl_commission, driver_receives, payment_method, commission_status, payout_status, driver_id, service_type, clients(name)")
+      .in("payment_method", ["Bank Transfer", "Card"])
+      .eq("payout_status", "Paid")
+      .gte("date_time", historyCutoff.toISOString())
+      .neq("status", "Cancelled"),
     // Hotel/Apartment arrangement fees outstanding
     supabase
       .from("bookings")
@@ -62,7 +85,7 @@ router.get("/", async (_req, res) => {
       .select("*, drivers(name)")
       .order("paid_at", { ascending: false })
       .limit(50),
-    supabase.from("drivers").select("id, name, staff_no").eq("status", "Active"),
+    supabase.from("drivers").select("id, name, staff_no, whatsapp").eq("status", "Active"),
   ]);
 
   // Week/month totals include both driver commissions and arrangement fees
@@ -85,71 +108,91 @@ router.get("/", async (_req, res) => {
     .reduce((s: number, b: any) => s + (b.commission_amount ?? 0), 0);
 
   // Per-driver breakdown
-  const driverMap: Record<string, { outstanding: number; pending_payout: number; outstanding_jobs: any[]; payout_jobs: any[] }> = {};
+  const driverMap: Record<string, {
+    outstanding: number;
+    pending_payout: number;
+    outstanding_jobs: any[];
+    payout_jobs: any[];
+    settled_jobs: any[];
+    paid_jobs: any[];
+  }> = {};
+
+  const blank = () => ({ outstanding: 0, pending_payout: 0, outstanding_jobs: [], payout_jobs: [], settled_jobs: [], paid_jobs: [] });
 
   (allDrivers ?? []).forEach((d: any) => {
-    driverMap[d.id] = { outstanding: 0, pending_payout: 0, outstanding_jobs: [], payout_jobs: [] };
+    driverMap[d.id] = blank();
+  });
+
+  const toJob = (b: any) => ({
+    booking_id: b.id,
+    tvl_ref: b.tvl_ref,
+    date: b.date_time,
+    client_name: b.clients?.name ?? null,
+    service_type: b.service_type,
+    total_fare: (b.price ?? 0) + (b.additional_charges ?? 0),
+    tvl_commission: b.tvl_commission ?? 0,
+    driver_receives: b.driver_receives ?? 0,
+    payment_method: b.payment_method,
+    commission_status: b.commission_status,
+    payout_status: b.payout_status,
   });
 
   (outstandingBookings ?? []).forEach((b: any) => {
     if (!b.driver_id) return;
-    if (!driverMap[b.driver_id]) driverMap[b.driver_id] = { outstanding: 0, pending_payout: 0, outstanding_jobs: [], payout_jobs: [] };
+    if (!driverMap[b.driver_id]) driverMap[b.driver_id] = blank();
     driverMap[b.driver_id].outstanding += b.tvl_commission ?? 0;
-    driverMap[b.driver_id].outstanding_jobs.push({
-      booking_id: b.id,
-      tvl_ref: b.tvl_ref,
-      date: b.date_time,
-      client_name: b.clients?.name ?? null,
-      service_type: b.service_type,
-      total_fare: (b.price ?? 0) + (b.additional_charges ?? 0),
-      tvl_commission: b.tvl_commission ?? 0,
-      driver_receives: b.driver_receives ?? 0,
-      payment_method: b.payment_method,
-      commission_status: b.commission_status,
-      payout_status: b.payout_status,
-    });
+    driverMap[b.driver_id].outstanding_jobs.push(toJob(b));
   });
 
   (pendingPayoutBookings ?? []).forEach((b: any) => {
     if (!b.driver_id) return;
-    if (!driverMap[b.driver_id]) driverMap[b.driver_id] = { outstanding: 0, pending_payout: 0, outstanding_jobs: [], payout_jobs: [] };
+    if (!driverMap[b.driver_id]) driverMap[b.driver_id] = blank();
     driverMap[b.driver_id].pending_payout += b.driver_receives ?? 0;
-    driverMap[b.driver_id].payout_jobs.push({
-      booking_id: b.id,
-      tvl_ref: b.tvl_ref,
-      date: b.date_time,
-      client_name: b.clients?.name ?? null,
-      service_type: b.service_type,
-      total_fare: (b.price ?? 0) + (b.additional_charges ?? 0),
-      tvl_commission: b.tvl_commission ?? 0,
-      driver_receives: b.driver_receives ?? 0,
-      payment_method: b.payment_method,
-      commission_status: b.commission_status,
-      payout_status: b.payout_status,
-    });
+    driverMap[b.driver_id].payout_jobs.push(toJob(b));
+  });
+
+  (settledHistoryBookings ?? []).forEach((b: any) => {
+    if (!b.driver_id) return;
+    if (!driverMap[b.driver_id]) driverMap[b.driver_id] = blank();
+    driverMap[b.driver_id].settled_jobs.push(toJob(b));
+  });
+
+  (paidHistoryBookings ?? []).forEach((b: any) => {
+    if (!b.driver_id) return;
+    if (!driverMap[b.driver_id]) driverMap[b.driver_id] = blank();
+    driverMap[b.driver_id].paid_jobs.push(toJob(b));
   });
 
   const { data: driverDetails } = await supabase
     .from("drivers")
-    .select("id, name, staff_no")
+    .select("id, name, staff_no, whatsapp")
     .in("id", Object.keys(driverMap));
 
   const driverNameMap: Record<string, string> = {};
   const driverStaffMap: Record<string, string | null> = {};
+  const driverWhatsappMap: Record<string, string | null> = {};
   (driverDetails ?? []).forEach((d: any) => {
     driverNameMap[d.id] = d.name;
     driverStaffMap[d.id] = d.staff_no ?? null;
+    driverWhatsappMap[d.id] = d.whatsapp ?? null;
   });
 
   const driver_breakdown = Object.entries(driverMap)
-    .filter(([, v]) => v.outstanding > 0 || v.pending_payout > 0 || v.outstanding_jobs.length > 0 || v.payout_jobs.length > 0)
+    .filter(([, v]) =>
+      v.outstanding > 0 || v.pending_payout > 0 ||
+      v.outstanding_jobs.length > 0 || v.payout_jobs.length > 0 ||
+      v.settled_jobs.length > 0 || v.paid_jobs.length > 0
+    )
     .map(([driver_id, v]) => ({
       driver_id,
       driver_name: driverNameMap[driver_id] ?? "Unknown",
       driver_staff_no: driverStaffMap[driver_id] ?? null,
+      driver_whatsapp: driverWhatsappMap[driver_id] ?? null,
       outstanding_amount: v.outstanding,
       pending_payout: v.pending_payout,
       jobs: [...v.outstanding_jobs, ...v.payout_jobs],
+      settled_jobs: v.settled_jobs,
+      paid_jobs: v.paid_jobs,
     }));
 
   // Arrangement fees breakdown (Hotel + Apartment)
