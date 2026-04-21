@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift, Map, Building2, CalendarRange } from "lucide-react";
+import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift, Map, Building2, CalendarRange, RotateCcw } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
@@ -287,6 +287,26 @@ export default function BookingDetail() {
     generateInvoice.mutate({ data: { booking_id: id } }, {
       onSuccess: () => { toast({ title: "Invoice generated" }); refetch(); }
     });
+  };
+
+  const handleAddReturnJourney = () => {
+    if (!booking) return;
+    const b: any = booking;
+    const params = new URLSearchParams();
+    if (b.client_id) params.set("client_id", b.client_id);
+    if (booking.service_type) params.set("service_type", booking.service_type);
+    // Reverse route — fall back to `destination` if `dropoff` not present.
+    const origPickup  = b.pickup;
+    const origDropoff = b.dropoff || b.destination;
+    if (origDropoff) params.set("pickup",  origDropoff);
+    if (origPickup)  params.set("dropoff", origPickup);
+    // Invert direction for Airport Transfers (Arrival ↔ Departure)
+    if (booking.service_type === "Airport Transfer" && b.direction) {
+      const inverted = b.direction === "Arrival" ? "Departure" : "Arrival";
+      params.set("direction", inverted);
+    }
+    params.set("return_from", booking.tvl_ref || "previous booking");
+    setLocation(`/bookings/new?${params.toString()}`);
   };
 
   const flightStatusColor = (status?: string) => {
@@ -803,6 +823,20 @@ export default function BookingDetail() {
         </DialogContent>
       </Dialog>
 
+      {/* Add Return Journey — only for completed transfer/tour bookings */}
+      {booking.status === 'Completed'
+       && ['Airport Transfer','As Directed','Tour'].includes(booking.service_type)
+       && (booking as any).client_id && (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleAddReturnJourney}
+          className="border-primary/30 text-primary hover:bg-primary/10"
+        >
+          <RotateCcw className="w-3.5 h-3.5 mr-1.5" /> Add Return Journey
+        </Button>
+      )}
+
       {booking.status === 'Completed' && (
         <div className="flex gap-2 flex-wrap">
           <Button variant="outline" size="sm" onClick={handleInvoice}>
@@ -853,7 +887,13 @@ export default function BookingDetail() {
           <div>
             <p className="text-xs text-muted-foreground uppercase mb-2 font-medium">Client</p>
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-bold">{booking.client_name}</span>
+              {(booking as any).client_id ? (
+                <Link href={`/clients/${(booking as any).client_id}`}>
+                  <span className="font-bold text-primary hover:underline cursor-pointer">{booking.client_name}</span>
+                </Link>
+              ) : (
+                <span className="font-bold">{booking.client_name}</span>
+              )}
               {booking.client_vip_tier && booking.client_vip_tier !== 'Standard' && (
                 <Badge variant="outline" className={getVipBadgeColor(booking.client_vip_tier)}>{booking.client_vip_tier}</Badge>
               )}
@@ -892,7 +932,13 @@ export default function BookingDetail() {
               </Select>
             ) : booking.driver_name ? (
               <>
-                <span className="font-bold block">{booking.driver_name}</span>
+                {(booking as any).driver_id ? (
+                  <Link href={`/drivers/${(booking as any).driver_id}`}>
+                    <span className="font-bold block text-primary hover:underline cursor-pointer">{booking.driver_name}</span>
+                  </Link>
+                ) : (
+                  <span className="font-bold block">{booking.driver_name}</span>
+                )}
                 <span className="text-xs text-muted-foreground">{booking.driver_vehicle}</span>
               </>
             ) : (

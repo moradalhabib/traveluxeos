@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useRoute, useLocation } from "wouter";
+import { useRoute, useLocation, Link } from "wouter";
 import { format, parseISO } from "date-fns";
 import {
   ArrowLeft, CalendarRange, Phone, Mail, Pencil, Save, X,
@@ -128,7 +128,15 @@ export default function RequestDetail() {
       <Card className="border-primary/10">
         <CardHeader>
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <CardTitle className="text-2xl">{r.client_name || "Unknown client"}</CardTitle>
+            <CardTitle className="text-2xl">
+              {(r as any).client_id ? (
+                <Link href={`/clients/${(r as any).client_id}`}>
+                  <span className="text-primary hover:underline cursor-pointer">{r.client_name || "Unknown client"}</span>
+                </Link>
+              ) : (
+                <>{r.client_name || "Unknown client"}</>
+              )}
+            </CardTitle>
             <div className="flex gap-2">
               <Badge variant="outline" className={PRIORITY_STYLES[r.priority]}>{r.priority}</Badge>
               <Badge variant="outline" className={STATUS_STYLES[r.status]}>{r.status}</Badge>

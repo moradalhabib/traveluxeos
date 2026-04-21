@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { MessageSquare, Edit, ArrowLeft, Ban, Plus, CalendarRange, Trash2, Crown, Sparkles, ShieldCheck, Lock, Star, PhoneCall, CheckCheck, RotateCcw, PhoneOff } from "lucide-react";
+import { MessageSquare, Edit, ArrowLeft, Ban, Plus, CalendarRange, Trash2, Crown, Sparkles, ShieldCheck, Lock, Star, PhoneCall, CheckCheck, RotateCcw, PhoneOff, ClipboardList } from "lucide-react";
 import { format, differenceInMonths } from "date-fns";
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
@@ -260,6 +260,22 @@ export default function ClientDetail() {
         <Button variant="outline" onClick={openEdit}>
           <Edit className="w-4 h-4 mr-2" />
           Edit Client
+        </Button>
+        <Button
+          variant="outline"
+          className="border-primary/30 text-primary hover:bg-primary/10"
+          onClick={() => setLocation(`/bookings/new?client_id=${client.id}`)}
+        >
+          <Plus className="w-4 h-4 mr-2" />
+          New Booking
+        </Button>
+        <Button
+          variant="outline"
+          className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10"
+          onClick={() => setLocation(`/requests/new?client_id=${client.id}`)}
+        >
+          <ClipboardList className="w-4 h-4 mr-2" />
+          Create Request
         </Button>
       </div>
 

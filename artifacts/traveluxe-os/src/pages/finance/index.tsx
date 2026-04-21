@@ -365,14 +365,34 @@ export default function Finance() {
             </div>
           ) : (
             <div className="space-y-2">
-              {outstanding.map((booking: any) => (
-                <Link key={booking.id} href={`/bookings/${booking.id}`}>
-                  <div className="flex items-center justify-between p-3 rounded-xl border border-border bg-card hover:border-primary/30 transition-colors cursor-pointer">
-                    <div>
+              {outstanding.map((booking: any) => {
+                const wa = (booking.client_whatsapp || "").replace(/\D/g, "");
+                const chaseMsg = encodeURIComponent(
+                  `Dear ${booking.client_name || "Guest"}, this is a friendly reminder that payment of £${Number(booking.price ?? 0).toLocaleString()} for booking Ref ${booking.tvl_ref} is outstanding. Please arrange payment at your earliest convenience.\n\nThank you,\nTraveluxe London`
+                );
+                return (
+                <div key={booking.id} className="flex items-center justify-between p-3 rounded-xl border border-border bg-card hover:border-primary/30 transition-colors gap-2">
+                  <Link href={`/bookings/${booking.id}`} className="flex-1 min-w-0">
+                    <div className="cursor-pointer">
                       <div className="font-medium text-sm">{booking.client_name}</div>
                       <div className="text-xs text-muted-foreground font-mono">{booking.tvl_ref}</div>
                       <div className="text-xs text-muted-foreground mt-0.5">{booking.service_type}</div>
                     </div>
+                  </Link>
+                  <div className="flex items-center gap-2">
+                    {wa && (
+                      <a
+                        href={`https://wa.me/${wa}?text=${chaseMsg}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        title="Chase payment via WhatsApp"
+                      >
+                        <Button size="sm" variant="outline" className="h-8 px-2 border-green-700/40 text-green-500 hover:bg-green-900/20">
+                          Chase
+                        </Button>
+                      </a>
+                    )}
                     <div className="text-right">
                       <div className="text-primary font-bold">£{(booking.price ?? 0).toLocaleString()}</div>
                       <Badge variant="outline" className="text-[10px] mt-1 text-amber-500 border-amber-500/30">
@@ -380,8 +400,8 @@ export default function Finance() {
                       </Badge>
                     </div>
                   </div>
-                </Link>
-              ))}
+                </div>
+              );})}
             </div>
           )}
         </TabsContent>

@@ -377,7 +377,13 @@ export default function FollowUps() {
                           </span>
                         </Link>
                         {fu.client?.name && (
-                          <span className="text-sm font-semibold text-foreground">{fu.client.name}</span>
+                          fu.client?.id ? (
+                            <Link href={`/clients/${fu.client.id}`}>
+                              <span className="text-sm font-semibold text-primary hover:underline cursor-pointer">{fu.client.name}</span>
+                            </Link>
+                          ) : (
+                            <span className="text-sm font-semibold text-foreground">{fu.client.name}</span>
+                          )
                         )}
                         {fu.client?.vip_tier && fu.client.vip_tier !== "Standard" && (
                           <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary uppercase font-semibold tracking-wider">

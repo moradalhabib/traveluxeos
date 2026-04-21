@@ -281,6 +281,20 @@ export default function NewBooking() {
       if (price) bookingForm.setValue("price", Number(price));
       toast({ title: "Prefilled from request", description: "Edit and save to convert." });
     }
+
+    // Return-journey prefill (from booking detail "Add Return Journey")
+    const returnFrom = params.get("return_from");
+    const pickup = params.get("pickup");
+    const dropoff = params.get("dropoff");
+    const svcParam = params.get("service_type");
+    const dirParam = params.get("direction");
+    if (returnFrom) {
+      if (svcParam) bookingForm.setValue("service_type", svcParam as any);
+      if (pickup)  bookingForm.setValue("pickup", pickup);
+      if (dropoff) bookingForm.setValue("dropoff", dropoff);
+      if (dirParam) bookingForm.setValue("direction", dirParam as any);
+      toast({ title: "Return journey prefilled", description: `Reversed route from ${returnFrom}.` });
+    }
   }, []);
 
   // Auto-update price when order lines change (if total > 0)

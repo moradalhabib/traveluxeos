@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { format, parseISO, differenceInCalendarDays } from "date-fns";
 import {
   Plus, ClipboardList, CalendarRange, AlertTriangle, Search,
@@ -142,6 +142,7 @@ export default function Requests() {
 }
 
 function RequestCard({ r, today }: { r: ClientRequest; today: Date }) {
+  const [, setLocation] = useLocation();
   const Icon = SERVICE_ICONS[r.service_type] ?? Package;
   const followUp = parseISO(r.follow_up_date);
   const daysUntil = differenceInCalendarDays(followUp, today);
@@ -159,7 +160,16 @@ function RequestCard({ r, today }: { r: ClientRequest; today: Date }) {
               </div>
               <div className="min-w-0 flex-1">
                 <h3 className="font-bold text-base text-foreground truncate">
-                  {r.client_name || "Unknown client"}
+                  {(r as any).client_id ? (
+                    <span
+                      className="text-primary hover:underline cursor-pointer"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); setLocation(`/clients/${(r as any).client_id}`); }}
+                    >
+                      {r.client_name || "Unknown client"}
+                    </span>
+                  ) : (
+                    <>{r.client_name || "Unknown client"}</>
+                  )}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">{r.service_type}</p>
               </div>

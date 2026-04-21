@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useLocation, useSearch } from "wouter";
+import { useLocation, useSearch, Link } from "wouter";
 import { format, isToday, isTomorrow, startOfDay, endOfDay, addDays, isBefore, isAfter } from "date-fns";
 import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -158,7 +158,16 @@ export default function Jobs() {
                 <div>
                   <div className="text-xs text-muted-foreground font-mono">{job.tvl_ref}</div>
                   <div className="font-bold text-foreground text-base mt-0.5 flex items-center gap-2">
-                    {job.client_name || 'Unknown Client'}
+                    {job.client_id ? (
+                      <span
+                        className="text-primary hover:underline cursor-pointer"
+                        onClick={(e) => { e.stopPropagation(); setLocation(`/clients/${job.client_id}`); }}
+                      >
+                        {job.client_name || 'Unknown Client'}
+                      </span>
+                    ) : (
+                      <span>{job.client_name || 'Unknown Client'}</span>
+                    )}
                     {job.client_vip_tier && job.client_vip_tier !== 'Standard' && (
                       <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-primary/10 text-primary border-primary/30">
                         {job.client_vip_tier}
@@ -211,7 +220,16 @@ export default function Jobs() {
                 <div className="flex items-center gap-2 text-sm">
                   <Car className="w-4 h-4 text-muted-foreground" />
                   {job.driver_name ? (
-                    <span className="font-medium text-foreground">{job.driver_name}</span>
+                    job.driver_id ? (
+                      <span
+                        className="font-medium text-primary hover:underline cursor-pointer"
+                        onClick={(e) => { e.stopPropagation(); setLocation(`/drivers/${job.driver_id}`); }}
+                      >
+                        {job.driver_name}
+                      </span>
+                    ) : (
+                      <span className="font-medium text-foreground">{job.driver_name}</span>
+                    )
                   ) : (
                     <span className="text-destructive font-medium flex items-center gap-1">
                       <AlertTriangle className="w-3 h-3" /> No Driver

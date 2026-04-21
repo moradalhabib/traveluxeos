@@ -1,4 +1,4 @@
-import { useParams, useLocation } from "wouter";
+import { useParams, useLocation, Link } from "wouter";
 import { useGetDriver, getGetDriverQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -133,9 +133,13 @@ export default function DriverDetail() {
             {driver.commission_ledger && driver.commission_ledger.length > 0 ? (
               <div className="space-y-4">
                 {driver.commission_ledger.map((entry, idx) => (
-                  <div key={idx} className="flex flex-col sm:flex-row sm:justify-between sm:items-center p-3 rounded-lg border border-border bg-background/50 gap-2">
+                  <Link
+                    key={idx}
+                    href={(entry as any).booking_id ? `/bookings/${(entry as any).booking_id}` : "#"}
+                  >
+                    <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center p-3 rounded-lg border border-border bg-background/50 gap-2 hover:border-primary/40 hover:bg-secondary/10 transition-colors cursor-pointer">
                     <div>
-                      <div className="font-medium font-mono text-xs text-muted-foreground">{entry.tvl_ref}</div>
+                      <div className="font-medium font-mono text-xs text-primary hover:underline">{entry.tvl_ref}</div>
                       <div className="text-sm">{entry.client_name || 'Booking'}</div>
                       <div className="text-xs text-muted-foreground">{entry.date ? format(new Date(entry.date), 'PP') : ''}</div>
                     </div>
@@ -149,6 +153,7 @@ export default function DriverDetail() {
                       </Badge>
                     </div>
                   </div>
+                  </Link>
                 ))}
               </div>
             ) : (

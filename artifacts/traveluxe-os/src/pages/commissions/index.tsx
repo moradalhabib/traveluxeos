@@ -534,7 +534,13 @@ function DriverHistoryDialog({
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 flex-wrap">
-            <span>{driver.driver_name}</span>
+            {driver.driver_id ? (
+              <Link href={`/drivers/${driver.driver_id}`}>
+                <span className="text-primary hover:underline cursor-pointer">{driver.driver_name}</span>
+              </Link>
+            ) : (
+              <span>{driver.driver_name}</span>
+            )}
             {driver.driver_staff_no && (
               <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30">
                 {driver.driver_staff_no}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { useLocation } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -47,6 +47,7 @@ interface FoundClient {
 
 export default function NewRequest() {
   const [, setLocation] = useLocation();
+  const search = useSearch();
   const { toast } = useToast();
   const create = useCreateRequest();
 
@@ -71,6 +72,26 @@ export default function NewRequest() {
       follow_up_date: todayPlus3,
     },
   });
+
+  // Pre-fill from URL ?client_id=... (e.g. when launched from a client profile)
+  useEffect(() => {
+    const params = new URLSearchParams(search);
+    const cid = params.get("client_id");
+    if (!cid) return;
+    (async () => {
+      const { data } = await supabase
+        .from("clients")
+        .select("id, name, whatsapp, email, vip_tier")
+        .eq("id", cid)
+        .maybeSingle();
+      if (data) {
+        setConfirmedClient(data as FoundClient);
+        form.setValue("client_id", data.id);
+        form.setValue("client_name", data.name);
+        setPhase("form");
+      }
+    })();
+  }, []);
 
   // Live WhatsApp / phone lookup against existing client profiles
   useEffect(() => {
