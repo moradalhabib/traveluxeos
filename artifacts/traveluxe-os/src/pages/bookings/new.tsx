@@ -2381,7 +2381,7 @@ export default function NewBooking() {
                               <SelectItem value="unassigned">Unassigned</SelectItem>
                               {drivers?.map((driver: any) => (
                                 <SelectItem key={driver.id} value={driver.id}>
-                                  {driver.name} · {driver.vehicle_model || driver.vehicle_type}
+                                  {driver.staff_no ? `${driver.staff_no} · ` : ""}{driver.name} · {driver.vehicle_model || driver.vehicle_type}
                                   {driver.plate ? ` (${driver.plate})` : ""}
                                 </SelectItem>
                               ))}
@@ -2446,7 +2446,7 @@ export default function NewBooking() {
                                 <SelectItem value="none">None</SelectItem>
                                 {drivers?.map((driver: any) => (
                                   <SelectItem key={driver.id} value={driver.name}>
-                                    {driver.name} · {driver.vehicle_model || driver.vehicle_type}
+                                    {driver.staff_no ? `${driver.staff_no} · ` : ""}{driver.name} · {driver.vehicle_model || driver.vehicle_type}
                                     {driver.plate ? ` (${driver.plate})` : ""}
                                   </SelectItem>
                                 ))}
@@ -2464,7 +2464,7 @@ export default function NewBooking() {
                                 <SelectItem value="none">None</SelectItem>
                                 {drivers?.map((driver: any) => (
                                   <SelectItem key={driver.id} value={driver.name}>
-                                    {driver.name} · {driver.vehicle_model || driver.vehicle_type}
+                                    {driver.staff_no ? `${driver.staff_no} · ` : ""}{driver.name} · {driver.vehicle_model || driver.vehicle_type}
                                     {driver.plate ? ` (${driver.plate})` : ""}
                                   </SelectItem>
                                 ))}

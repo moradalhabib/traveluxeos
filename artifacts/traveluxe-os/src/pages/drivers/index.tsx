@@ -3,10 +3,24 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, MessageSquare, Star, Car } from "lucide-react";
+import { Search, Plus, MessageSquare, Star, Car, RefreshCw, Loader2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Link } from "wouter";
 import { useState, useMemo } from "react";
+import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
 
 type StatusFilter = "All" | "Active" | "Inactive" | "Suspended";
 
@@ -15,10 +29,46 @@ const STATUS_FILTERS: StatusFilter[] = ["All", "Active", "Inactive", "Suspended"
 export default function Drivers() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const isSuperAdmin = user?.role === "super_admin";
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const { data: drivers, isLoading } = useListDrivers(
     {},
     { query: { enabled: true, queryKey: getListDriversQueryKey({}) } }
   );
+
+  const handleReset = async () => {
+    setResetting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error("Not signed in");
+      const base = (import.meta as any).env?.VITE_API_URL ?? "";
+      const res = await fetch(`${base}/api/drivers/reset-staff-numbers`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(body?.error || "Reset failed");
+      toast({
+        title: "TVL numbers reset",
+        description: `Cleared TVL staff numbers on ${body?.cleared ?? 0} driver(s). Bookings & commissions are untouched.`,
+      });
+      queryClient.invalidateQueries({ queryKey: getListDriversQueryKey({}) });
+      setResetOpen(false);
+    } catch (e: any) {
+      toast({
+        title: "Could not reset TVL numbers",
+        description: e?.message ?? "Try again",
+        variant: "destructive",
+      });
+    } finally {
+      setResetting(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const list = drivers ?? [];
@@ -40,13 +90,57 @@ export default function Drivers() {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <h1 className="text-3xl font-bold tracking-tight text-foreground">Drivers</h1>
-        <Link href="/drivers/new">
-          <Button className="w-full sm:w-auto h-12 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
-            <Plus className="w-4 h-4 mr-2" />
-            Add Driver
-          </Button>
-        </Link>
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          {isSuperAdmin && (
+            <Button
+              variant="outline"
+              className="w-full sm:w-auto h-12 border-destructive/40 text-destructive hover:bg-destructive/10"
+              onClick={() => setResetOpen(true)}
+              data-testid="button-reset-tvl-numbers"
+            >
+              <RefreshCw className="w-4 h-4 mr-2" />
+              Reset TVL Numbers
+            </Button>
+          )}
+          <Link href="/drivers/new">
+            <Button className="w-full sm:w-auto h-12 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
+              <Plus className="w-4 h-4 mr-2" />
+              Add Driver
+            </Button>
+          </Link>
+        </div>
       </div>
+
+      <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
+        <AlertDialogContent data-testid="dialog-reset-tvl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset all TVL Staff Numbers?</AlertDialogTitle>
+            <AlertDialogDescription className="space-y-2">
+              <span className="block">
+                This clears the <strong>TVL Staff Number</strong> on every driver so you can re-assign them
+                cleanly (TVL 01, TVL 02, …) from each driver's profile.
+              </span>
+              <span className="block text-foreground">
+                ✅ Bookings, commissions, ratings and job history are <strong>not</strong> affected — they link to drivers by ID, not by TVL number.
+              </span>
+              <span className="block text-destructive">
+                This action is logged in the audit trail. Only Super Admin can do this.
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={resetting} data-testid="button-reset-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleReset(); }}
+              disabled={resetting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-reset-confirm"
+            >
+              {resetting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Resetting…</> : "Yes, clear all TVL numbers"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <div className="relative">
         <Search className="absolute left-3 top-3.5 h-5 w-5 text-muted-foreground" />

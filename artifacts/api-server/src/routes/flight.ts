@@ -168,7 +168,7 @@ router.get("/", async (_req, res) => {
   // landed flight remains visible until the day rolls over.
   const { data: bookings, error } = await supabase
     .from("bookings")
-    .select("id, tvl_ref, flight_number, date_time, pickup, dropoff, destination, direction, client_id, driver_id, clients(name), drivers(name)")
+    .select("id, tvl_ref, flight_number, date_time, pickup, dropoff, destination, direction, client_id, driver_id, clients(name), drivers(name, staff_no)")
     .eq("service_type", "Airport Transfer")
     .not("flight_number", "is", null)
     .not("status", "eq", "Cancelled")
@@ -241,6 +241,7 @@ router.get("/", async (_req, res) => {
         pickup: b.pickup ?? null,
         dropoff: b.dropoff ?? b.destination ?? null,
         driver_name: b.drivers?.name ?? null,
+        driver_staff_no: b.drivers?.staff_no ?? null,
         flight_status: enrichedStatus,
       };
     })

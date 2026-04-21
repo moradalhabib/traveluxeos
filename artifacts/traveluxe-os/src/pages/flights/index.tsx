@@ -89,7 +89,14 @@ export default function Flights() {
                   </div>
                   <div>
                     <span className="block text-xs uppercase text-muted-foreground opacity-70">Driver</span>
-                    <span className="font-medium text-foreground">{tracker.driver_name || 'Unassigned'}</span>
+                    <span className="font-medium text-foreground">
+                      {(tracker as any).driver_staff_no && (
+                        <span className="font-mono text-[11px] mr-1.5 px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">
+                          {(tracker as any).driver_staff_no}
+                        </span>
+                      )}
+                      {tracker.driver_name || 'Unassigned'}
+                    </span>
                   </div>
                 </div>
               </CardContent>

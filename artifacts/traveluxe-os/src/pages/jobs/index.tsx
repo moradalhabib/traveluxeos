@@ -346,13 +346,25 @@ export default function Jobs() {
                   {job.driver_name ? (
                     job.driver_id ? (
                       <span
-                        className="font-medium text-primary hover:underline cursor-pointer"
+                        className="font-medium text-primary hover:underline cursor-pointer flex items-center gap-1.5"
                         onClick={(e) => { e.stopPropagation(); setLocation(`/drivers/${job.driver_id}`); }}
                       >
+                        {(job as any).driver_staff_no && (
+                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">
+                            {(job as any).driver_staff_no}
+                          </span>
+                        )}
                         {job.driver_name}
                       </span>
                     ) : (
-                      <span className="font-medium text-foreground">{job.driver_name}</span>
+                      <span className="font-medium text-foreground flex items-center gap-1.5">
+                        {(job as any).driver_staff_no && (
+                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">
+                            {(job as any).driver_staff_no}
+                          </span>
+                        )}
+                        {job.driver_name}
+                      </span>
                     )
                   ) : (
                     <span className="text-destructive font-medium flex items-center gap-1">

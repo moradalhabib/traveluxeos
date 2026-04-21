@@ -135,7 +135,7 @@ router.get("/", async (req, res) => {
 
   let query = db
     .from("bookings")
-    .select("*, clients(name, vip_tier), drivers(name, vehicle_type, vehicle_model, vehicle_year), users!bookings_operator_id_fkey(name)")
+    .select("*, clients(name, vip_tier), drivers(name, staff_no, vehicle_type, vehicle_model, vehicle_year), users!bookings_operator_id_fkey(name)")
     // Newest bookings first (UI may re-sort further on date_time as needed).
     .order("date_time", { ascending: false, nullsFirst: false });
 
@@ -170,6 +170,7 @@ router.get("/", async (req, res) => {
     client_name: b.clients?.name ?? null,
     client_vip_tier: b.clients?.vip_tier ?? null,
     driver_name: b.drivers?.name ?? null,
+    driver_staff_no: b.drivers?.staff_no ?? null,
     driver_vehicle: b.drivers
       ? [b.drivers.vehicle_year, b.drivers.vehicle_model ?? b.drivers.vehicle_type].filter(Boolean).join(" ").trim() || null
       : null,
@@ -397,7 +398,7 @@ router.get("/:id", async (req, res) => {
   const db = getDbClient(req.headers.authorization);
   const { data: booking, error } = await db
     .from("bookings")
-    .select("*, clients(name, vip_tier, whatsapp), drivers(name, vehicle_type, vehicle_model, vehicle_year, whatsapp), users!bookings_operator_id_fkey(name)")
+    .select("*, clients(name, vip_tier, whatsapp), drivers(name, staff_no, vehicle_type, vehicle_model, vehicle_year, whatsapp), users!bookings_operator_id_fkey(name)")
     .eq("id", req.params.id)
     .single();
 
@@ -442,6 +443,7 @@ router.get("/:id", async (req, res) => {
     client_vip_tier: booking.clients?.vip_tier ?? null,
     client_whatsapp: booking.clients?.whatsapp ?? null,
     driver_name: booking.drivers?.name ?? null,
+    driver_staff_no: booking.drivers?.staff_no ?? null,
     driver_vehicle: booking.drivers
       ? [booking.drivers.vehicle_year, booking.drivers.vehicle_model ?? booking.drivers.vehicle_type].filter(Boolean).join(" ").trim() || null
       : null,

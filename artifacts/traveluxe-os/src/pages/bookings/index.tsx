@@ -222,7 +222,14 @@ export default function Bookings() {
                   <>
                     <div>
                       <span className="block text-xs uppercase opacity-70">Driver</span>
-                      <span className="font-medium text-foreground">{booking.driver_name || "Unassigned"}</span>
+                      <span className="font-medium text-foreground">
+                        {(booking as any).driver_staff_no && (
+                          <span className="font-mono text-[11px] mr-1.5 px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">
+                            {(booking as any).driver_staff_no}
+                          </span>
+                        )}
+                        {booking.driver_name || "Unassigned"}
+                      </span>
                     </div>
                     <div>
                       <span className="block text-xs uppercase opacity-70">Price</span>

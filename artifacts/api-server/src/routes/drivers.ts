@@ -4,9 +4,19 @@ import { logActivity } from "../lib/activity";
 
 const router = Router();
 
+// Extract numeric portion of a TVL staff number (e.g. "TVL 03" → 3, "TVL12" → 12).
+// Returns Number.POSITIVE_INFINITY when missing so unassigned drivers always
+// sort to the BOTTOM of the list (per operator spec).
+function staffNoOrder(staff: string | null | undefined): number {
+  if (!staff) return Number.POSITIVE_INFINITY;
+  const m = String(staff).match(/(\d+)/);
+  if (!m) return Number.POSITIVE_INFINITY;
+  return parseInt(m[1], 10);
+}
+
 router.get("/", async (req, res) => {
   const { status } = req.query;
-  let query = supabase.from("drivers").select("*, driver_ratings(rating), bookings(id, status)").order("name");
+  let query = supabase.from("drivers").select("*, driver_ratings(rating), bookings(id, status)");
 
   if (status) query = query.eq("status", String(status));
 
@@ -26,7 +36,56 @@ router.get("/", async (req, res) => {
     };
   });
 
+  // TVL 01, TVL 02, TVL 03 ... unassigned (null/blank staff_no) at the bottom,
+  // alphabetised within the unassigned tail.
+  result.sort((a: any, b: any) => {
+    const oa = staffNoOrder(a.staff_no);
+    const ob = staffNoOrder(b.staff_no);
+    if (oa !== ob) return oa - ob;
+    return String(a.name ?? "").localeCompare(String(b.name ?? ""));
+  });
+
   return res.json(result);
+});
+
+// Reset all TVL staff numbers — operator-initiated wipe of legacy Odoo
+// numbers. ONLY clears the `staff_no` column. Bookings, commissions, ratings,
+// and job history are completely untouched (they reference drivers by id).
+router.post("/reset-staff-numbers", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || user.role !== "super_admin") {
+    return res.status(403).json({ error: "Only Super Admin can reset TVL numbers." });
+  }
+  const { count: before } = await supabase
+    .from("drivers")
+    .select("id", { count: "exact", head: true })
+    .not("staff_no", "is", null);
+
+  const { error } = await supabase
+    .from("drivers")
+    .update({ staff_no: null })
+    .not("id", "is", null);
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  await auditLog(
+    "reset_tvl_staff_numbers",
+    "drivers",
+    "all",
+    user.id,
+    `Cleared TVL staff numbers on ${before ?? 0} driver(s).`
+  );
+  await logActivity({
+    action_type: "drivers_tvl_reset",
+    description: `Reset TVL staff numbers on ${before ?? 0} driver(s) — bookings & commissions untouched.`,
+    entity_type: "drivers",
+    entity_id: null,
+    entity_label: `${before ?? 0} cleared`,
+    operator_id: user.id,
+    operator_name: user.name ?? null,
+  });
+
+  return res.json({ ok: true, cleared: before ?? 0 });
 });
 
 // Whitelist of mutable driver columns. Anything not in this set is ignored
@@ -145,6 +204,15 @@ router.put("/:id", async (req, res) => {
     payload[k] = v === "" ? null : v;
   }
 
+  // Capture the previous staff_no so we can log a precise audit entry
+  // when the TVL number changes.
+  const prev = await supabase
+    .from("drivers")
+    .select("staff_no, name")
+    .eq("id", req.params.id)
+    .single();
+  const prevStaffNo = prev.data?.staff_no ?? null;
+
   const { data, error } = await supabase
     .from("drivers")
     .update(payload)
@@ -154,6 +222,29 @@ router.put("/:id", async (req, res) => {
 
   if (error) return res.status(400).json({ error: error.message });
   await auditLog("update_driver", "driver", req.params.id, user?.id ?? null, `Updated driver ${data.name}`);
+
+  // Dedicated TVL-number audit + activity entry when staff_no was changed.
+  if (Object.prototype.hasOwnProperty.call(payload, "staff_no") && (data.staff_no ?? null) !== prevStaffNo) {
+    const fromTxt = prevStaffNo ?? "(none)";
+    const toTxt = data.staff_no ?? "(cleared)";
+    await auditLog(
+      "update_driver_staff_no",
+      "driver",
+      req.params.id,
+      user?.id ?? null,
+      `${data.name}: TVL number ${fromTxt} → ${toTxt}`
+    );
+    await logActivity({
+      action_type: "driver_tvl_changed",
+      description: `${data.name}: TVL number changed ${fromTxt} → ${toTxt}`,
+      entity_type: "driver",
+      entity_id: req.params.id,
+      entity_label: data.name ?? null,
+      operator_id: user?.id ?? null,
+      operator_name: user?.name ?? null,
+    });
+  }
+
   await logActivity({
     action_type: "driver_updated",
     description: `Driver ${data.name} updated`,

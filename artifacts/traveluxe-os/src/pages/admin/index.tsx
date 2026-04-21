@@ -1137,7 +1137,14 @@ function FleetTab() {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="font-bold text-foreground">{d.vehicle_model || d.vehicle_type || "—"}</p>
-                    <p className="text-xs text-muted-foreground">{d.name}</p>
+                    <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                      {d.staff_no && (
+                        <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">
+                          {d.staff_no}
+                        </span>
+                      )}
+                      <span>{d.name}</span>
+                    </p>
                   </div>
                   <div className="text-right flex-shrink-0">
                     {d.plate && <p className="font-mono text-sm text-foreground uppercase">{d.plate}</p>}

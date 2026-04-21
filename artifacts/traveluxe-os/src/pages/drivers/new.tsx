@@ -56,8 +56,19 @@ export default function NewDriver() {
         toast({ title: "Driver added to fleet" });
         setLocation(`/drivers/${driver.id}`);
       },
-      onError: () => {
-        toast({ title: "Error adding driver", variant: "destructive" });
+      onError: (err: any) => {
+        const raw = err?.response?.data?.error ?? err?.message ?? "Try again";
+        const isStaffNoDup =
+          typeof raw === "string" && raw.toLowerCase().includes("drivers_staff_no_unique");
+        toast({
+          title: isStaffNoDup
+            ? `TVL number "${(values.staff_no ?? "").trim()}" is already used by another driver`
+            : "Error adding driver",
+          description: isStaffNoDup
+            ? "Pick a different TVL Staff Number — each driver must have a unique one."
+            : raw,
+          variant: "destructive",
+        });
       },
     });
   };

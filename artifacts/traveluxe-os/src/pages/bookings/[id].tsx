@@ -1613,7 +1613,7 @@ export default function BookingDetail() {
                   <SelectItem value="unassigned">Unassigned</SelectItem>
                   {(drivers as any[] | undefined)?.map((d: any) => (
                     <SelectItem key={d.id} value={d.id}>
-                      {d.name}
+                      {d.staff_no ? `${d.staff_no} · ` : ""}{d.name}
                       {(d.vehicle_model || d.vehicle_type) ? ` · ${d.vehicle_model || d.vehicle_type}` : ""}
                       {d.plate ? ` (${d.plate})` : ""}
                     </SelectItem>
