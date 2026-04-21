@@ -137,14 +137,22 @@ export default function DriverDetail() {
       }
     }
 
+    const currentStaffNo = ((driver as any)?.staff_no ?? "").trim();
+    const newStaffNo = form.staff_no.trim();
+
     const payload: any = {
       name: form.name.trim(),
-      staff_no: form.staff_no.trim() || null,
       whatsapp: form.whatsapp.trim(),
       own_vehicle: form.own_vehicle,
       status: form.status,
       notes: form.notes.trim() || null,
     };
+
+    // Only include staff_no if it actually changed, so a no-op save never
+    // trips the unique constraint with the driver's own existing value.
+    if (newStaffNo !== currentStaffNo) {
+      payload.staff_no = newStaffNo || null;
+    }
 
     if (form.own_vehicle) {
       const yr = form.vehicle_year === "" ? null : Number(form.vehicle_year);
@@ -171,9 +179,17 @@ export default function DriverDetail() {
           setEditing(false);
         },
         onError: (err: any) => {
+          const raw = err?.response?.data?.error ?? err?.message ?? "Try again";
+          const isStaffNoDup =
+            typeof raw === "string" &&
+            raw.toLowerCase().includes("drivers_staff_no_unique");
           toast({
-            title: "Failed to update driver",
-            description: err?.response?.data?.error ?? err?.message ?? "Try again",
+            title: isStaffNoDup
+              ? `TVL number "${form.staff_no.trim()}" is already used by another driver`
+              : "Failed to update driver",
+            description: isStaffNoDup
+              ? "Pick a different TVL Staff Number — each driver must have a unique one."
+              : raw,
             variant: "destructive",
           });
         },
