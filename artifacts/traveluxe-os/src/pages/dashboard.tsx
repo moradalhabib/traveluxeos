@@ -1,17 +1,13 @@
 import { useGetDashboardSummary, getGetDashboardSummaryQueryKey } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, PlaneLanding, X, Plus, CheckCheck, PhoneOff, RotateCcw, PhoneCall } from "lucide-react";
+import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, Plus, BellRing } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
-import { supabase as supabaseClient } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
-import { useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
-
-const FOLLOWUP_BASE = `${import.meta.env.VITE_API_URL ?? ""}/api`;
 
 function whatsappLink(num?: string | null, message?: string) {
   if (!num) return null;
@@ -34,70 +30,10 @@ export default function Dashboard() {
 
   const s = summary as any;
   const pendingRequests: any[] = s?.pending_requests ?? [];
-  const awaitingReturn: any[] = s?.awaiting_return ?? [];
-  const arrivalFollowUps: any[] = s?.arrival_followups ?? [];
-
-  const [markingFollowUp, setMarkingFollowUp] = useState<Record<string, string | null>>({});
-
-  const markFollowUp = async (bookingId: string, clientId: string | null, driverId: string | null, status: string) => {
-    setMarkingFollowUp(prev => ({ ...prev, [bookingId]: status }));
-    try {
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      const token = session?.access_token ?? "";
-
-      // Create follow_up record
-      const createRes = await fetch(`${FOLLOWUP_BASE}/follow-ups`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ booking_id: bookingId, client_id: clientId, driver_id: driverId, status }),
-      });
-      const json = await createRes.json();
-      if (!createRes.ok) throw new Error(json.error || "Failed");
-
-      const label = status === "done" ? "Follow-up done" : status === "booked_return" ? "Return booked" : "No response logged";
-      toast({ title: label, description: "Removed from follow-up list." });
-      qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-    } catch (e: any) {
-      toast({ title: "Could not save follow-up", description: e.message, variant: "destructive" });
-    } finally {
-      setMarkingFollowUp(prev => ({ ...prev, [bookingId]: null }));
-    }
-  };
-
-  const logReturn = async (bookingId: string, ref: string) => {
-    if (!confirm(`Create a return Departure booking from ${ref}?\n\nA new Confirmed booking will be created with pickup/dropoff swapped. You'll be taken to it next to set the date/time.`)) return;
-    try {
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      const res = await fetch(`${FOLLOWUP_BASE}/bookings/${bookingId}/return`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${session?.access_token ?? ""}`, "Content-Type": "application/json" },
-        body: "{}",
-      });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Failed");
-      toast({ title: "Return created", description: `${json.tvl_ref} — set the departure date next.` });
-      qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-      navigate(`/bookings/${json.id}`);
-    } catch (e: any) {
-      toast({ title: "Could not create return", description: e.message, variant: "destructive" });
-    }
-  };
-
-  const dismissReturn = async (bookingId: string, ref: string) => {
-    if (!confirm(`Mark ${ref} as not needing a return trip? It will disappear from this list.`)) return;
-    try {
-      const { data: { session } } = await supabaseClient.auth.getSession();
-      const res = await fetch(`${FOLLOWUP_BASE}/bookings/${bookingId}/dismiss-return-followup`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
-      });
-      if (!res.ok) throw new Error((await res.json()).error || "Failed");
-      toast({ title: "Removed", description: `${ref} cleared from follow-ups.` });
-      qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-    } catch (e: any) {
-      toast({ title: "Could not dismiss", description: e.message, variant: "destructive" });
-    }
-  };
+  const followUpsPending: number = s?.follow_ups_pending ?? 0;
+  const followUpsOverdue: number = s?.follow_ups_overdue ?? 0;
+  // Suppress unused warnings — qc/toast still wired for future handlers
+  void qc; void toast;
 
   if (isLoading) {
     return (
@@ -123,15 +59,53 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* Follow-Up Section */}
-      {(pendingRequests.length > 0 || awaitingReturn.length > 0) && (
+      {/* Follow-Ups summary — count only, links to /follow-ups */}
+      {(followUpsPending > 0 || followUpsOverdue > 0) && (
+        <Link href="/follow-ups">
+          <Card
+            className={`cursor-pointer transition-colors hover:bg-amber-500/10 ${
+              followUpsOverdue > 0
+                ? "border-red-500/40 bg-red-500/5"
+                : "border-amber-500/30 bg-amber-500/5"
+            }`}
+            data-testid="dashboard-followups-card"
+          >
+            <CardContent className="p-4 flex items-center gap-4">
+              <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${
+                followUpsOverdue > 0 ? "bg-red-500/15 text-red-400" : "bg-amber-500/15 text-amber-400"
+              }`}>
+                <BellRing className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className="text-base font-bold text-foreground">
+                    {followUpsPending} follow-up{followUpsPending === 1 ? "" : "s"} pending
+                  </span>
+                  {followUpsOverdue > 0 && (
+                    <Badge variant="outline" className="text-[11px] bg-red-500/15 text-red-400 border-red-500/40">
+                      {followUpsOverdue} overdue
+                    </Badge>
+                  )}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  Tap to open the Follow-Ups workspace
+                </p>
+              </div>
+              <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+            </CardContent>
+          </Card>
+        </Link>
+      )}
+
+      {/* Pending Requests — separate workflow (awaiting first-touch confirmation) */}
+      {pendingRequests.length > 0 && (
         <Card className="border-amber-500/30 bg-amber-500/5">
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-400" />
-              Follow-Up
+              Pending Requests
               <span className="text-xs font-normal text-muted-foreground ml-1">
-                ({pendingRequests.length + awaitingReturn.length})
+                ({pendingRequests.length})
               </span>
             </CardTitle>
           </CardHeader>
@@ -196,187 +170,6 @@ export default function Dashboard() {
               </div>
             )}
 
-            {/* Awaiting Return Trip */}
-            {awaitingReturn.length > 0 && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-wide text-amber-400 flex items-center gap-1.5">
-                    <PlaneLanding className="w-3 h-3" /> Awaiting Return Trip ({awaitingReturn.length})
-                  </h3>
-                  <span className="text-[10px] text-muted-foreground">arrived, no departure logged</span>
-                </div>
-                <div className="space-y-2">
-                  {awaitingReturn.slice(0, 6).map((b) => {
-                    const wa = whatsappLink(b.client?.whatsapp,
-                      `Hi ${b.client?.name ?? ""} — hope your stay in London is going well. When you'd like to plan your return airport transfer, just reply here and we'll arrange it. — Traveluxe`);
-                    return (
-                      <div key={b.id} className="rounded-lg border border-border bg-card p-2.5 space-y-2">
-                        {/* Info row */}
-                        <div className="flex items-start gap-2">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <Link href={`/bookings/${b.id}`}>
-                                <span className="text-sm font-semibold text-primary hover:underline cursor-pointer">{b.tvl_ref}</span>
-                              </Link>
-                              <span className="text-xs text-muted-foreground">·</span>
-                              <span className="text-xs text-foreground truncate">{b.client?.name ?? "—"}</span>
-                              {b.client?.vip_tier && b.client.vip_tier !== "Standard" && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary uppercase">{b.client.vip_tier}</span>
-                              )}
-                              <span className="text-[10px] text-amber-400 ml-auto">
-                                arrived {Math.abs(b.days_since_arrival)}d ago
-                              </span>
-                            </div>
-                            <div className="text-[11px] text-muted-foreground truncate mt-0.5">
-                              Arrival: {b.pickup} → {b.dropoff}
-                            </div>
-                          </div>
-                          <Button size="sm" variant="ghost" className="h-7 w-7 p-0 flex-shrink-0"
-                            onClick={() => dismissReturn(b.id, b.tvl_ref)}
-                            title="Mark as not needing return trip">
-                            <X className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
-                        {/* Action row */}
-                        <div className="flex gap-1.5 pt-0.5 border-t border-border/50 flex-wrap">
-                          {wa && (
-                            <a href={wa} target="_blank" rel="noreferrer">
-                              <Button size="sm" variant="outline" className="h-7 px-2 text-[11px] border-green-600/40 text-green-400 hover:bg-green-500/10">
-                                <MessageCircle className="w-3 h-3 mr-1" /> WhatsApp
-                              </Button>
-                            </a>
-                          )}
-                          <Button size="sm" variant="outline"
-                            disabled={!!markingFollowUp[b.id]}
-                            onClick={() => markFollowUp(b.id, b.client?.id ?? null, null, "done")}
-                            className="h-7 px-2 text-[11px] text-green-400 border-green-500/30 hover:bg-green-500/10">
-                            <CheckCheck className="w-3 h-3 mr-1" />
-                            {markingFollowUp[b.id] === "done" ? "Saving…" : "Done"}
-                          </Button>
-                          <Button size="sm" variant="outline"
-                            disabled={!!markingFollowUp[b.id]}
-                            onClick={() => markFollowUp(b.id, b.client?.id ?? null, null, "booked_return")}
-                            className="h-7 px-2 text-[11px] text-blue-400 border-blue-500/30 hover:bg-blue-500/10">
-                            <RotateCcw className="w-3 h-3 mr-1" />
-                            {markingFollowUp[b.id] === "booked_return" ? "Saving…" : "Return Booked"}
-                          </Button>
-                          <Button size="sm" variant="outline"
-                            disabled={!!markingFollowUp[b.id]}
-                            onClick={() => markFollowUp(b.id, b.client?.id ?? null, null, "no_response")}
-                            className="h-7 px-2 text-[11px] text-muted-foreground border-border hover:bg-secondary/30">
-                            <PhoneOff className="w-3 h-3 mr-1" />
-                            {markingFollowUp[b.id] === "no_response" ? "Saving…" : "No Response"}
-                          </Button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Arrival Follow-Ups */}
-      {arrivalFollowUps.length > 0 && (
-        <Card className="border-blue-500/30 bg-blue-500/5">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base flex items-center gap-2">
-              <PlaneLanding className="w-4 h-4 text-blue-400" />
-              Arrival Follow-Ups
-              <Badge variant="outline" className="ml-1 text-[11px] bg-blue-500/10 text-blue-400 border-blue-500/30">
-                {arrivalFollowUps.length}
-              </Badge>
-            </CardTitle>
-            <p className="text-xs text-muted-foreground mt-0.5">
-              Clients who arrived in the last 5 days — check in and offer a return transfer
-            </p>
-          </CardHeader>
-          <CardContent className="pt-0 space-y-2">
-            {arrivalFollowUps.map((b) => {
-              const wa = whatsappLink(
-                b.client?.whatsapp,
-                `Hi ${b.client?.name ?? "there"} 👋 — hope your arrival went smoothly! This is Traveluxe checking in. When you're ready to plan your departure transfer, just let us know and we'll take care of everything. — Traveluxe London`
-              );
-              const isBusy = !!markingFollowUp[b.id];
-              return (
-                <div key={b.id} className="rounded-xl border border-border bg-card p-3 space-y-2">
-                  {/* Top row */}
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Link href={`/bookings/${b.id}`}>
-                          <span className="text-sm font-bold text-primary hover:underline cursor-pointer">{b.tvl_ref}</span>
-                        </Link>
-                        <span className="text-sm font-semibold text-foreground truncate">{b.client?.name ?? "—"}</span>
-                        {b.client?.vip_tier && b.client.vip_tier !== "Standard" && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary uppercase font-semibold">
-                            {b.client.vip_tier}
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 mt-1 flex-wrap text-[11px] text-muted-foreground">
-                        <span>
-                          {b.arrival_date
-                            ? new Date(b.arrival_date).toLocaleDateString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
-                            : "—"}
-                          {b.days_since_arrival > 0 ? ` · ${b.days_since_arrival}d ago` : " · today"}
-                        </span>
-                        {b.driver?.name && <span className="text-foreground/70">Driver: {b.driver.name}</span>}
-                      </div>
-                      {(b.pickup || b.dropoff) && (
-                        <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-                          {b.pickup} → {b.dropoff}
-                        </div>
-                      )}
-                    </div>
-                    {wa && (
-                      <a href={wa} target="_blank" rel="noreferrer" className="flex-shrink-0">
-                        <Button size="sm" variant="outline" className="h-8 px-2.5 text-[11px] border-green-600/40 text-green-400 hover:bg-green-500/10">
-                          <MessageCircle className="w-3 h-3 mr-1" /> WhatsApp
-                        </Button>
-                      </a>
-                    )}
-                  </div>
-
-                  {/* Action buttons */}
-                  <div className="flex gap-2 pt-1 border-t border-border/50">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={isBusy}
-                      onClick={() => markFollowUp(b.id, b.client_id, b.driver_id, "done")}
-                      className="h-7 px-2 text-[11px] flex-1 text-green-400 border-green-500/30 hover:bg-green-500/10"
-                    >
-                      <CheckCheck className="w-3 h-3 mr-1" />
-                      {markingFollowUp[b.id] === "done" ? "Saving…" : "Done"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={isBusy}
-                      onClick={() => markFollowUp(b.id, b.client_id, b.driver_id, "booked_return")}
-                      className="h-7 px-2 text-[11px] flex-1 text-blue-400 border-blue-500/30 hover:bg-blue-500/10"
-                    >
-                      <RotateCcw className="w-3 h-3 mr-1" />
-                      {markingFollowUp[b.id] === "booked_return" ? "Saving…" : "Return Booked"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={isBusy}
-                      onClick={() => markFollowUp(b.id, b.client_id, b.driver_id, "no_response")}
-                      className="h-7 px-2 text-[11px] flex-1 text-muted-foreground border-border hover:bg-secondary/30"
-                    >
-                      <PhoneOff className="w-3 h-3 mr-1" />
-                      {markingFollowUp[b.id] === "no_response" ? "Saving…" : "No Response"}
-                    </Button>
-                  </div>
-                </div>
-              );
-            })}
           </CardContent>
         </Card>
       )}
@@ -404,15 +197,15 @@ export default function Dashboard() {
             <CardHeader className="flex flex-row items-center justify-between pb-1 pt-4 px-4 space-y-0">
               <CardTitle className="text-xs font-medium text-muted-foreground">Follow-Ups</CardTitle>
               <div className="flex items-center gap-1.5">
-                {((s?.follow_ups_pending ?? 0) + arrivalFollowUps.length) > 0 && (
+                {followUpsPending > 0 && (
                   <span className="text-[11px] font-bold text-destructive leading-none">⚠️</span>
                 )}
-                <PhoneCall className={`w-4 h-4 ${((s?.follow_ups_pending ?? 0) + arrivalFollowUps.length) > 0 ? "text-destructive" : "text-primary"}`} />
+                <BellRing className={`w-4 h-4 ${followUpsPending > 0 ? "text-destructive" : "text-primary"}`} />
               </div>
             </CardHeader>
             <CardContent className="px-4 pb-4">
-              <div className={`text-2xl font-bold ${((s?.follow_ups_pending ?? 0) + arrivalFollowUps.length) > 0 ? "text-destructive" : "text-foreground"}`}>
-                {(s?.follow_ups_pending ?? 0) + arrivalFollowUps.length}
+              <div className={`text-2xl font-bold ${followUpsPending > 0 ? "text-destructive" : "text-foreground"}`}>
+                {followUpsPending}
               </div>
               <p className="text-[11px] text-muted-foreground mt-0.5">Due Today / Overdue</p>
             </CardContent>
