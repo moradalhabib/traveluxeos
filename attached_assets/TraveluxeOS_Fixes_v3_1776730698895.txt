@@ -1,0 +1,179 @@
+Please fix the following issues and make the following improvements to Traveluxe OS. All existing data must be preserved. Do not reset the database.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIX 1 — FOLLOW-UP BOX ON DASHBOARD
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The follow-up card on the dashboard is showing booking detail cards (Driver, Route, Done/Return Booked/No Response buttons) which belong on the Follow-Ups page only.
+
+Fix the dashboard so:
+- The Follow-Ups card on the dashboard shows ONLY a count of overdue/due today follow-ups and a "View All" button
+- No booking detail, driver info, or action buttons on the dashboard follow-up card
+- Clicking the dashboard follow-up card takes the operator to the Follow-Ups page
+- Also run any pending migration SQL for the follow-ups / requests table changes to make sure the database schema is up to date
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIX 2 — NOTIFICATION BELL NOT WORKING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The notification bell icon is not showing alerts to operators. Fix the following:
+
+- The bell icon must appear in the top right of every page for all users
+- The bell must show a red badge with unread count when there are unread notifications
+- Notifications table must exist in Supabase with real-time enabled
+- When a new booking is created, a notification must be inserted into the notifications table for all operators and admins
+- The bell must update its badge count in real time via Supabase real-time subscription — no page refresh needed
+- Clicking the bell opens a notification drawer showing recent notifications
+- Toast alerts must slide in from the top right when a new notification arrives — visible on any page the operator is currently on
+- Test the notification system end to end and confirm it is working before moving on
+
+Run the necessary Supabase migrations to create the notifications table if it does not already exist:
+CREATE TABLE IF NOT EXISTS public.notifications (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id uuid REFERENCES auth.users(id) ON DELETE CASCADE,
+  type text NOT NULL,
+  title text NOT NULL,
+  message text NOT NULL,
+  entity_type text,
+  entity_id text,
+  read boolean DEFAULT false,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE public.notifications ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users see own notifications" ON public.notifications FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "System can insert notifications" ON public.notifications FOR INSERT WITH CHECK (true);
+CREATE POLICY "Users can update own notifications" ON public.notifications FOR UPDATE USING (auth.uid() = user_id);
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIX 3 — HOTEL AND APARTMENT COMMISSION MODEL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The current hotel and apartment commission model is wrong. Here is how it actually works:
+
+CORRECT MODEL:
+- Third party supplier (e.g. HotelBeds, Ratehawk, apartment owner) charges TVL a base cost
+- TVL charges the client a higher price
+- TVL's profit/commission = client price minus supplier cost
+- Example: Supplier charges £300 for apartment → TVL charges client £350 → TVL earns £50
+
+This is a MARKUP model, not a referral fee model. Fix the booking form and finance calculations for Hotel and Apartment bookings:
+
+HOTEL BOOKING FIELDS (replace current arrangement fee model):
+- Supplier cost (what HotelBeds / Ratehawk / supplier charges TVL) — manual input £
+- Client price (what TVL charges the client) — manual input £
+- TVL margin (auto-calculated: client price minus supplier cost)
+- Payment method: Cash / Bank Transfer / Card
+- Payment status: Paid / Unpaid / Partial
+
+APARTMENT BOOKING FIELDS (same model):
+- Supplier cost (what the apartment owner / supplier charges TVL) — manual input £
+- Client price (what TVL charges the client) — manual input £
+- TVL margin (auto-calculated: client price minus supplier cost)
+- Nightly rate (for reference — manual input)
+- Number of nights (auto-calculated from check-in and check-out)
+- Payment method and status
+
+Remove the "Arrangement Fees" tab from the Commissions page entirely — it no longer applies. Hotel and Apartment margins now flow into the Finance dashboard under TVL profit like all other services.
+
+Update Finance and Profit tab to correctly include Hotel and Apartment margins in total TVL profit calculations.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIX 4 — PRODUCTS CATALOGUE REORGANISATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The Products Catalogue needs a complete reorganisation. Currently it mixes vehicles, tours, and meet & greet in a confusing way. Here is the correct structure:
+
+PRODUCT CATEGORIES — replace current categories with these four:
+
+CATEGORY 1 — VEHICLES (for Airport Transfer and As Directed bookings)
+Products are vehicles with pricing per airport. Each vehicle product has:
+- Vehicle name (e.g. Mercedes Benz E Class, Mercedes Benz V Class, Range Rover Sport)
+- Price per airport — separate price fields for each airport:
+  — Heathrow (LHR): £[price]
+  — Gatwick (LGW): £[price]
+  — Stansted (STN): £[price]
+  — Luton (LTN): £[price]
+  — London City (LCY): £[price]
+  — Other / As Directed: £[price per hour]
+- Description
+- Active / Inactive toggle
+
+When creating an Airport Transfer booking, when the operator selects the vehicle AND the airport, the price auto-fills from the product pricing table for that airport.
+
+CATEGORY 2 — TOURS (for Tour bookings)
+Products are tour destinations / packages. Each tour product has:
+- Tour name (e.g. Bicester Village, Windsor Castle Tour, Stonehenge & Bath Day Tour, Oxford Day Trip, Cotswolds Tour)
+- Description
+- Duration (hours)
+- Price from £[amount]
+- Active / Inactive toggle
+
+When creating a Tour booking, operator selects from this list of tour destinations — not vehicles.
+
+CATEGORY 3 — MEET & GREET (add-on for Airport Transfer)
+Products are meet & greet tiers:
+- Standard Meet & Greet: £[price]
+- Premium Meet & Greet with name board: £[price]
+- VIP Lounge Meet & Greet: £[price]
+
+CATEGORY 4 — ADD-ONS (extras that can be added to any booking)
+- Child seat: £[price]
+- Extra waiting time (per 30 mins): £[price]
+- Additional stop: £[price]
+- Luggage van supplement: £[price]
+
+PRODUCT LIST VIEW:
+- Show tabs for each category: Vehicles / Tours / Meet & Greet / Add-ons
+- Within Vehicles tab, show each vehicle with its airport pricing clearly visible
+- Add / Edit / Deactivate buttons on each product
+- Edit must open a fully working form — all fields editable and saveable
+
+HOW PRODUCTS CONNECT TO BOOKINGS:
+- Airport Transfer booking: operator selects vehicle from Vehicles list → selects airport → price auto-fills from that vehicle's airport pricing
+- Tour booking: operator selects tour from Tours list → price auto-fills → operator can adjust
+- Add-ons: operator can add any add-on to any booking — each add-on adds to the total price
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIX 5 — PENDING MIGRATION SQL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Run all pending database migrations that may not have been applied yet including:
+- Requests table (replacing quotes)
+- Notifications table (as above)
+- Vehicle airport pricing table
+- Product category updates
+- Hotel and apartment supplier cost fields
+- Any other schema changes from recent builds that have not yet been applied
+
+Generate the complete migration SQL and display it clearly so it can be run in the Supabase SQL Editor. Label each migration clearly so it is easy to identify which ones need to be run.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DATABASE ADDITIONS FOR VEHICLE AIRPORT PRICING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Add a vehicle_airport_pricing table:
+CREATE TABLE IF NOT EXISTS public.vehicle_airport_pricing (
+  id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
+  product_id uuid REFERENCES public.products(id) ON DELETE CASCADE,
+  airport_code text NOT NULL,
+  airport_name text NOT NULL,
+  price numeric(10,2) NOT NULL DEFAULT 0,
+  created_at timestamptz DEFAULT now()
+);
+
+Airport codes to include: LHR, LGW, STN, LTN, LCY, OTHER
+This table allows each vehicle to have a different price for each airport.
+
+When an operator selects a vehicle and an airport in the booking form, query this table to auto-fill the price.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SUMMARY OF ALL FIXES REQUIRED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Fix dashboard — remove booking detail from follow-up card, show count only
+2. Fix notification bell — make it visible, real-time, working toast alerts for all operators
+3. Fix hotel and apartment commission — markup model (supplier cost vs client price), remove arrangement fees tab
+4. Reorganise products catalogue — Vehicles with per-airport pricing / Tours as destinations / Meet & Greet / Add-ons
+5. Run all pending migrations — display SQL for Supabase SQL Editor
+
+Fix all five issues fully before moving to any other feature. Confirm each fix is working before proceeding to the next.
