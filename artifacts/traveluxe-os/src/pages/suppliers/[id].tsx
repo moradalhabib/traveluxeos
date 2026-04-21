@@ -90,6 +90,9 @@ export default function SupplierDetail() {
           website: edit.website,
           notes: edit.notes,
           rating: edit.rating ? Number(edit.rating) : null,
+          commission_rate: edit.commission_rate === "" || edit.commission_rate == null
+            ? 0
+            : Number(edit.commission_rate),
           is_active: edit.is_active,
         }),
       });
@@ -188,7 +191,7 @@ export default function SupplierDetail() {
           </div>
 
           {/* KPI strip */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-border">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 pt-2 border-t border-border">
             <div>
               <div className="text-[10px] uppercase text-muted-foreground tracking-wider">Bookings</div>
               <div className="text-xl font-bold text-foreground">{supplier.total_bookings ?? 0}</div>
@@ -200,6 +203,15 @@ export default function SupplierDetail() {
             <div>
               <div className="text-[10px] uppercase text-muted-foreground tracking-wider">Supplier cost</div>
               <div className="text-xl font-bold text-foreground">£{(supplier.total_supplier_cost ?? 0).toLocaleString()}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase text-muted-foreground tracking-wider">Commission</div>
+              <div className="text-xl font-bold text-primary">
+                £{(supplier.total_commission ?? 0).toLocaleString()}
+              </div>
+              {supplier.commission_rate ? (
+                <div className="text-[10px] text-muted-foreground mt-0.5">@ {Number(supplier.commission_rate)}%</div>
+              ) : null}
             </div>
             <div>
               <div className="text-[10px] uppercase text-muted-foreground tracking-wider">Margin</div>
@@ -251,6 +263,19 @@ export default function SupplierDetail() {
             <div>
               <Label>Rating (0-5)</Label>
               <Input type="number" min={0} max={5} step={0.5} value={edit.rating ?? ""} onChange={e => setEdit({ ...edit, rating: e.target.value })} />
+            </div>
+            <div>
+              <Label>Commission %</Label>
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={100}
+                step={0.5}
+                placeholder="e.g. 10"
+                value={edit.commission_rate ?? ""}
+                onChange={e => setEdit({ ...edit, commission_rate: e.target.value })}
+              />
             </div>
           </div>
           <div>

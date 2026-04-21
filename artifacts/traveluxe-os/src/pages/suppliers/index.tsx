@@ -312,6 +312,22 @@ export default function SuppliersList() {
               </div>
             </div>
             <div>
+              <Label>Commission %</Label>
+              <Input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={100}
+                step={0.5}
+                value={form.commission_rate ?? ""}
+                onChange={e => setForm({ ...form, commission_rate: e.target.value })}
+                placeholder="e.g. 10 for 10%"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1">
+                Default cut for jobs sent to / received from this supplier.
+              </p>
+            </div>
+            <div>
               <Label>Notes</Label>
               <Input value={form.notes ?? ""} onChange={e => setForm({ ...form, notes: e.target.value })} placeholder="Rate card, terms, special instructions…" />
             </div>

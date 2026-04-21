@@ -7,6 +7,7 @@ const router = Router();
 const SUPPLIER_COLUMNS = new Set([
   "name", "category", "contact_name", "whatsapp", "phone", "email",
   "address", "city", "country", "website", "notes", "rating", "is_active",
+  "commission_rate",
 ]);
 
 // ─── GET /suppliers — list with optional category + search filters ─────────
@@ -58,17 +59,21 @@ router.get("/:id", async (req, res) => {
 
   const { data: bookings } = await supabase
     .from("bookings")
-    .select("id, tvl_ref, service_type, status, date_time, price, supplier_cost, client_name")
+    .select("id, tvl_ref, service_type, status, date_time, price, supplier_cost, supplier_commission, client_name")
     .eq("supplier_id", id)
     .order("date_time", { ascending: false })
     .limit(50);
 
   const total_revenue = (bookings ?? []).reduce(
-    (sum: number, b: any) => sum + (b.price ?? 0),
+    (sum: number, b: any) => sum + Number(b.price ?? 0),
     0,
   );
   const total_supplier_cost = (bookings ?? []).reduce(
-    (sum: number, b: any) => sum + (b.supplier_cost ?? 0),
+    (sum: number, b: any) => sum + Number(b.supplier_cost ?? 0),
+    0,
+  );
+  const total_commission = (bookings ?? []).reduce(
+    (sum: number, b: any) => sum + Number(b.supplier_commission ?? 0),
     0,
   );
 
@@ -78,6 +83,7 @@ router.get("/:id", async (req, res) => {
     total_bookings: bookings?.length ?? 0,
     total_revenue,
     total_supplier_cost,
+    total_commission,
     total_margin: total_revenue - total_supplier_cost,
   });
 });
