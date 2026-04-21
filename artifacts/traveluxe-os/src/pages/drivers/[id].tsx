@@ -96,6 +96,7 @@ export default function DriverDetail() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({
     name: "",
+    staff_no: "",
     whatsapp: "",
     own_vehicle: true,
     vehicle_model: "",
@@ -110,6 +111,7 @@ export default function DriverDetail() {
     const d = driver as any;
     setForm({
       name: d.name ?? "",
+      staff_no: d.staff_no ?? "",
       whatsapp: d.whatsapp ?? "",
       own_vehicle: d.own_vehicle === false ? false : true,
       vehicle_model: d.vehicle_model ?? "",
@@ -137,6 +139,7 @@ export default function DriverDetail() {
 
     const payload: any = {
       name: form.name.trim(),
+      staff_no: form.staff_no.trim() || null,
       whatsapp: form.whatsapp.trim(),
       own_vehicle: form.own_vehicle,
       status: form.status,
@@ -331,6 +334,20 @@ export default function DriverDetail() {
                   value={form.name}
                   onChange={(e) => setForm({ ...form, name: e.target.value })}
                   data-testid="input-name"
+                />
+              </div>
+              <div>
+                <Label htmlFor="staff_no">
+                  TVL Staff Number
+                  <span className="text-xs text-muted-foreground font-normal ml-2">e.g. TVL 02</span>
+                </Label>
+                <Input
+                  id="staff_no"
+                  placeholder="TVL 02"
+                  value={form.staff_no}
+                  onChange={(e) => setForm({ ...form, staff_no: e.target.value })}
+                  className="font-mono uppercase"
+                  data-testid="input-staff-no"
                 />
               </div>
               <div>

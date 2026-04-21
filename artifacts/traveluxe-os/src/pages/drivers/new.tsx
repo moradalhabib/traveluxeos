@@ -87,11 +87,11 @@ export default function NewDriver() {
                 <FormField control={form.control} name="staff_no" render={({ field }) => (
                   <FormItem>
                     <FormLabel>
-                      Staff Number
-                      <span className="text-xs text-muted-foreground font-normal ml-1">Auto-assigned (TVL 01, TVL 02…) — leave blank</span>
+                      TVL Staff Number
+                      <span className="text-xs text-muted-foreground font-normal ml-1">e.g. TVL 02 — set manually, can be changed later</span>
                     </FormLabel>
                     <FormControl>
-                      <Input placeholder="Auto: next TVL number" {...field} className="font-mono uppercase" />
+                      <Input placeholder="TVL 02" {...field} className="font-mono uppercase" data-testid="input-staff-no" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
