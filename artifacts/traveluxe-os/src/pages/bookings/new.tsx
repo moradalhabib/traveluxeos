@@ -2088,22 +2088,34 @@ export default function NewBooking() {
                     )} />
                   )}
 
-                  <FormField control={bookingForm.control} name="special_requests" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>
-                        {isAccommodation || isHotel ? "Note to Manager" : "Special Requests"}
-                      </FormLabel>
-                      <FormControl>
-                        <Textarea
-                          placeholder={isAccommodation || isHotel
-                            ? "Instructions or requests for the property manager..."
-                            : "Client preferences, notes for driver..."}
-                          className="resize-none" rows={2} {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
+                  <FormField control={bookingForm.control} name="special_requests" render={({ field }) => {
+                    const len = (field.value ?? "").length;
+                    const over = len > 500;
+                    return (
+                      <FormItem>
+                        <div className="flex items-center justify-between">
+                          <FormLabel>
+                            {isAccommodation || isHotel ? "Note to Manager" : "Special Requests"}
+                          </FormLabel>
+                          <span className={`text-[11px] tabular-nums ${over ? "text-destructive font-bold" : len > 450 ? "text-amber-400" : "text-muted-foreground"}`}>
+                            {len}/500
+                          </span>
+                        </div>
+                        <FormControl>
+                          <Textarea
+                            placeholder={isAccommodation || isHotel
+                              ? "Instructions or requests for the property manager..."
+                              : "Client preferences, notes for driver..."}
+                            className="resize-none" rows={3} maxLength={500}
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value.slice(0, 500))}
+                            data-testid="textarea-special-requests"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    );
+                  }} />
                 </CardContent>
               </Card>
 

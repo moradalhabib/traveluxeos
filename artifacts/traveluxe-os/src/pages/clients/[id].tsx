@@ -500,35 +500,45 @@ export default function ClientDetail() {
                   return new Date(b.date_time).getTime() - new Date(a.date_time).getTime();
                 })
                 .map((booking: any) => (
-                  <Link key={booking.id} href={`/bookings/${booking.id}`}>
-                    <div className="flex items-center gap-3 p-3 rounded-xl border border-border bg-background/50 hover:border-primary/30 transition-colors cursor-pointer">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-semibold text-sm">{booking.tvl_ref}</span>
-                          {booking.service_type && (
-                            <Badge variant="outline" className="text-[10px] shrink-0">{booking.service_type}</Badge>
-                          )}
-                        </div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          {booking.date_time ? format(new Date(booking.date_time), 'dd MMM yyyy · HH:mm') : 'No date'}
-                          {booking.vehicle_type ? ` · ${booking.vehicle_type}` : ''}
-                        </div>
-                      </div>
-                      <div className="text-right flex-shrink-0">
-                        <div className="font-semibold text-sm text-primary">£{(booking.price || 0).toLocaleString()}</div>
-                        {booking.commission != null && Number(booking.commission) > 0 && (
-                          <div className="text-[10px] text-muted-foreground">comm £{Number(booking.commission).toLocaleString()}</div>
+                  <div
+                    key={booking.id}
+                    className="flex items-center gap-3 p-3 rounded-xl border border-border bg-background/50 hover:border-primary/30 transition-colors"
+                  >
+                    <Link href={`/bookings/${booking.id}`} className="flex-1 min-w-0 cursor-pointer">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm">{booking.tvl_ref}</span>
+                        {booking.service_type && (
+                          <Badge variant="outline" className="text-[10px] shrink-0">{booking.service_type}</Badge>
                         )}
-                        <Badge variant="outline" className={`text-[10px] mt-0.5 ${
-                          booking.status === 'Completed' ? 'text-green-400 border-green-400/30' :
-                          booking.status === 'Cancelled' ? 'text-destructive border-destructive/30' :
-                          'text-primary border-primary/30'
-                        }`}>
-                          {booking.status}
-                        </Badge>
                       </div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {booking.date_time ? format(new Date(booking.date_time), 'dd MMM yyyy · HH:mm') : 'No date'}
+                        {booking.vehicle_type ? ` · ${booking.vehicle_type}` : ''}
+                      </div>
+                    </Link>
+                    <div className="text-right flex-shrink-0 flex flex-col items-end gap-1">
+                      <div className="font-semibold text-sm text-primary">£{(booking.price || 0).toLocaleString()}</div>
+                      {booking.commission != null && Number(booking.commission) > 0 && (
+                        <div className="text-[10px] text-muted-foreground">comm £{Number(booking.commission).toLocaleString()}</div>
+                      )}
+                      <Badge variant="outline" className={`text-[10px] ${
+                        booking.status === 'Completed' ? 'text-green-400 border-green-400/30' :
+                        booking.status === 'Cancelled' ? 'text-destructive border-destructive/30' :
+                        'text-primary border-primary/30'
+                      }`}>
+                        {booking.status}
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="h-6 px-2 text-[10px] border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10 mt-1"
+                        onClick={() => setLocation(`/bookings/new?clone_of=${booking.id}`)}
+                        data-testid={`button-rebook-${booking.id}`}
+                      >
+                        <CalendarRange className="w-2.5 h-2.5 mr-1" /> Rebook
+                      </Button>
                     </div>
-                  </Link>
+                  </div>
                 ))}
             </div>
           ) : (

@@ -1378,7 +1378,14 @@ export default function BookingDetail() {
                 onValueChange={assignDriver}
                 disabled={assigningDriver}
               >
-                <SelectTrigger className={`h-9 ${(booking as any).driver_id ? "" : "text-destructive"}`}>
+                <SelectTrigger
+                  className={`h-9 ${
+                    (booking as any).driver_id
+                      ? ""
+                      : "text-destructive border-2 border-destructive bg-destructive/10 animate-pulse shadow-md shadow-destructive/30"
+                  }`}
+                  data-testid={(booking as any).driver_id ? "driver-assigned" : "driver-needs-assignment"}
+                >
                   <SelectValue placeholder="Tap to assign…">
                     {booking.driver_name ? (
                       <span className="flex flex-col items-start leading-tight">
@@ -1386,7 +1393,7 @@ export default function BookingDetail() {
                         {booking.driver_vehicle && <span className="text-[11px] text-muted-foreground">{booking.driver_vehicle}</span>}
                       </span>
                     ) : (
-                      <span className="font-medium">Tap to assign…</span>
+                      <span className="font-bold uppercase tracking-wider text-xs">⚠ Driver required — tap to assign</span>
                     )}
                   </SelectValue>
                 </SelectTrigger>
