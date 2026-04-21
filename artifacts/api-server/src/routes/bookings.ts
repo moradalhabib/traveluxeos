@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { supabase, auditLog, getUserFromToken, getDbClient } from "../lib/supabase";
+import { logActivity } from "../lib/activity";
 import { sendEmail } from "../services/email";
-import { notifyDriverAssigned } from "../services/scheduler";
+import { notifyDriverAssigned, notifyDriverDeclined } from "../services/scheduler";
 import { notifyByRoles, notifyUser, STAFF_ROLES } from "../services/notify";
 
 function bookingShortLabel(b: any) {
@@ -207,7 +208,68 @@ const BOOKING_COLUMNS = new Set([
   "client_notified_at","driver_notified_at",
   // Payment-tracking (April 2026 migration B)
   "payment_date","paid_amount","payment_notes",
+  // Booking extensions (April-21 migration): source_other, driver acceptance, completion
+  "source_other",
+  "driver_acceptance_status","driver_accepted_at","driver_declined_at","driver_decline_reason",
+  "client_satisfied","driver_on_time","completion_notes","completed_at",
 ]);
+
+// Friendlier labels for amendment-history field rows.
+const AMENDMENT_FIELD_LABELS: Record<string, string> = {
+  driver_id: "Driver",
+  status: "Status",
+  payment_status: "Payment Status",
+  payment_method: "Payment Method",
+  payment_date: "Payment Date",
+  paid_amount: "Paid Amount",
+  payment_notes: "Payment Notes",
+  date_time: "Date / Time",
+  pickup: "Pickup",
+  dropoff: "Drop-off",
+  vehicle_type: "Vehicle",
+  flight_number: "Flight",
+  direction: "Direction",
+  passengers: "Passengers",
+  luggage: "Luggage",
+  price: "Price",
+  tvl_commission: "TVL Commission",
+  notes: "Notes",
+  special_requests: "Special Requests",
+  source: "Source",
+  source_other: "Source (Other)",
+  driver_acceptance_status: "Driver Acceptance",
+};
+
+function classifyAmendment(field: string): string {
+  if (field === "status") return "status_change";
+  if (field === "payment_status" || field === "payment_method" || field === "payment_date" || field === "paid_amount" || field === "payment_notes") return "payment_change";
+  if (field === "driver_id") return "driver_assigned";
+  if (field === "driver_acceptance_status") return "edit";
+  return "edit";
+}
+
+async function insertAmendments(rows: Array<{
+  booking_id: string;
+  field_name: string;
+  old_value: string | null;
+  new_value: string | null;
+  change_type: string;
+  reason?: string | null;
+  changed_by: string | null;
+  changed_by_name: string | null;
+}>) {
+  if (!rows.length) return;
+  const { error } = await supabase.from("booking_amendments").insert(rows);
+  if (error) console.error("[booking_amendments] insert failed:", error.message);
+}
+
+function stringify(v: any): string | null {
+  if (v == null) return null;
+  if (typeof v === "object") {
+    try { return JSON.stringify(v); } catch { return String(v); }
+  }
+  return String(v);
+}
 
 router.post("/", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
@@ -282,6 +344,16 @@ router.post("/", async (req, res) => {
 
   await auditLog("create_booking", "booking", data.id, user?.id ?? null,
     `Created booking ${data.tvl_ref} for service: ${data.service_type}`);
+
+  await logActivity({
+    action_type: "booking_created",
+    description: `Booking ${data.tvl_ref ?? data.id} created (${data.service_type ?? "service"})`,
+    entity_type: "booking",
+    entity_id: data.id,
+    entity_label: data.tvl_ref ?? null,
+    operator_id: user?.id ?? null,
+    operator_name: user?.name ?? null,
+  });
 
   const enriched = await enrichBooking(data);
 
@@ -387,16 +459,25 @@ router.get("/:id", async (req, res) => {
 router.put("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
   const db = getDbClient(req.headers.authorization);
+  const force = String(req.query.force ?? "").toLowerCase() === "true";
 
-  // Capture previous payment_status before update
-  const { data: prev } = await db.from("bookings").select("payment_status, status, driver_id, date_time, duration").eq("id", req.params.id).single();
+  // Fetch previous row in full so we can diff for amendment auto-logging.
+  const { data: prevFull } = await db.from("bookings").select("*").eq("id", req.params.id).single();
+  const prev: any = prevFull ?? {};
   const prevPaymentStatus = prev?.payment_status;
 
-  // ── Driver-conflict pre-check (non-blocking warning) ────────────────────
-  // When the operator assigns/changes the driver, look for any other live
-  // booking for the same driver whose pickup window overlaps this one's.
-  // Operators sometimes deliberately stack short jobs, so we warn rather
-  // than block. The frontend surfaces this as a toast.
+  // Resolve operator name once (for changed_by_name on amendments)
+  let operatorName: string | null = null;
+  if (user?.id) {
+    const { data: opRow } = await supabase.from("users").select("name").eq("id", user.id).single();
+    operatorName = opRow?.name ?? null;
+  }
+
+  // ── Driver-conflict pre-check ───────────────────────────────────────────
+  // When operator assigns/changes a driver and the new pickup window overlaps
+  // an existing live job for that driver, withhold the write and surface the
+  // conflict so the frontend can prompt the operator to confirm. Operators
+  // who explicitly want to stack short jobs re-call with ?force=true.
   let driverConflict: any = null;
   const incomingDriverId = req.body.driver_id;
   if (incomingDriverId && incomingDriverId !== prev?.driver_id) {
@@ -404,13 +485,12 @@ router.put("/:id", async (req, res) => {
     const targetDuration = Number(req.body.duration ?? prev?.duration ?? 90);
     if (targetIso) {
       const target = new Date(targetIso);
-      // Window = pickup ± 90min OR explicit duration, whichever is larger
       const buffer = Math.max(targetDuration, 90) * 60_000;
       const winStart = new Date(target.getTime() - buffer).toISOString();
       const winEnd = new Date(target.getTime() + buffer).toISOString();
       const { data: clashes } = await db
         .from("bookings")
-        .select("id, tvl_ref, date_time, pickup, dropoff, status")
+        .select("id, tvl_ref, date_time, pickup, dropoff, status, clients(name)")
         .eq("driver_id", incomingDriverId)
         .neq("id", req.params.id)
         .neq("status", "Cancelled")
@@ -419,14 +499,50 @@ router.put("/:id", async (req, res) => {
         .lte("date_time", winEnd);
       if (clashes && clashes.length > 0) {
         driverConflict = {
-          conflicts: clashes,
+          conflicts: clashes.map((c: any) => ({
+            id: c.id, tvl_ref: c.tvl_ref, date_time: c.date_time,
+            pickup: c.pickup, dropoff: c.dropoff, status: c.status,
+            client_name: c.clients?.name ?? null,
+          })),
           message: `Driver already has ${clashes.length} job${clashes.length === 1 ? "" : "s"} within 90 min of this pickup.`,
         };
+        if (!force) {
+          // Withhold the write. Frontend re-submits with ?force=true to override.
+          return res.status(409).json({ driver_conflict: driverConflict });
+        }
       }
     }
   }
 
-  // Apply same whitelist as POST to avoid unknown-column errors on update
+  // ── Driver-declined flow ────────────────────────────────────────────────
+  // When operator marks acceptance as "Driver Declined", clear the driver_id
+  // server-side, log a special amendment, and trigger admin alert.
+  let driverDeclined: { driverName: string | null; reason: string | null } | null = null;
+  if (
+    req.body.driver_acceptance_status === "Driver Declined" &&
+    prev?.driver_acceptance_status !== "Driver Declined" &&
+    prev?.driver_id
+  ) {
+    const { data: drv } = await supabase.from("drivers").select("name").eq("id", prev.driver_id).single();
+    driverDeclined = {
+      driverName: drv?.name ?? null,
+      reason: req.body.driver_decline_reason ?? null,
+    };
+    // Force-clear driver on this update
+    req.body.driver_id = null;
+    req.body.driver_declined_at = req.body.driver_declined_at ?? new Date().toISOString();
+  }
+  // Mirror "Driver Confirmed" timestamp
+  if (
+    req.body.driver_acceptance_status === "Driver Confirmed" &&
+    prev?.driver_acceptance_status !== "Driver Confirmed"
+  ) {
+    req.body.driver_accepted_at = req.body.driver_accepted_at ?? new Date().toISOString();
+  }
+
+  // Apply same whitelist as POST to avoid unknown-column errors on update.
+  // NOTE: we explicitly allow `null` here (the driver-declined path needs to
+  // null-out driver_id), and skip empty strings.
   const raw: Record<string, any> = {};
   for (const [k, v] of Object.entries(req.body)) {
     if (BOOKING_COLUMNS.has(k) && v !== "" && v !== undefined) raw[k] = v;
@@ -486,8 +602,73 @@ router.put("/:id", async (req, res) => {
     notifyDriverAssigned(req.params.id).catch(() => {});
   }
 
+  // ── Amendment auto-log ──────────────────────────────────────────────────
+  // Diff the patch body against the previous row and emit one
+  // booking_amendments entry per changed field. Special-case rows are
+  // appended below (driver_declined, double_booking_override).
+  {
+    const amendmentRows: any[] = [];
+    const skip = new Set([
+      "is_amended", "updated_at", "created_by", "operator_id",
+      // Timestamps that always change as side-effects of declared changes
+      "driver_accepted_at", "driver_declined_at", "completed_at",
+    ]);
+    for (const [k, v] of Object.entries(body)) {
+      if (skip.has(k)) continue;
+      const oldV = prev?.[k];
+      // Normalise null/undefined for comparison
+      const oldStr = stringify(oldV);
+      const newStr = stringify(v);
+      if (oldStr === newStr) continue;
+      let changeType = classifyAmendment(k);
+      let reason: string | null = null;
+      if (k === "driver_id" && driverConflict && force) {
+        changeType = "double_booking_override";
+        reason = `Override of conflict with refs: ${driverConflict.conflicts.map((c: any) => c.tvl_ref).join(", ")}`;
+      }
+      amendmentRows.push({
+        booking_id: req.params.id,
+        field_name: AMENDMENT_FIELD_LABELS[k] ?? k,
+        old_value: oldStr,
+        new_value: newStr,
+        change_type: changeType,
+        reason,
+        changed_by: user?.id ?? null,
+        changed_by_name: operatorName,
+      });
+    }
+    if (driverDeclined) {
+      amendmentRows.push({
+        booking_id: req.params.id,
+        field_name: "Driver Acceptance",
+        old_value: prev?.driver_acceptance_status ?? null,
+        new_value: "Driver Declined",
+        change_type: "driver_declined",
+        reason: `Driver ${driverDeclined.driverName ?? ""} declined${driverDeclined.reason ? ` — ${driverDeclined.reason}` : ""}`.trim(),
+        changed_by: user?.id ?? null,
+        changed_by_name: operatorName,
+      });
+    }
+    insertAmendments(amendmentRows).catch(() => {});
+  }
+
+  // Fire admin alert for driver-declined flow
+  if (driverDeclined) {
+    notifyDriverDeclined(req.params.id, driverDeclined.driverName).catch(() => {});
+  }
+
   await auditLog("amend_booking", "booking", req.params.id, user?.id ?? null,
     `Booking ${updated.tvl_ref} amended`);
+
+  await logActivity({
+    action_type: "booking_updated",
+    description: `Booking ${updated.tvl_ref ?? req.params.id} updated`,
+    entity_type: "booking",
+    entity_id: req.params.id,
+    entity_label: updated.tvl_ref ?? null,
+    operator_id: user?.id ?? null,
+    operator_name: operatorName,
+  });
 
   const enriched = await enrichBooking(updated);
   if (driverConflict) (enriched as any).driver_conflict = driverConflict;
@@ -623,6 +804,16 @@ router.post("/:id/cancel", async (req, res) => {
   await auditLog("cancel_booking", "booking", req.params.id, user?.id ?? null,
     `Booking ${data.tvl_ref} cancelled. Reason: ${reason}`);
 
+  await logActivity({
+    action_type: "booking_cancelled",
+    description: `Booking ${data.tvl_ref ?? req.params.id} cancelled — ${reason}`,
+    entity_type: "booking",
+    entity_id: req.params.id,
+    entity_label: data.tvl_ref ?? null,
+    operator_id: user?.id ?? null,
+    operator_name: user?.name ?? null,
+  });
+
   const enriched = await enrichBooking(data);
 
   // ── In-app notification ─────────────────────────────────────────────────
@@ -694,6 +885,16 @@ router.put("/:id/status", async (req, res) => {
 
   await auditLog("status_change", "booking", req.params.id, user?.id ?? null,
     `Booking ${data.tvl_ref} status changed to ${status}`);
+
+  await logActivity({
+    action_type: status === "Completed" ? "booking_completed" : "booking_updated",
+    description: `Booking ${data.tvl_ref ?? req.params.id} → ${status}`,
+    entity_type: "booking",
+    entity_id: req.params.id,
+    entity_label: data.tvl_ref ?? null,
+    operator_id: user?.id ?? null,
+    operator_name: user?.name ?? null,
+  });
 
   const enriched = await enrichBooking(data);
 

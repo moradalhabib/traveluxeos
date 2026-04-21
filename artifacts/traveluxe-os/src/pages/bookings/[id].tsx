@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift, Map, Building2, CalendarRange, RotateCcw, ExternalLink } from "lucide-react";
+import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift, Map, Building2, CalendarRange, RotateCcw, ExternalLink, AlertTriangle, CheckCircle2, History } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
@@ -370,37 +370,121 @@ export default function BookingDetail() {
   const { data: drivers } = useListDrivers({}, { query: { queryKey: getListDriversQueryKey({}) } });
   const [assigningDriver, setAssigningDriver] = useState(false);
 
-  const assignDriver = (driverId: string) => {
+  // ── Driver-conflict dialog state ────────────────────────────────────────
+  // The server returns 409 with `{ driver_conflict }` when assignment would
+  // double-book the driver. We surface a modal so the operator can either
+  // pick someone else or explicitly override (re-call with ?force=true).
+  const [conflictDialog, setConflictDialog] = useState<{
+    open: boolean;
+    driverId: string | null;
+    driverName: string | null;
+    conflicts: any[];
+    message: string;
+  }>({ open: false, driverId: null, driverName: null, conflicts: [], message: "" });
+
+  // Direct-call API helper that handles the 409 conflict response. The
+  // generated react-query hook surfaces 409 as a generic error without the
+  // body payload, so we use raw fetch here to capture `driver_conflict`.
+  const assignDriverRaw = async (driverIdOrNull: string | null, force: boolean): Promise<{ ok: boolean; conflict?: any; error?: string }> => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const url = `/api/bookings/${id}${force ? "?force=true" : ""}`;
+    const res = await fetch(url, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ driver_id: driverIdOrNull, driver_acceptance_status: "Assigned" }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 409 && body?.driver_conflict) return { ok: false, conflict: body.driver_conflict };
+    if (!res.ok) return { ok: false, error: body?.error ?? "Failed to assign driver" };
+    return { ok: true };
+  };
+
+  const assignDriver = async (driverId: string) => {
     if (!booking) return;
     setAssigningDriver(true);
     const value = driverId === "unassigned" ? null : driverId;
-    updateBooking.mutate(
-      { id, data: { driver_id: value } as any },
-      {
-        onSuccess: (data: any) => {
-          qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
-          toast({
-            title: value ? "Driver assigned" : "Driver unassigned",
-            description: value
-              ? `${(drivers as any[] | undefined)?.find((d) => d.id === value)?.name ?? ""} assigned to this booking.`
-              : "Driver removed from this booking.",
-          });
-          // Server returns driver_conflict when this driver already has
-          // overlapping pickups. Surface but don't undo — operator decides.
-          const conflict = data?.driver_conflict;
-          if (conflict?.conflicts?.length) {
-            const refs = conflict.conflicts.slice(0, 3).map((c: any) => c.tvl_ref).join(", ");
-            toast({
-              title: "Driver schedule conflict",
-              description: `${conflict.message} Overlaps: ${refs}`,
-              variant: "destructive",
-            });
-          }
-        },
-        onError: (e: any) => toast({ title: "Failed to assign driver", description: e?.message ?? "Try again", variant: "destructive" }),
-        onSettled: () => setAssigningDriver(false),
+    const driverName = value
+      ? (drivers as any[] | undefined)?.find((d) => d.id === value)?.name ?? ""
+      : "";
+    try {
+      const result = await assignDriverRaw(value, false);
+      if (result.conflict) {
+        setConflictDialog({
+          open: true,
+          driverId: value,
+          driverName,
+          conflicts: result.conflict.conflicts ?? [],
+          message: result.conflict.message ?? "Driver already has overlapping jobs.",
+        });
+        return;
       }
-    );
+      if (!result.ok) {
+        toast({ title: "Failed to assign driver", description: result.error, variant: "destructive" });
+        return;
+      }
+      qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
+      toast({
+        title: value ? "Driver assigned" : "Driver unassigned",
+        description: value
+          ? `${driverName} assigned to this booking.`
+          : "Driver removed from this booking.",
+      });
+    } finally {
+      setAssigningDriver(false);
+    }
+  };
+
+  const proceedConflictOverride = async () => {
+    if (!conflictDialog.driverId) return;
+    setAssigningDriver(true);
+    try {
+      const result = await assignDriverRaw(conflictDialog.driverId, true);
+      if (!result.ok) {
+        toast({ title: "Override failed", description: result.error, variant: "destructive" });
+        return;
+      }
+      qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
+      toast({
+        title: "Driver assigned (override)",
+        description: `${conflictDialog.driverName} assigned despite conflict — logged in amendments.`,
+      });
+      setConflictDialog({ open: false, driverId: null, driverName: null, conflicts: [], message: "" });
+    } finally {
+      setAssigningDriver(false);
+    }
+  };
+
+  // ── Driver Acceptance (Assigned / Confirmed / Declined) ─────────────────
+  const setDriverAcceptance = async (next: "Assigned" | "Driver Confirmed" | "Driver Declined") => {
+    if (!booking) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const payload: Record<string, any> = { driver_acceptance_status: next };
+    if (next === "Driver Confirmed") payload.driver_accepted_at = new Date().toISOString();
+    if (next === "Driver Declined") payload.driver_declined_at = new Date().toISOString();
+    const res = await fetch(`/api/bookings/${id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify(payload),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      toast({ title: "Failed to update acceptance", description: j?.error, variant: "destructive" });
+      return;
+    }
+    qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
+    if (next === "Driver Declined") {
+      toast({
+        title: "Driver declined",
+        description: "Driver removed from booking. Admin alerted.",
+        variant: "destructive",
+      });
+    } else if (next === "Driver Confirmed") {
+      toast({ title: "Driver confirmed receipt" });
+    } else {
+      toast({ title: "Acceptance reset" });
+    }
   };
 
   const [cancelReason, setCancelReason] = useState("");
@@ -411,6 +495,122 @@ export default function BookingDetail() {
   const [isCancelOpen, setIsCancelOpen] = useState(false);
   const [isWaitingOpen, setIsWaitingOpen] = useState(false);
   const [isRateOpen, setIsRateOpen] = useState(false);
+
+  // ── Completion dialog state (Fix 12) ───────────────────────────────────
+  const [isCompleteOpen, setIsCompleteOpen] = useState(false);
+  const [completeClientSatisfied, setCompleteClientSatisfied] = useState<"yes" | "no" | "">("");
+  const [completeDriverOnTime, setCompleteDriverOnTime] = useState<"yes" | "no" | "">("");
+  const [completeNotes, setCompleteNotes] = useState("");
+  const [completing, setCompleting] = useState(false);
+
+  // ── Issues + Amendments (fetched from new APIs) ────────────────────────
+  const [issues, setIssues] = useState<any[]>([]);
+  const [amendments, setAmendments] = useState<any[]>([]);
+  const [resolveIssueId, setResolveIssueId] = useState<string | null>(null);
+  const [resolveNotes, setResolveNotes] = useState("");
+
+  const reloadIssues = async () => {
+    if (!id) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const res = await fetch(`/api/issues?booking_id=${id}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (res.ok) setIssues(await res.json());
+  };
+  const reloadAmendments = async () => {
+    if (!id) return;
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const res = await fetch(`/api/amendments?booking_id=${id}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (res.ok) setAmendments(await res.json());
+  };
+
+  useEffect(() => { reloadIssues(); reloadAmendments(); }, [id]);
+
+  const openCompleteDialog = () => {
+    const b: any = booking;
+    setCompleteClientSatisfied(b?.client_satisfied === true ? "yes" : b?.client_satisfied === false ? "no" : "");
+    setCompleteDriverOnTime(b?.driver_on_time === true ? "yes" : b?.driver_on_time === false ? "no" : "");
+    setCompleteNotes(b?.completion_notes ?? "");
+    setIsCompleteOpen(true);
+  };
+
+  const handleCompleteSubmit = async () => {
+    if (!booking) return;
+    setCompleting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const payload: Record<string, any> = {
+        status: "Completed",
+        client_satisfied: completeClientSatisfied === "yes" ? true : completeClientSatisfied === "no" ? false : null,
+        driver_on_time: completeDriverOnTime === "yes" ? true : completeDriverOnTime === "no" ? false : null,
+        completion_notes: completeNotes.trim() || null,
+        completed_at: new Date().toISOString(),
+      };
+      const res = await fetch(`/api/bookings/${id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j?.error ?? "Failed to complete booking");
+      }
+      // If completion notes were provided, also create an Issue so we don't
+      // lose the operator's flag in the audit-only completion record.
+      if (payload.completion_notes) {
+        await fetch("/api/issues", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: JSON.stringify({
+            booking_id: id,
+            driver_id: (booking as any).driver_id ?? null,
+            client_id: (booking as any).client_id ?? null,
+            description: payload.completion_notes,
+            status: "Open",
+          }),
+        }).catch(() => {});
+      }
+      toast({ title: "Booking completed" });
+      setIsCompleteOpen(false);
+      qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
+      reloadIssues();
+      reloadAmendments();
+      refetch();
+    } catch (e: any) {
+      toast({ title: "Failed to complete", description: e?.message, variant: "destructive" });
+    } finally {
+      setCompleting(false);
+    }
+  };
+
+  const handleResolveIssue = async () => {
+    if (!resolveIssueId) return;
+    if (!resolveNotes.trim()) {
+      toast({ title: "Resolution notes required", variant: "destructive" });
+      return;
+    }
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const res = await fetch(`/api/issues/${resolveIssueId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ status: "Resolved", resolution_notes: resolveNotes.trim() }),
+    });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      toast({ title: "Failed", description: j?.error, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Issue resolved" });
+    setResolveIssueId(null);
+    setResolveNotes("");
+    reloadIssues();
+  };
 
   // Edit Booking dialog — works for ALL service types.
   // Clients change flight dates, swap vehicles, extend stays, adjust tour
@@ -1026,8 +1226,8 @@ export default function BookingDetail() {
               Mark Active
             </Button>
           )}
-          <Button variant="outline" size="sm" onClick={() => handleUpdateStatus('Completed')} className="text-gray-400 hover:bg-gray-500/10">
-            Mark Completed
+          <Button variant="outline" size="sm" onClick={openCompleteDialog} className="text-gray-400 hover:bg-gray-500/10" data-testid="button-mark-completed">
+            <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Mark Completed
           </Button>
           {/* Rebook — clone this booking into a new draft with a fresh TVL
               ref. The operator only needs to set the new date/time. */}
@@ -1092,6 +1292,18 @@ export default function BookingDetail() {
             </DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
+            {/* VIP banner — Platinum / VVIP only (Feature 1) */}
+            {(booking.client_vip_tier === "Platinum" || booking.client_vip_tier === "VVIP") && (
+              <div
+                className="rounded-md p-3 bg-gradient-to-r from-amber-500/30 to-yellow-300/30 border border-amber-400/70 text-amber-100"
+                data-testid="vip-banner-edit"
+              >
+                <p className="text-xs font-semibold tracking-wide">
+                  ⭐ VIP CLIENT — Verify premium vehicle, name-board spelling
+                  and special preferences before saving any changes.
+                </p>
+              </div>
+            )}
             {/* Hotel + Apartment: dates + hotel-specific details */}
             {(svc === "Hotel" || svc === "Apartment") && (
               <>
@@ -1422,6 +1634,57 @@ export default function BookingDetail() {
             ) : (
               <span className="text-destructive font-medium text-sm">Unassigned</span>
             )}
+
+            {/* Driver WhatsApp + Acceptance status — Fixes 13 & 15.
+                The WA button uses the assigned driver's phone (from the
+                drivers list lookup) and pre-fills a polite job-sent message.
+                The acceptance select lets ops record explicit confirmation
+                from the driver and triggers the admin-alert flow on decline. */}
+            {(booking as any).driver_id && (() => {
+              const drv = (drivers as any[] | undefined)?.find((d) => d.id === (booking as any).driver_id);
+              const phone = (drv?.whatsapp || drv?.phone || "").replace(/[^0-9+]/g, "");
+              const acceptance = (booking as any).driver_acceptance_status ?? "Assigned";
+              const msg = `Hi ${drv?.name ?? booking.driver_name ?? ""}, I've just sent you booking ${booking.tvl_ref}. Please confirm receipt. Thanks.`;
+              return (
+                <div className="mt-2 space-y-2">
+                  {phone ? (
+                    <a
+                      href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid="link-whatsapp-driver"
+                      className="inline-flex items-center gap-1.5 text-xs font-medium text-green-500 hover:text-green-400 underline"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" /> WhatsApp Driver
+                    </a>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">No driver WhatsApp on file</p>
+                  )}
+                  <div>
+                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide mb-1">Driver Acceptance</p>
+                    <Select
+                      value={acceptance}
+                      onValueChange={(v) => setDriverAcceptance(v as any)}
+                    >
+                      <SelectTrigger className="h-8 text-xs" data-testid="select-driver-acceptance">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="Assigned">Assigned (Awaiting)</SelectItem>
+                        <SelectItem value="Driver Confirmed">Driver Confirmed</SelectItem>
+                        <SelectItem value="Driver Declined">Driver Declined</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {acceptance === "Driver Confirmed" && (booking as any).driver_accepted_at && (
+                      <p className="text-[10px] text-green-500 mt-1">Confirmed {format(new Date((booking as any).driver_accepted_at), "dd MMM HH:mm")}</p>
+                    )}
+                    {acceptance === "Driver Declined" && (
+                      <p className="text-[10px] text-destructive mt-1">Declined — driver removed; admin alerted</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         </CardContent>
       </Card>
@@ -1879,6 +2142,205 @@ export default function BookingDetail() {
           <CardContent><p className="text-sm">{booking.notes}</p></CardContent>
         </Card>
       )}
+
+      {/* Issues card — Fix 12.
+          Shows any issues raised against this booking (including those
+          captured via the Mark Completed dialog). Operators can resolve an
+          issue by recording a resolution note. Read-only for residence mgrs. */}
+      <Card className="border-border bg-card" data-testid="card-issues">
+        <CardHeader className="pb-2 flex flex-row items-center justify-between">
+          <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4" /> Issues
+            {issues.length > 0 && (
+              <Badge variant="outline" className="ml-1 text-[10px]">{issues.length}</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {issues.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No issues raised for this booking.</p>
+          ) : (
+            issues.map((iss: any) => (
+              <div key={iss.id} className="text-xs border-b border-border pb-2 last:border-0" data-testid={`issue-${iss.id}`}>
+                <div className="flex items-center justify-between">
+                  <Badge variant="outline" className={iss.status === "Resolved" ? "border-green-500/40 text-green-400" : "border-amber-500/40 text-amber-400"}>
+                    {iss.status}
+                  </Badge>
+                  <span className="text-muted-foreground">{iss.created_at ? format(new Date(iss.created_at), "PPp") : ""}</span>
+                </div>
+                <p className="mt-1 text-foreground">{iss.description}</p>
+                {iss.resolution_notes && (
+                  <p className="mt-1 text-muted-foreground italic">Resolution: {iss.resolution_notes}</p>
+                )}
+                {iss.status !== "Resolved" && !isResidenceManager && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="mt-2 h-7 text-[11px]"
+                    onClick={() => { setResolveIssueId(iss.id); setResolveNotes(""); }}
+                    data-testid={`button-resolve-${iss.id}`}
+                  >
+                    Resolve
+                  </Button>
+                )}
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Amendments History — Fix 16.
+          Auto-populated server-side on every PUT. Each row shows the field,
+          before/after values, who changed it, when and why. */}
+      <Card className="border-border bg-card" data-testid="card-amendments">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
+            <History className="w-4 h-4" /> Amendments History
+            {amendments.length > 0 && (
+              <Badge variant="outline" className="ml-1 text-[10px]">{amendments.length}</Badge>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {amendments.length === 0 ? (
+            <p className="text-xs text-muted-foreground">No amendments recorded.</p>
+          ) : (
+            amendments.map((am: any) => (
+              <div key={am.id} className="text-xs border-b border-border pb-2 last:border-0" data-testid={`amendment-${am.id}`}>
+                <div className="flex items-center justify-between">
+                  <span className="font-medium text-foreground">{am.field_name}</span>
+                  <span className="text-muted-foreground">{am.created_at ? format(new Date(am.created_at), "PPp") : ""}</span>
+                </div>
+                <p className="mt-0.5 text-muted-foreground">
+                  <span className="line-through">{am.old_value ?? "—"}</span>
+                  {" → "}
+                  <span className="text-foreground">{am.new_value ?? "—"}</span>
+                </p>
+                <p className="text-[10px] text-muted-foreground mt-0.5">
+                  by {am.changed_by_name || "System"} · {am.change_type}
+                  {am.reason ? ` · ${am.reason}` : ""}
+                </p>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Driver-conflict dialog — Fix 11 */}
+      <Dialog open={conflictDialog.open} onOpenChange={(o) => !o && setConflictDialog((s) => ({ ...s, open: false }))}>
+        <DialogContent data-testid="dialog-driver-conflict">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-destructive">
+              <AlertTriangle className="w-5 h-5" /> Driver Schedule Conflict
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2 text-sm">
+            <p>{conflictDialog.message}</p>
+            {conflictDialog.driverName && (
+              <p className="text-muted-foreground">Driver: <span className="font-semibold text-foreground">{conflictDialog.driverName}</span></p>
+            )}
+            {conflictDialog.conflicts.length > 0 && (
+              <div className="rounded-md border border-destructive/30 bg-destructive/5 p-3 space-y-2">
+                <p className="text-xs uppercase text-muted-foreground tracking-wide">Overlapping bookings</p>
+                {conflictDialog.conflicts.map((c: any) => (
+                  <div key={c.id} className="text-xs">
+                    <span className="font-mono font-semibold">{c.tvl_ref}</span>
+                    {c.client_name ? <span className="text-muted-foreground"> · {c.client_name}</span> : null}
+                    {c.date_time ? <span className="text-muted-foreground"> · {format(new Date(c.date_time), "PPp")}</span> : null}
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="text-xs text-muted-foreground">
+              Choose another driver, or override and proceed anyway. Overrides are logged in Amendments History.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setConflictDialog({ open: false, driverId: null, driverName: null, conflicts: [], message: "" })}
+              data-testid="button-conflict-cancel"
+            >
+              Pick Another Driver
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={proceedConflictOverride}
+              disabled={assigningDriver}
+              data-testid="button-conflict-override"
+            >
+              Override &amp; Assign
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Completion dialog — Fix 12 */}
+      <Dialog open={isCompleteOpen} onOpenChange={setIsCompleteOpen}>
+        <DialogContent data-testid="dialog-complete-booking">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><CheckCircle2 className="w-5 h-5 text-green-500" /> Complete Booking</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2 text-sm">
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Client satisfied?</p>
+              <Select value={completeClientSatisfied} onValueChange={(v) => setCompleteClientSatisfied(v as any)}>
+                <SelectTrigger data-testid="select-client-satisfied"><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="yes">Yes</SelectItem>
+                  <SelectItem value="no">No</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Driver on time?</p>
+              <Select value={completeDriverOnTime} onValueChange={(v) => setCompleteDriverOnTime(v as any)}>
+                <SelectTrigger data-testid="select-driver-on-time"><SelectValue placeholder="—" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="yes">Yes</SelectItem>
+                  <SelectItem value="no">No</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <p className="text-xs text-muted-foreground mb-1">Notes / Issues (optional)</p>
+              <Textarea
+                value={completeNotes}
+                onChange={(e) => setCompleteNotes(e.target.value)}
+                placeholder="Any issues to flag — these will create an Issue record."
+                rows={3}
+                data-testid="input-completion-notes"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCompleteOpen(false)}>Cancel</Button>
+            <Button onClick={handleCompleteSubmit} disabled={completing} data-testid="button-confirm-complete">
+              {completing ? "Saving…" : "Mark Completed"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Resolve issue dialog */}
+      <Dialog open={!!resolveIssueId} onOpenChange={(o) => !o && setResolveIssueId(null)}>
+        <DialogContent data-testid="dialog-resolve-issue">
+          <DialogHeader><DialogTitle>Resolve Issue</DialogTitle></DialogHeader>
+          <div className="space-y-3 py-2">
+            <Textarea
+              value={resolveNotes}
+              onChange={(e) => setResolveNotes(e.target.value)}
+              placeholder="How was this resolved?"
+              rows={3}
+              data-testid="input-resolve-notes"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setResolveIssueId(null)}>Cancel</Button>
+            <Button onClick={handleResolveIssue} data-testid="button-confirm-resolve">Mark Resolved</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Audit log */}
       {booking.audit_log && booking.audit_log.length > 0 && (

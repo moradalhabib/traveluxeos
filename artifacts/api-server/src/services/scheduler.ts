@@ -521,6 +521,38 @@ export async function notifyDriverAssigned(bookingId: string) {
   }
 }
 
+// ─── Driver-declined admin alert ────────────────────────────────────────────
+// One-shot urgent notification when a driver declines a booking. Reuses the
+// existing in-app notification fan-out so admins see it instantly; the
+// frontend WhatsApp banner picks this up via the urgent severity.
+export async function notifyDriverDeclined(bookingId: string, driverName: string | null) {
+  try {
+    const { data: b } = await supabase
+      .from("bookings")
+      .select("id, tvl_ref, client_name, date_time")
+      .eq("id", bookingId)
+      .single();
+    if (!b) return;
+    const when = b.date_time
+      ? new Date(b.date_time).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })
+      : "";
+    notifyByRoles(STAFF_ROLES, {
+      type: "driver_declined",
+      title: "❗ Driver Declined — Reassign",
+      message: `Driver ${driverName ?? ""} declined ${b.tvl_ref ?? ""}${when ? " · " + when : ""}. Reassignment required.`,
+      link: `/bookings/${bookingId}`,
+      entityType: "booking",
+      entityId: bookingId,
+      severity: "urgent",
+      dedupeKey: `driver_declined:${bookingId}:${Date.now()}`,
+    }).catch(() => {});
+    await auditLog("driver_declined", "booking", bookingId, null,
+      `Driver ${driverName ?? ""} declined booking ${b.tvl_ref ?? ""}`).catch(() => {});
+  } catch (e: any) {
+    console.error("[notifyDriverDeclined] error:", e?.message);
+  }
+}
+
 // ─── No-driver alerts (3-hour & 24-hour windows) ────────────────────────────
 // Repeats every 30 min for the 3h alert (dedupe via 30-min bucket key),
 // and once per day for the 24h alert (dedupe per booking per day).
@@ -657,6 +689,7 @@ let lastBriefingDate = "";
 let lastBackupDate = "";
 let lastFollowUpDate = "";
 let lastNoDriverTickMs = 0;
+let lastOverdueAlertDate = "";
 
 // ── UK time helpers (BST/GMT-aware via Intl) ──────────────────────────
 // Returns the current hour-of-day in Europe/London regardless of server TZ.
@@ -718,6 +751,84 @@ async function maybeRunNoDriverScan() {
   await checkNoDriverAlerts().catch(e => console.error("[Scheduler] no-driver scan:", e?.message));
 }
 
+async function maybeRunOverdueCommissionAlert() {
+  // Daily at 09:00 Europe/London — email admin about drivers with cash commission
+  // outstanding for >= 30 days. Skip silently if nothing overdue.
+  if (ukHourNow() !== 9) return;
+  const today = ukDateKey();
+  if (lastOverdueAlertDate === today) return;
+  lastOverdueAlertDate = today;
+
+  try {
+    const { data: rows } = await supabase
+      .from("bookings")
+      .select("driver_id, tvl_commission, date_time, drivers(name, staff_no, whatsapp)")
+      .eq("payment_method", "Cash")
+      .eq("commission_status", "Outstanding")
+      .neq("status", "Cancelled");
+
+    const dayMs = 86400000;
+    const overdueByDriver: Record<string, { name: string; staff_no: string | null; whatsapp: string | null; total: number; oldest: number; jobs: number }> = {};
+    (rows ?? []).forEach((b: any) => {
+      if (!b.driver_id || !b.date_time) return;
+      const age = Math.floor((Date.now() - new Date(b.date_time).getTime()) / dayMs);
+      if (age < 30) return;
+      const key = b.driver_id;
+      const cur = overdueByDriver[key] ?? {
+        name: b.drivers?.name ?? "Unknown",
+        staff_no: b.drivers?.staff_no ?? null,
+        whatsapp: b.drivers?.whatsapp ?? null,
+        total: 0,
+        oldest: 0,
+        jobs: 0,
+      };
+      cur.total += Number(b.tvl_commission) || 0;
+      cur.jobs += 1;
+      if (age > cur.oldest) cur.oldest = age;
+      overdueByDriver[key] = cur;
+    });
+
+    const list = Object.values(overdueByDriver).sort((a, b) => b.oldest - a.oldest);
+    if (list.length === 0) return;
+
+    const recipient = await getAdminBriefingRecipient();
+    const totalOwed = list.reduce((s, d) => s + d.total, 0);
+    const rowsHtml = list.map(d => `
+      <tr>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee">${d.name}${d.staff_no ? ` <span style="color:#888">(${d.staff_no})</span>` : ""}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">£${d.total.toFixed(2)}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right;color:#b00020"><strong>${d.oldest}d</strong></td>
+        <td style="padding:6px 10px;border-bottom:1px solid #eee;text-align:right">${d.jobs}</td>
+      </tr>
+    `).join("");
+
+    const html = `
+      <h2 style="font-family:system-ui">Overdue Commission Alert</h2>
+      <p>${list.length} driver(s) have cash commission outstanding for 30+ days.
+      Total overdue: <strong>£${totalOwed.toFixed(2)}</strong></p>
+      <table style="border-collapse:collapse;font-family:system-ui;font-size:14px;min-width:480px">
+        <thead><tr style="background:#f5f5f5">
+          <th style="padding:6px 10px;text-align:left">Driver</th>
+          <th style="padding:6px 10px;text-align:right">Owed</th>
+          <th style="padding:6px 10px;text-align:right">Oldest</th>
+          <th style="padding:6px 10px;text-align:right">Jobs</th>
+        </tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      <p style="color:#666;margin-top:16px">Sent automatically by Traveluxe OS scheduler.</p>
+    `;
+
+    await sendEmail({
+      to: recipient,
+      subject: `[Traveluxe OS] ${list.length} driver(s) with overdue commission (≥30d)`,
+      html,
+      account: "system",
+    }).catch(() => {});
+  } catch (e: any) {
+    console.error("[Scheduler] overdue commission alert:", e?.message);
+  }
+}
+
 async function maybeRunBackup() {
   const now = new Date();
   // Fire any time during the 03:00 hour, deduped per calendar date.
@@ -745,6 +856,7 @@ export function startScheduler() {
       await maybeRunFollowUpScan();
       await maybeRunDigest();
       await maybeRunBriefing();
+      await maybeRunOverdueCommissionAlert();
       await maybeRunBackup();
     } catch (e: any) {
       console.error("[Scheduler] tick error:", e?.message);

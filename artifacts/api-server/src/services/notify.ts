@@ -16,7 +16,8 @@ export type NotifType =
   | "weekly_commission"
   | "unpaid_invoice"
   | "direct_message"
-  | "announcement";
+  | "announcement"
+  | "driver_declined";
 
 // Notif types users CANNOT disable
 const ALWAYS_ON: NotifType[] = [
@@ -43,6 +44,7 @@ const PREF_COL: Record<NotifType, string | null> = {
   task_assigned:      null,
   direct_message:     null,
   announcement:       null,
+  driver_declined:    null,
 };
 
 interface NotifyOpts {

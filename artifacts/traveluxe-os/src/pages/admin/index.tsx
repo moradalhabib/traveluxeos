@@ -2195,7 +2195,136 @@ export default function Admin() {
           </TabsContent>
         )}
       </Tabs>
+
+      <ActivityLogSection />
     </div>
+  );
+}
+
+const ACTIVITY_FILTER_GROUPS = [
+  { key: "all", label: "All", prefix: "" },
+  { key: "bookings", label: "Bookings", prefix: "booking" },
+  { key: "drivers", label: "Drivers", prefix: "driver" },
+  { key: "clients", label: "Clients", prefix: "client" },
+  { key: "settlements", label: "Settlements", prefix: "settlement" },
+  { key: "issues", label: "Issues", prefix: "issue" },
+  { key: "logins", label: "Logins", prefix: "login" },
+];
+
+function ActivityLogSection() {
+  const [filter, setFilter] = useState<string>("all");
+  const [entries, setEntries] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(`/api/admin/activity-log?limit=200`, {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        });
+        if (!res.ok) {
+          if (!cancelled) setEntries([]);
+          return;
+        }
+        const json = await res.json();
+        if (!cancelled) setEntries(Array.isArray(json.entries) ? json.entries : []);
+      } catch {
+        if (!cancelled) setEntries([]);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const activeGroup = ACTIVITY_FILTER_GROUPS.find(g => g.key === filter) ?? ACTIVITY_FILTER_GROUPS[0];
+  const filtered = entries.filter(e => {
+    if (!activeGroup.prefix) return true;
+    return typeof e.action_type === "string" && e.action_type.startsWith(activeGroup.prefix);
+  });
+
+  const exportCsv = () => {
+    const rows = filtered.map((e: any) => [
+      e.occurred_at ? format(new Date(e.occurred_at), "dd MMM yyyy HH:mm") : "",
+      e.operator_name ?? "",
+      e.action_type ?? "",
+      e.description ?? "",
+      e.entity_label ?? "",
+    ]);
+    const csv = buildCSV(["When", "Operator", "Action", "Description", "Entity"], rows);
+    downloadFile(csv, `activity-log-${format(new Date(), "yyyy-MM-dd")}.csv`, "text/csv;charset=utf-8");
+  };
+
+  return (
+    <Card className="border-border" data-testid="card-activity-log">
+      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Activity className="w-4 h-4" />
+          Activity Log
+        </CardTitle>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={exportCsv}
+          disabled={filtered.length === 0}
+          data-testid="button-export-activity-csv"
+        >
+          <Download className="w-4 h-4 mr-1" />
+          Export CSV
+        </Button>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex flex-wrap gap-1.5">
+          {ACTIVITY_FILTER_GROUPS.map(g => (
+            <button
+              key={g.key}
+              type="button"
+              onClick={() => setFilter(g.key)}
+              data-testid={`chip-activity-${g.key}`}
+              className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                filter === g.key
+                  ? "bg-primary/20 border-primary/50 text-primary"
+                  : "bg-background border-border text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              {g.label}
+            </button>
+          ))}
+        </div>
+        <div className="max-h-[500px] overflow-y-auto space-y-2 pr-1">
+          {loading ? (
+            [...Array(5)].map((_, i) => <Skeleton key={i} className="h-14" />)
+          ) : filtered.length === 0 ? (
+            <div className="text-sm text-muted-foreground py-6 text-center">No activity yet.</div>
+          ) : filtered.map((e: any) => (
+            <div
+              key={e.id}
+              className="p-3 border border-border rounded-xl bg-background/50 text-sm"
+              data-testid={`row-activity-${e.id}`}
+            >
+              <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-medium">{e.operator_name || "System"}</span>
+                  <Badge variant="secondary" className="text-[10px]">{e.action_type}</Badge>
+                  {e.entity_label && (
+                    <span className="text-xs text-muted-foreground">{e.entity_label}</span>
+                  )}
+                </div>
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {e.occurred_at ? format(new Date(e.occurred_at), "dd MMM yyyy HH:mm") : ""}
+                </span>
+              </div>
+              {e.description && (
+                <p className="text-xs text-muted-foreground">{e.description}</p>
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

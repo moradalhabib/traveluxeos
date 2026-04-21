@@ -33,7 +33,7 @@ router.get("/summary", async (_req, res) => {
     supabase.from("bookings").select("id").eq("status", "Active"),
     supabase.from("bookings").select("id, tvl_ref").in("status", ["Pending", "Confirmed"]).is("driver_id", null),
     supabase.from("bookings").select("id, tvl_ref").in("payment_status", ["Unpaid", "Partial"]).neq("status", "Cancelled"),
-    supabase.from("bookings").select("driver_id, tvl_commission, payment_method, commission_status").eq("payment_method", "Cash").eq("commission_status", "Outstanding"),
+    supabase.from("bookings").select("driver_id, tvl_commission, payment_method, commission_status, date_time").eq("payment_method", "Cash").eq("commission_status", "Outstanding"),
     supabase.from("bookings").select("client_id, price, additional_charges").neq("status", "Cancelled"),
     supabase.from("bookings").select("driver_id").neq("status", "Cancelled"),
     supabase.from("bookings").select("id").gte("date_time", todayStart.toISOString()).not("status", "in", '("Cancelled","Completed")'),
@@ -45,6 +45,22 @@ router.get("/summary", async (_req, res) => {
     (bookings ?? []).filter(b => !["Cancelled"].includes(b.status)).reduce((sum, b) => sum + (b.price || 0) + (b.additional_charges || 0), 0);
 
   const driverCommissionOutstanding = (allDriverBreakdown ?? []).reduce((sum: number, b: any) => sum + (b.tvl_commission || 0), 0);
+
+  // Drivers with pending cash + drivers with overdue (>=30d oldest)
+  const driverPendingMap: Record<string, { total: number; oldest: number }> = {};
+  const dayMsLocal = 86400000;
+  (allDriverBreakdown ?? []).forEach((b: any) => {
+    if (!b.driver_id) return;
+    const cur = driverPendingMap[b.driver_id] ?? { total: 0, oldest: 0 };
+    cur.total += b.tvl_commission || 0;
+    if (b.date_time) {
+      const age = Math.floor((Date.now() - new Date(b.date_time).getTime()) / dayMsLocal);
+      if (age > cur.oldest) cur.oldest = age;
+    }
+    driverPendingMap[b.driver_id] = cur;
+  });
+  const drivers_with_pending = Object.values(driverPendingMap).filter(v => v.total > 0).length;
+  const drivers_with_overdue = Object.values(driverPendingMap).filter(v => v.total > 0 && v.oldest >= 30).length;
   const arrangementFeeOutstanding = (arrangementFeeBookings ?? [])
     .filter((b: any) => (b.arrangement_fee_status ?? "Outstanding") === "Outstanding")
     .reduce((sum: number, b: any) => sum + (b.commission_amount || 0), 0);
@@ -302,6 +318,8 @@ router.get("/summary", async (_req, res) => {
         jobs_without_driver_first_id: noDriverJobsNew[0]?.id ?? null,
         pending_payments: (pendingPayments ?? []).length,
         outstanding_commissions: outstandingCommissions,
+        drivers_with_pending,
+        drivers_with_overdue,
         pending_payouts: pendingPayouts,
         unpaid_invoices_count: unpaidInvoicesNew.length,
         unpaid_invoices_count_total_including_odoo: (unpaidInvoices ?? []).length,
@@ -420,6 +438,8 @@ router.get("/summary", async (_req, res) => {
     jobs_without_driver_first_id: noDriverJobsNew[0]?.id ?? null,
     pending_payments: (pendingPayments ?? []).length,
     outstanding_commissions: outstandingCommissions,
+    drivers_with_pending,
+    drivers_with_overdue,
     pending_payouts: pendingPayouts,
     unpaid_invoices_count: unpaidInvoicesNew.length,
     unpaid_invoices_count_total_including_odoo: (unpaidInvoices ?? []).length,
@@ -432,6 +452,64 @@ router.get("/summary", async (_req, res) => {
     follow_ups_pending: followUpsPending,
     follow_ups_overdue: followUpsOverdue,
     todays_jobs: todaysJobs,
+  });
+});
+
+// ─── Revenue forecast ─────────────────────────────────────────────────────
+router.get("/forecast", async (_req, res) => {
+  const now = new Date();
+  const startOfToday = new Date(now);
+  startOfToday.setHours(0, 0, 0, 0);
+  const end30 = new Date(startOfToday);
+  end30.setDate(end30.getDate() + 30);
+  const end7 = new Date(startOfToday);
+  end7.setDate(end7.getDate() + 7);
+
+  const { data: rows, error } = await supabase
+    .from("bookings")
+    .select("date_time, price, additional_charges, status, service_type")
+    .gte("date_time", startOfToday.toISOString())
+    .lt("date_time", end30.toISOString())
+    .in("status", ["Confirmed", "Scheduled", "Active"])
+    .order("date_time", { ascending: true });
+
+  if (error) return res.status(500).json({ error: error.message });
+
+  const fareOf = (b: any) => (Number(b.price) || 0) + (Number(b.additional_charges) || 0);
+
+  let revenue_next_7 = 0;
+  let revenue_next_30 = 0;
+  const byServiceType: Record<string, number> = {};
+  const byDayMap: Record<string, { date: string; revenue: number; jobs: number }> = {};
+
+  for (let i = 0; i < 30; i++) {
+    const d = new Date(startOfToday);
+    d.setDate(d.getDate() + i);
+    const key = d.toISOString().split("T")[0];
+    byDayMap[key] = { date: key, revenue: 0, jobs: 0 };
+  }
+
+  (rows ?? []).forEach((b: any) => {
+    const fare = fareOf(b);
+    revenue_next_30 += fare;
+    const t = new Date(b.date_time).getTime();
+    if (t < end7.getTime()) revenue_next_7 += fare;
+    const st = b.service_type ?? "Other";
+    byServiceType[st] = (byServiceType[st] ?? 0) + fare;
+    const key = new Date(b.date_time).toISOString().split("T")[0];
+    if (byDayMap[key]) {
+      byDayMap[key].revenue += fare;
+      byDayMap[key].jobs += 1;
+    }
+  });
+
+  return res.json({
+    revenue_next_7,
+    revenue_next_30,
+    by_service_type: Object.entries(byServiceType)
+      .map(([service_type, revenue]) => ({ service_type, revenue }))
+      .sort((a, b) => b.revenue - a.revenue),
+    by_day: Object.values(byDayMap),
   });
 });
 

@@ -102,4 +102,39 @@ router.get("/backup/status", async (req, res) => {
   });
 });
 
+// ─── Activity log feed (read-only) ────────────────────────────────────────
+router.get("/activity-log", async (req, res) => {
+  const auth = await requireAdmin(req.headers.authorization);
+  if (!auth.ok) return res.status(auth.status).json({ error: auth.msg });
+
+  const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 200));
+  const action_type = req.query.action_type ? String(req.query.action_type) : null;
+
+  let query = supabase
+    .from("activity_log")
+    .select("id, action_type, description, entity_type, entity_id, entity_label, operator_id, operator_name, occurred_at")
+    .order("occurred_at", { ascending: false })
+    .limit(limit);
+
+  if (action_type) query = query.eq("action_type", action_type);
+
+  const { data, error } = await query;
+  if (error) {
+    if (/does not exist/i.test(error.message)) {
+      return res.json({ entries: [], action_types: [] });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+
+  // Distinct action types for filter chips
+  const { data: typeRows } = await supabase
+    .from("activity_log")
+    .select("action_type")
+    .order("action_type", { ascending: true })
+    .limit(2000);
+  const action_types = Array.from(new Set((typeRows ?? []).map((r: any) => r.action_type))).filter(Boolean);
+
+  return res.json({ entries: data ?? [], action_types });
+});
+
 export default router;

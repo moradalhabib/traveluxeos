@@ -1,17 +1,23 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useListCommissions, getListCommissionsQueryKey, useCreateSettlement, useCreatePayout } from "@workspace/api-client-react";
+import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
-import { Calculator, Check, Hotel, Home, MessageSquare, ChevronRight, ExternalLink, Info, CheckCircle2 } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { Calculator, Check, Hotel, Home, MessageSquare, ChevronRight, ExternalLink, Info, CheckCircle2, AlertTriangle, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
-import { format } from "date-fns";
+import { format, parseISO, startOfMonth } from "date-fns";
 import { Link } from "wouter";
+import * as XLSX from "xlsx";
+
+const API_BASE = `${import.meta.env.VITE_API_URL ?? ""}/api`;
 
 type Job = {
   booking_id: string;
@@ -37,6 +43,27 @@ type Driver = {
   jobs: Job[];
   settled_jobs: Job[];
   paid_jobs: Job[];
+  oldest_pending_age_days?: number | null;
+  has_overdue?: boolean;
+};
+
+type SettlementHistoryEntry = {
+  settlement_id?: string;
+  driver_id?: string;
+  driver_name: string;
+  tvl_number?: string | null;
+  settled_at: string;
+  total_amount: number;
+  booking_refs: string[];
+  month: string;
+  operator_name?: string | null;
+  notes?: string | null;
+};
+
+type SettleConfirmState = {
+  driver: Driver;
+  jobsSettled: Job[];
+  total: number;
 };
 
 type DialogMode = "owed_to_tvl" | "owed_to_driver";
@@ -99,6 +126,25 @@ export default function Commissions() {
 
   const [dialogDriver, setDialogDriver] = useState<Driver | null>(null);
   const [dialogMode, setDialogMode] = useState<DialogMode>("owed_to_tvl");
+  const [settleNotesDriver, setSettleNotesDriver] = useState<Driver | null>(null);
+  const [settleNotesText, setSettleNotesText] = useState("");
+  const [settleConfirm, setSettleConfirm] = useState<SettleConfirmState | null>(null);
+  const [outstandingView, setOutstandingView] = useState<"all-time" | "this-month">("all-time");
+
+  const historyQuery = useQuery<SettlementHistoryEntry[]>({
+    queryKey: ["settlement-history"],
+    queryFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${API_BASE}/commissions/settlements/history`, {
+        headers: session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : {},
+      });
+      if (!res.ok) throw new Error("Failed to load settlement history");
+      const json = await res.json();
+      return Array.isArray(json) ? json : (json?.settlements ?? []);
+    },
+  });
 
   if (isLoading) {
     return (
@@ -116,16 +162,33 @@ export default function Commissions() {
   const drivers: Driver[] = s?.driver_breakdown ?? [];
 
   const handleSettleAll = (driver: Driver) => {
-    const ids = driver.jobs
-      .filter((j) => j.payment_method === "Cash" && j.commission_status !== "Settled")
-      .map((j) => j.booking_id);
-    if (ids.length === 0) {
+    const pendingCash = driver.jobs.filter(
+      (j) => j.payment_method === "Cash" && j.commission_status !== "Settled"
+    );
+    if (pendingCash.length === 0) {
       toast({ title: "Nothing to settle", description: "No outstanding cash jobs for this driver." });
       return;
     }
+    setSettleNotesDriver(driver);
+    setSettleNotesText("");
+  };
+
+  const confirmSettle = () => {
+    const driver = settleNotesDriver;
+    if (!driver) return;
+    const pendingCash = driver.jobs.filter(
+      (j) => j.payment_method === "Cash" && j.commission_status !== "Settled"
+    );
+    const ids = pendingCash.map((j) => j.booking_id);
+    if (ids.length === 0) {
+      setSettleNotesDriver(null);
+      return;
+    }
+    const total = pendingCash.reduce((s, j) => s + (j.tvl_commission ?? 0), 0);
     const today = new Date();
     const weekStart = new Date(today);
     weekStart.setDate(today.getDate() - 7);
+    const notes = settleNotesText.trim();
     settle.mutate(
       {
         data: {
@@ -133,19 +196,48 @@ export default function Commissions() {
           week_start: weekStart.toISOString().slice(0, 10),
           week_end: today.toISOString().slice(0, 10),
           booking_ids: ids,
-        },
+          ...(notes ? { notes } : {}),
+        } as any,
       },
       {
         onSuccess: () => {
           toast({ title: "Marked as Settled", description: `${ids.length} job(s) settled for ${driver.driver_name}` });
+          setSettleNotesDriver(null);
           setDialogDriver(null);
+          setSettleConfirm({ driver, jobsSettled: pendingCash, total });
           refetch();
+          historyQuery.refetch();
         },
         onError: (err: any) => {
           toast({ title: "Error", description: err?.message ?? "Failed to settle", variant: "destructive" });
         },
       }
     );
+  };
+
+  const buildSettlementWaUrl = (state: SettleConfirmState): string | null => {
+    if (!state.driver.driver_whatsapp) return null;
+    const phone = state.driver.driver_whatsapp.replace(/[^0-9]/g, "");
+    if (!phone) return null;
+    const today = format(new Date(), "d MMM yyyy");
+    const lines: string[] = [];
+    lines.push("✅ Settlement Confirmed — Traveluxe London");
+    lines.push("");
+    lines.push(`Hi ${state.driver.driver_name.split(" ")[0]},`);
+    lines.push("");
+    lines.push(`This confirms your commission settlement on ${today}:`);
+    lines.push("");
+    lines.push(`Total settled: ${fmtMoney(state.total)}`);
+    lines.push("");
+    lines.push("Jobs covered:");
+    state.jobsSettled.forEach((j) => {
+      lines.push(`- ${j.tvl_ref ?? "—"} · ${fmtMoney(j.tvl_commission ?? 0)}`);
+    });
+    lines.push("");
+    lines.push("Thank you for your continued partnership.");
+    lines.push("");
+    lines.push("— Traveluxe London Operations");
+    return `https://wa.me/${phone}?text=${encodeURIComponent(lines.join("\n"))}`;
   };
 
   const handlePayoutAll = (driver: Driver) => {
@@ -248,30 +340,63 @@ export default function Commissions() {
 
       {/* Tabs */}
       <Tabs defaultValue="outstanding" className="w-full">
-        <TabsList className="grid w-full grid-cols-2 max-w-[400px]">
-          <TabsTrigger value="outstanding">
+        <TabsList className="grid w-full grid-cols-3 max-w-[600px]">
+          <TabsTrigger value="outstanding" data-testid="tab-outstanding">
             Owed to TVL
             {owedToTvlDrivers.length > 0 && (
               <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-amber-400 inline-block" />
             )}
           </TabsTrigger>
-          <TabsTrigger value="payouts">
+          <TabsTrigger value="payouts" data-testid="tab-payouts">
             Owed to Drivers
             {owedToDriverDrivers.length > 0 && (
               <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-green-400 inline-block" />
             )}
           </TabsTrigger>
+          <TabsTrigger value="history" data-testid="tab-history">
+            Settlement History
+          </TabsTrigger>
         </TabsList>
 
         {/* Owed to TVL — Cash jobs */}
         <TabsContent value="outstanding" className="mt-4 space-y-3">
-          <p className="text-xs text-muted-foreground">
-            One row per driver. Click any driver to view their full job history, send a WhatsApp statement, or mark commissions as settled.
-          </p>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <p className="text-xs text-muted-foreground">
+              One row per driver. Click any driver to view their full job history, send a WhatsApp statement, or mark commissions as settled.
+            </p>
+            <ToggleGroup
+              type="single"
+              value={outstandingView}
+              onValueChange={(v) => v && setOutstandingView(v as "all-time" | "this-month")}
+              className="border border-border rounded-md p-0.5"
+            >
+              <ToggleGroupItem value="all-time" size="sm" data-testid="toggle-view-all-time" className="text-xs px-3">
+                All time
+              </ToggleGroupItem>
+              <ToggleGroupItem value="this-month" size="sm" data-testid="toggle-view-this-month" className="text-xs px-3">
+                This month
+              </ToggleGroupItem>
+            </ToggleGroup>
+          </div>
           {owedToTvlDrivers.map((driver) => {
-            const pendingCount = driver.jobs.filter(
+            const pendingCash = driver.jobs.filter(
               (j) => j.payment_method === "Cash" && j.commission_status !== "Settled"
-            ).length;
+            );
+            const pendingCount = pendingCash.length;
+            const now = new Date();
+            const monthStart = startOfMonth(now);
+            const prevMonthStart = startOfMonth(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+            let displayAmount = driver.outstanding_amount;
+            let prevMonthTotal = 0;
+            let olderTotal = 0;
+            if (outstandingView === "this-month") {
+              const thisMonth = pendingCash.filter((j) => j.date && new Date(j.date) >= monthStart);
+              const prevMonth = pendingCash.filter((j) => j.date && new Date(j.date) >= prevMonthStart && new Date(j.date) < monthStart);
+              const older = pendingCash.filter((j) => j.date && new Date(j.date) < prevMonthStart);
+              displayAmount = thisMonth.reduce((s, j) => s + (j.tvl_commission ?? 0), 0);
+              prevMonthTotal = prevMonth.reduce((s, j) => s + (j.tvl_commission ?? 0), 0);
+              olderTotal = older.reduce((s, j) => s + (j.tvl_commission ?? 0), 0);
+            }
             return (
               <Card
                 key={driver.driver_id}
@@ -279,28 +404,56 @@ export default function Commissions() {
                 onClick={() => openDriver(driver, "owed_to_tvl")}
                 data-testid={`commission-driver-card-${driver.driver_id}`}
               >
-                <CardContent className="p-4 sm:p-5 flex items-center justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <h3 className="font-bold text-base sm:text-lg truncate">{driver.driver_name}</h3>
-                      {driver.driver_staff_no && (
-                        <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30 font-semibold">
-                          {driver.driver_staff_no}
+                <CardContent className="p-4 sm:p-5 flex flex-col gap-2">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <h3 className="font-bold text-base sm:text-lg truncate">{driver.driver_name}</h3>
+                        {driver.driver_staff_no && (
+                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30 font-semibold">
+                            {driver.driver_staff_no}
+                          </span>
+                        )}
+                        {driver.has_overdue && (
+                          <Badge
+                            variant="outline"
+                            className="bg-destructive/20 text-destructive border-destructive/50 text-[10px] px-1.5"
+                            data-testid={`badge-overdue-${driver.driver_id}`}
+                          >
+                            <AlertTriangle className="w-3 h-3 mr-0.5" />
+                            Overdue {driver.oldest_pending_age_days ?? 0}d
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {pendingCount} pending cash {pendingCount === 1 ? "job" : "jobs"}
+                        {driver.settled_jobs.length > 0 && ` · ${driver.settled_jobs.length} settled (last 90d)`}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-2xl font-bold text-amber-400">
+                        {isSuperAdmin ? fmtMoney(displayAmount) : "Outstanding"}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                        {outstandingView === "this-month" ? "this month" : "total owed"}
+                      </div>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                  </div>
+                  {outstandingView === "this-month" && isSuperAdmin && (prevMonthTotal > 0 || olderTotal > 0) && (
+                    <div className="flex items-center gap-3 text-[11px] pt-1 border-t border-border/40">
+                      {prevMonthTotal > 0 && (
+                        <span className="text-amber-300" data-testid={`text-prev-month-${driver.driver_id}`}>
+                          Previous month: {fmtMoney(prevMonthTotal)}
+                        </span>
+                      )}
+                      {olderTotal > 0 && (
+                        <span className="text-destructive" data-testid={`text-older-${driver.driver_id}`}>
+                          2+ months: {fmtMoney(olderTotal)}
                         </span>
                       )}
                     </div>
-                    <div className="text-xs text-muted-foreground">
-                      {pendingCount} pending cash {pendingCount === 1 ? "job" : "jobs"}
-                      {driver.settled_jobs.length > 0 && ` · ${driver.settled_jobs.length} settled (last 90d)`}
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    <div className="text-2xl font-bold text-amber-400">
-                      {isSuperAdmin ? fmtMoney(driver.outstanding_amount) : "Outstanding"}
-                    </div>
-                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">total owed</div>
-                  </div>
-                  <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                  )}
                 </CardContent>
               </Card>
             );
@@ -359,6 +512,16 @@ export default function Commissions() {
               No pending payouts owed to drivers.
             </div>
           )}
+        </TabsContent>
+
+        {/* Settlement History */}
+        <TabsContent value="history" className="mt-4 space-y-4">
+          <SettlementHistoryView
+            entries={historyQuery.data ?? []}
+            isLoading={historyQuery.isLoading}
+            isError={historyQuery.isError}
+            isSuperAdmin={isSuperAdmin}
+          />
         </TabsContent>
 
         {/* Arrangement Fees tab removed — Hotel/Apartment now use supplier_cost / client_price markup model */}
@@ -477,6 +640,237 @@ export default function Commissions() {
         onPayoutAll={handlePayoutAll}
         actionPending={settle.isPending || payout.isPending}
       />
+
+      {/* Settlement notes dialog (Fix 5) */}
+      <Dialog open={!!settleNotesDriver} onOpenChange={(o) => { if (!o) setSettleNotesDriver(null); }}>
+        <DialogContent data-testid="dialog-settle-notes">
+          <DialogHeader>
+            <DialogTitle>Confirm settlement</DialogTitle>
+            <DialogDescription>
+              {settleNotesDriver && `Mark all pending cash commissions for ${settleNotesDriver.driver_name} as settled.`}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+              Optional settlement note
+            </label>
+            <Textarea
+              value={settleNotesText}
+              onChange={(e) => setSettleNotesText(e.target.value)}
+              placeholder="e.g. Cash received in person, counted with driver"
+              rows={3}
+              data-testid="input-settlement-notes"
+            />
+          </div>
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setSettleNotesDriver(null)} className="w-full sm:w-auto">
+              Cancel
+            </Button>
+            <Button
+              onClick={confirmSettle}
+              disabled={settle.isPending}
+              className="w-full sm:w-auto bg-amber-600 hover:bg-amber-500 text-white"
+              data-testid="button-confirm-settle"
+            >
+              <Check className="w-4 h-4 mr-2" />
+              {settle.isPending ? "Settling…" : "Confirm settlement"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Settlement WhatsApp confirmation dialog (Fix 1) */}
+      <Dialog open={!!settleConfirm} onOpenChange={(o) => { if (!o) setSettleConfirm(null); }}>
+        <DialogContent data-testid="dialog-settle-confirm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCircle2 className="w-5 h-5 text-emerald-500" />
+              Settlement Confirmed
+            </DialogTitle>
+            <DialogDescription>
+              {settleConfirm && `${settleConfirm.jobsSettled.length} job(s) settled for ${settleConfirm.driver.driver_name}.`}
+            </DialogDescription>
+          </DialogHeader>
+          {settleConfirm && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
+                <span className="text-sm text-muted-foreground">Total settled</span>
+                <span className="text-xl font-bold text-emerald-400">{fmtMoney(settleConfirm.total)}</span>
+              </div>
+              <ul className="text-xs space-y-1 max-h-48 overflow-y-auto border border-border rounded p-2">
+                {settleConfirm.jobsSettled.map((j) => (
+                  <li key={j.booking_id} className="flex justify-between">
+                    <span className="font-mono">{j.tvl_ref ?? "—"}</span>
+                    <span>{fmtMoney(j.tvl_commission ?? 0)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <DialogFooter className="flex-col sm:flex-row gap-2">
+            <Button variant="outline" onClick={() => setSettleConfirm(null)} className="w-full sm:w-auto">
+              Close
+            </Button>
+            {settleConfirm && (() => {
+              const url = buildSettlementWaUrl(settleConfirm);
+              if (!url) {
+                return (
+                  <Button disabled variant="outline" className="w-full sm:w-auto">
+                    <MessageSquare className="w-4 h-4 mr-2" /> No WhatsApp on file
+                  </Button>
+                );
+              }
+              return (
+                <Button
+                  onClick={() => window.open(url, "_blank")}
+                  className="w-full sm:w-auto bg-green-700 hover:bg-green-600 text-white"
+                  data-testid="button-send-settlement-wa"
+                >
+                  <MessageSquare className="w-4 h-4 mr-2" />
+                  Send WhatsApp to driver
+                </Button>
+              );
+            })()}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function SettlementHistoryView({
+  entries,
+  isLoading,
+  isError,
+  isSuperAdmin,
+}: {
+  entries: SettlementHistoryEntry[];
+  isLoading: boolean;
+  isError: boolean;
+  isSuperAdmin: boolean;
+}) {
+  const grouped = useMemo(() => {
+    const map = new Map<string, SettlementHistoryEntry[]>();
+    for (const e of entries) {
+      const key = e.month ?? (e.settled_at ? format(parseISO(e.settled_at), "yyyy-MM") : "unknown");
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(e);
+    }
+    const sortedKeys = Array.from(map.keys()).sort((a, b) => (a < b ? 1 : -1));
+    return sortedKeys.map((k) => ({
+      month: k,
+      label: k && /^\d{4}-\d{2}$/.test(k) ? format(parseISO(`${k}-01`), "MMMM yyyy") : k,
+      items: [...map.get(k)!].sort((a, b) =>
+        new Date(b.settled_at).getTime() - new Date(a.settled_at).getTime()
+      ),
+      subtotal: map.get(k)!.reduce((s, e) => s + (e.total_amount ?? 0), 0),
+    }));
+  }, [entries]);
+
+  const exportCsv = () => {
+    const rows = entries.map((e) => ({
+      Driver: e.driver_name,
+      "TVL Number": e.tvl_number ?? "",
+      "Settled At": e.settled_at ? format(parseISO(e.settled_at), "yyyy-MM-dd") : "",
+      Month: e.month ?? "",
+      "Total Amount": e.total_amount ?? 0,
+      "Booking Refs": (e.booking_refs ?? []).join(", "),
+      Operator: e.operator_name ?? "",
+      Notes: e.notes ?? "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Settlements");
+    const stamp = format(new Date(), "yyyyMMdd_HHmm");
+    XLSX.writeFile(wb, `traveluxe_settlements_${stamp}.xlsx`);
+  };
+
+  if (isLoading) {
+    return <Skeleton className="h-48 w-full" />;
+  }
+  if (isError) {
+    return (
+      <div className="py-8 text-center text-sm text-destructive border border-destructive/30 rounded-lg">
+        Failed to load settlement history.
+      </div>
+    );
+  }
+  if (entries.length === 0) {
+    return (
+      <div className="py-12 text-center text-muted-foreground border border-dashed rounded-lg">
+        No settlements recorded yet.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <p className="text-xs text-muted-foreground">
+          All past commission settlements grouped by month, most recent first.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={exportCsv}
+          data-testid="button-export-settlements-csv"
+        >
+          <Download className="w-3.5 h-3.5 mr-1.5" />
+          Export CSV
+        </Button>
+      </div>
+
+      {grouped.map((g) => (
+        <div key={g.month} className="space-y-2">
+          <div className="flex items-center justify-between gap-2 px-1">
+            <h3 className="text-sm font-semibold text-foreground">{g.label}</h3>
+            <span className="text-sm font-bold text-emerald-400">
+              {isSuperAdmin ? fmtMoney(g.subtotal) : "—"}
+            </span>
+          </div>
+          <div className="space-y-2">
+            {g.items.map((e, idx) => (
+              <Card key={e.settlement_id ?? `${g.month}-${idx}`} className="border-emerald-500/20">
+                <CardContent className="p-4 space-y-2">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-bold text-sm">{e.driver_name}</span>
+                        {e.tvl_number && (
+                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30 font-semibold">
+                            {e.tvl_number}
+                          </span>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {e.settled_at ? format(parseISO(e.settled_at), "dd MMM yyyy") : "—"}
+                        {e.operator_name && ` · by ${e.operator_name}`}
+                      </div>
+                    </div>
+                    <div className="text-lg font-bold text-emerald-400">
+                      {isSuperAdmin ? fmtMoney(e.total_amount ?? 0) : "—"}
+                    </div>
+                  </div>
+                  {e.booking_refs && e.booking_refs.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {e.booking_refs.map((ref) => (
+                        <Badge key={ref} variant="outline" className="text-[10px] font-mono">
+                          {ref}
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  {e.notes && (
+                    <div className="text-xs italic text-muted-foreground border-l-2 border-border pl-2">
+                      {e.notes}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

@@ -62,6 +62,7 @@ const bookingSchema = z.object({
   payment_status: z.string().default("Unpaid"),
   payment_method: z.string().optional(),
   source: z.string().optional(),
+  source_other: z.string().optional(),
   status: z.string().default("Confirmed"),
   driver_id: z.string().optional(),
   notes: z.string().optional(),
@@ -774,6 +775,7 @@ export default function NewBooking() {
       payment_status: values.payment_status,
       payment_method: values.payment_method,
       source: values.source,
+      source_other: values.source === "Other" ? (values.source_other ?? null) : null,
       status: values.status,
       driver_id: values.driver_id,
       notes: values.notes,
@@ -1187,6 +1189,20 @@ export default function NewBooking() {
             </div>
             <button onClick={() => { setConfirmedClient(null); setPhase("lookup"); setWaInput(""); }} className="text-xs text-muted-foreground underline">Change</button>
           </div>
+
+          {/* VIP banner — Platinum / VVIP only */}
+          {(confirmedClient.vip_tier === "Platinum" || confirmedClient.vip_tier === "VVIP") && (
+            <div
+              className="rounded-xl p-4 bg-gradient-to-r from-amber-500/30 to-yellow-300/30 border border-amber-400/70 text-amber-100 shadow-md"
+              data-testid="vip-banner"
+            >
+              <p className="text-sm font-semibold tracking-wide">
+                ⭐ VIP CLIENT — Please ensure premium vehicle is confirmed,
+                name board spelling is verified, and all special preferences
+                are checked before confirming this booking.
+              </p>
+            </div>
+          )}
 
           <Form {...bookingForm}>
             <form onSubmit={bookingForm.handleSubmit(onBookingSubmit)} className="space-y-5">
@@ -2264,6 +2280,41 @@ export default function NewBooking() {
                       </div>
                     </div>
                   )}
+
+                  {/* Source — required for marketing intel. "Other" reveals
+                      a free-text input persisted as `source_other`. */}
+                  <div className="grid grid-cols-2 gap-3">
+                    <FormField control={bookingForm.control} name="source" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Source</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value || ""}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-source"><SelectValue placeholder="How did they reach us?" /></SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="WhatsApp Direct">WhatsApp Direct</SelectItem>
+                            <SelectItem value="Snapchat">Snapchat</SelectItem>
+                            <SelectItem value="Returning Client">Returning Client</SelectItem>
+                            <SelectItem value="Hotel Referral">Hotel Referral</SelectItem>
+                            <SelectItem value="Agent Referral">Agent Referral</SelectItem>
+                            <SelectItem value="Other">Other</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                    {bookingForm.watch("source") === "Other" && (
+                      <FormField control={bookingForm.control} name="source_other" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Specify source</FormLabel>
+                          <FormControl>
+                            <Input placeholder="e.g. Concierge introduction" {...field} data-testid="input-source-other" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    )}
+                  </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <FormField control={bookingForm.control} name="payment_status" render={({ field }) => (

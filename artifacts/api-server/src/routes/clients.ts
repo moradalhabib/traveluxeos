@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { supabase, auditLog, getUserFromToken, getDbClient } from "../lib/supabase";
+import { logActivity } from "../lib/activity";
 
 const router = Router();
 
@@ -131,6 +132,15 @@ router.post("/", async (req, res) => {
   }
 
   await auditLog("create_client", "client", data.id, user?.id ?? null, `Created client ${data.name}`);
+  await logActivity({
+    action_type: "client_created",
+    description: `Client ${data.name} created`,
+    entity_type: "client",
+    entity_id: data.id,
+    entity_label: data.name ?? null,
+    operator_id: user?.id ?? null,
+    operator_name: user?.name ?? null,
+  });
   return res.status(201).json({ ...data, total_bookings: 0, total_spent: 0 });
 });
 
@@ -197,6 +207,15 @@ router.put("/:id", async (req, res) => {
   if (error) return res.status(400).json({ error: error.message });
 
   await auditLog("update_client", "client", id, user?.id ?? null, `Updated client ${data.name}`);
+  await logActivity({
+    action_type: "client_updated",
+    description: `Client ${data.name} updated`,
+    entity_type: "client",
+    entity_id: id,
+    entity_label: data.name ?? null,
+    operator_id: user?.id ?? null,
+    operator_name: user?.name ?? null,
+  });
   return res.json({ ...data, total_bookings: 0, total_spent: 0 });
 });
 

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { supabase } from "../lib/supabase";
+import { logActivity } from "../lib/activity";
 
 const router = Router();
 
@@ -24,6 +25,16 @@ router.post("/login", async (req, res) => {
     .select("*")
     .eq("id", data.user.id)
     .single();
+
+  await logActivity({
+    action_type: "auth_login",
+    description: `${userData?.name ?? data.user.email} signed in`,
+    entity_type: "user",
+    entity_id: data.user.id,
+    entity_label: userData?.name ?? data.user.email ?? null,
+    operator_id: data.user.id,
+    operator_name: userData?.name ?? data.user.email ?? null,
+  });
 
   return res.json({
     token: data.session.access_token,

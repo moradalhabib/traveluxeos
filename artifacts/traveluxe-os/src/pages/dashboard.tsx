@@ -320,7 +320,7 @@ export default function Dashboard() {
         </Link>
 
         {/* Commission to Collect */}
-        <Link href="/commissions">
+        <Link href="/commissions" data-testid="link-commission-card">
           <Card className="border-border bg-card hover:border-amber-500/20 transition-colors cursor-pointer">
             <CardHeader className="flex flex-row items-center justify-between pb-1 pt-4 px-4 space-y-0">
               <CardTitle className="text-xs font-medium text-muted-foreground">Commission to Collect</CardTitle>
@@ -337,6 +337,14 @@ export default function Dashboard() {
                 </div>
               )}
               <p className="text-[11px] text-muted-foreground mt-0.5">Outstanding from cash jobs</p>
+              <div data-testid="text-drivers-with-pending" className="text-[11px] text-muted-foreground mt-1">
+                {(s as any)?.drivers_with_pending ?? 0} drivers owing
+              </div>
+              {((s as any)?.drivers_with_overdue ?? 0) > 0 && (
+                <div data-testid="text-drivers-overdue" className="text-[11px] text-destructive mt-0.5">
+                  {(s as any).drivers_with_overdue} overdue 30d+
+                </div>
+              )}
             </CardContent>
           </Card>
         </Link>

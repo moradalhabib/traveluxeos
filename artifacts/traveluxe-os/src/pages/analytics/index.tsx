@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { parseISO, format } from "date-fns";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +13,17 @@ import {
   TrendingUp, TrendingDown, Minus, CalendarRange,
   PoundSterling, Users, Award, AlertTriangle, ChevronDown
 } from "lucide-react";
+
+const API_BASE = `${import.meta.env.VITE_API_URL ?? ""}/api`;
+
+interface ForecastResponse {
+  next_7_days_revenue: number;
+  next_30_days_revenue: number;
+  next_7_days_count?: number;
+  next_30_days_count?: number;
+  by_service_type: { service_type: string; revenue: number; count: number }[];
+  by_day: { date: string; revenue: number; count: number }[];
+}
 
 const SERVICE_COLORS: Record<string, string> = {
   "Airport Transfer": "#C9A84C",
@@ -57,6 +70,21 @@ export default function Analytics() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+
+  const forecastQuery = useQuery<ForecastResponse>({
+    queryKey: ["dashboard-forecast"],
+    queryFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? "";
+      const res = await fetch(`${API_BASE}/dashboard/forecast`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error("Failed to load forecast");
+      return res.json();
+    },
+  });
+  const forecast = forecastQuery.data;
+  const sortedServices = [...(forecast?.by_service_type ?? [])].sort((a, b) => b.revenue - a.revenue);
 
   useEffect(() => {
     const yearStart = `${selectedYear}-01-01T00:00:00`;
@@ -177,6 +205,89 @@ export default function Analytics() {
           ))}
         </div>
       </div>
+
+      {/* Revenue Forecast */}
+      <Card className="border-primary/20" data-testid="card-revenue-forecast">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <TrendingUp className="w-4 h-4 text-primary" />
+            Revenue Forecast
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-4">
+          {forecastQuery.isLoading ? (
+            <Skeleton className="h-40 w-full" />
+          ) : forecastQuery.isError || !forecast ? (
+            <div className="text-xs text-destructive">Failed to load forecast.</div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-4" data-testid="text-forecast-7d">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wider">Next 7 days</div>
+                  <div className="text-2xl font-bold text-primary mt-1">£{(forecast.next_7_days_revenue || 0).toLocaleString()}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {forecast.next_7_days_count ?? forecast.by_day.slice(0, 7).reduce((s, d) => s + d.count, 0)} bookings
+                  </div>
+                </div>
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-4" data-testid="text-forecast-30d">
+                  <div className="text-xs text-muted-foreground uppercase tracking-wider">Next 30 days</div>
+                  <div className="text-2xl font-bold text-primary mt-1">£{(forecast.next_30_days_revenue || 0).toLocaleString()}</div>
+                  <div className="text-xs text-muted-foreground mt-0.5">
+                    {forecast.next_30_days_count ?? forecast.by_day.reduce((s, d) => s + d.count, 0)} bookings
+                  </div>
+                </div>
+              </div>
+
+              {sortedServices.length > 0 && (
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">By Service Type</div>
+                  <div className="space-y-1">
+                    {sortedServices.map(s => (
+                      <div key={s.service_type} className="flex items-center justify-between text-xs px-3 py-2 rounded-lg bg-muted/30">
+                        <div className="flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full" style={{ background: SERVICE_COLORS[s.service_type] || "#6B7280" }} />
+                          <span className="font-medium text-foreground">{s.service_type}</span>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <span className="text-muted-foreground">{s.count} job{s.count !== 1 ? "s" : ""}</span>
+                          <span className="font-semibold text-primary w-20 text-right">£{s.revenue.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Next 30 Days</div>
+                <div className="space-y-0.5 max-h-[400px] overflow-y-auto">
+                  {forecast.by_day.map(d => {
+                    const isOpen = d.count === 0;
+                    return (
+                      <div
+                        key={d.date}
+                        data-testid={`row-forecast-day-${d.date}`}
+                        className={`flex items-center justify-between text-xs px-3 py-2 rounded-lg ${isOpen ? "bg-destructive/10 text-destructive" : ""}`}
+                      >
+                        <span className="font-medium">{format(parseISO(d.date), "EEE dd MMM")}</span>
+                        <div className="flex items-center gap-3">
+                          <span className={isOpen ? "text-destructive" : "text-muted-foreground"}>
+                            {d.count} job{d.count !== 1 ? "s" : ""}
+                          </span>
+                          <span className={`font-semibold w-20 text-right ${isOpen ? "text-destructive" : "text-foreground"}`}>
+                            {d.revenue > 0 ? `£${d.revenue.toLocaleString()}` : "—"}
+                          </span>
+                          {isOpen && <span className="text-[10px] uppercase tracking-wider font-bold">Open day</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       {loading ? (
         <div className="space-y-4">

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { supabase, auditLog, getUserFromToken } from "../lib/supabase";
+import { logActivity } from "../lib/activity";
 
 const router = Router();
 
@@ -33,7 +34,7 @@ router.get("/", async (req, res) => {
 const DRIVER_COLUMNS = new Set([
   "name", "staff_no", "whatsapp", "email",
   "vehicle_model", "vehicle_year", "vehicle_type", "plate",
-  "status", "notes",
+  "status", "notes", "own_vehicle",
 ]);
 
 function pickDriverFields(body: Record<string, any>) {
@@ -52,6 +53,15 @@ router.post("/", async (req, res) => {
   const { data, error } = await supabase.from("drivers").insert(payload).select().single();
   if (error) return res.status(400).json({ error: error.message });
   await auditLog("create_driver", "driver", data.id, user?.id ?? null, `Created driver ${data.name}`);
+  await logActivity({
+    action_type: "driver_created",
+    description: `Driver ${data.name} created`,
+    entity_type: "driver",
+    entity_id: data.id,
+    entity_label: data.name ?? null,
+    operator_id: user?.id ?? null,
+    operator_name: user?.name ?? null,
+  });
   return res.status(201).json({ ...data, avg_rating: 0, total_jobs: 0 });
 });
 
@@ -144,7 +154,141 @@ router.put("/:id", async (req, res) => {
 
   if (error) return res.status(400).json({ error: error.message });
   await auditLog("update_driver", "driver", req.params.id, user?.id ?? null, `Updated driver ${data.name}`);
+  await logActivity({
+    action_type: "driver_updated",
+    description: `Driver ${data.name} updated`,
+    entity_type: "driver",
+    entity_id: req.params.id,
+    entity_label: data.name ?? null,
+    operator_id: user?.id ?? null,
+    operator_name: user?.name ?? null,
+  });
   return res.json({ ...data, avg_rating: 0, total_jobs: 0 });
+});
+
+router.get("/:id/financial-summary", async (req, res) => {
+  const driverId = req.params.id;
+
+  const [{ data: bookings }, { data: settlements }] = await Promise.all([
+    supabase
+      .from("bookings")
+      .select("price, additional_charges, tvl_commission, status, payment_method, commission_status")
+      .eq("driver_id", driverId),
+    supabase
+      .from("commission_settlements")
+      .select("total_amount")
+      .eq("driver_id", driverId),
+  ]);
+
+  const activeBookings = (bookings ?? []).filter((b: any) => b.status !== "Cancelled");
+  const completedBookings = activeBookings.filter((b: any) => b.status === "Completed");
+
+  const total_gross_revenue = activeBookings.reduce(
+    (s: number, b: any) => s + (Number(b.price) || 0) + (Number(b.additional_charges) || 0),
+    0
+  );
+  const total_commission_generated = activeBookings.reduce(
+    (s: number, b: any) => s + (Number(b.tvl_commission) || 0),
+    0
+  );
+  const total_commission_settled = (settlements ?? []).reduce(
+    (s: number, x: any) => s + (Number(x.total_amount) || 0),
+    0
+  );
+  const total_commission_pending = Math.max(
+    0,
+    total_commission_generated - total_commission_settled
+  );
+  const settlement_count = (settlements ?? []).length;
+  const job_count = activeBookings.length;
+  const avg_commission_per_job = job_count > 0 ? total_commission_generated / job_count : 0;
+
+  return res.json({
+    total_gross_revenue: Math.round(total_gross_revenue * 100) / 100,
+    total_commission_generated: Math.round(total_commission_generated * 100) / 100,
+    total_commission_settled: Math.round(total_commission_settled * 100) / 100,
+    total_commission_pending: Math.round(total_commission_pending * 100) / 100,
+    settlement_count,
+    avg_commission_per_job: Math.round(avg_commission_per_job * 100) / 100,
+    job_count,
+    completed_count: completedBookings.length,
+  });
+});
+
+router.get("/:id/performance", async (req, res) => {
+  const driverId = req.params.id;
+
+  const { data: bookings } = await supabase
+    .from("bookings")
+    .select("status, service_type, date_time, clients(name)")
+    .eq("driver_id", driverId);
+
+  const all = (bookings ?? []) as any[];
+  const completed = all.filter((b) => b.status === "Completed");
+
+  const monthStart = new Date();
+  monthStart.setDate(1);
+  monthStart.setHours(0, 0, 0, 0);
+
+  const completedThisMonth = completed.filter(
+    (b) => b.date_time && new Date(b.date_time) >= monthStart
+  );
+
+  function topKey<T>(arr: T[], get: (x: T) => string | null | undefined): string | null {
+    const counts = new Map<string, number>();
+    for (const item of arr) {
+      const k = get(item);
+      if (!k) continue;
+      counts.set(k, (counts.get(k) ?? 0) + 1);
+    }
+    let best: string | null = null;
+    let max = 0;
+    for (const [k, v] of counts) {
+      if (v > max) { max = v; best = k; }
+    }
+    return best;
+  }
+
+  const most_frequent_service_type = topKey(completed, (b) => b.service_type);
+  const most_frequent_client = topKey(completed, (b: any) => b.clients?.name);
+
+  const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const dayCounts = new Array(7).fill(0);
+  for (const b of completed) {
+    if (!b.date_time) continue;
+    dayCounts[new Date(b.date_time).getDay()]++;
+  }
+  let busiestDayIdx = -1;
+  let busiestDayCount = 0;
+  dayCounts.forEach((c: number, i: number) => {
+    if (c > busiestDayCount) { busiestDayCount = c; busiestDayIdx = i; }
+  });
+  const busiest_day_of_week = busiestDayIdx >= 0 ? dayNames[busiestDayIdx] : null;
+
+  // Average jobs per month based on the driver's job history span.
+  const dates = completed
+    .map((b) => (b.date_time ? new Date(b.date_time).getTime() : null))
+    .filter((t): t is number => t !== null)
+    .sort((a, b) => a - b);
+
+  let avg_jobs_per_month = 0;
+  if (dates.length > 0) {
+    const earliest = new Date(dates[0]);
+    const now = new Date();
+    const months =
+      (now.getFullYear() - earliest.getFullYear()) * 12 +
+      (now.getMonth() - earliest.getMonth()) + 1;
+    avg_jobs_per_month = months > 0 ? completed.length / months : completed.length;
+  }
+
+  return res.json({
+    total_jobs_completed: completed.length,
+    jobs_this_month: completedThisMonth.length,
+    most_frequent_service_type,
+    most_frequent_client,
+    busiest_day_of_week,
+    avg_jobs_per_month: Math.round(avg_jobs_per_month * 10) / 10,
+  });
 });
 
 router.post("/:id/rate", async (req, res) => {

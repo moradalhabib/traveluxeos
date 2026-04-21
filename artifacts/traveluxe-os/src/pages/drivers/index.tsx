@@ -6,14 +6,35 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Plus, MessageSquare, Star, Car } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link } from "wouter";
-import { useState } from "react";
+import { useState, useMemo } from "react";
+
+type StatusFilter = "All" | "Active" | "Inactive" | "Suspended";
+
+const STATUS_FILTERS: StatusFilter[] = ["All", "Active", "Inactive", "Suspended"];
 
 export default function Drivers() {
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
   const { data: drivers, isLoading } = useListDrivers(
-    {}, 
+    {},
     { query: { enabled: true, queryKey: getListDriversQueryKey({}) } }
   );
+
+  const filtered = useMemo(() => {
+    const list = drivers ?? [];
+    return list.filter((d: any) => {
+      if (statusFilter !== "All" && d.status !== statusFilter) return false;
+      if (search.trim()) {
+        const needle = search.trim().toLowerCase();
+        const haystack = [d.name, d.staff_no, d.whatsapp, d.vehicle_model, d.plate]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(needle)) return false;
+      }
+      return true;
+    });
+  }, [drivers, search, statusFilter]);
 
   return (
     <div className="space-y-6">
@@ -29,43 +50,72 @@ export default function Drivers() {
 
       <div className="relative">
         <Search className="absolute left-3 top-3.5 h-5 w-5 text-muted-foreground" />
-        <Input 
-          placeholder="Search drivers..." 
+        <Input
+          placeholder="Search drivers..."
           className="pl-10 h-12 text-lg border-primary/20 bg-card"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
+          data-testid="input-search-drivers"
         />
+      </div>
+
+      <div className="flex flex-wrap gap-2" data-testid="status-filter-chips">
+        {STATUS_FILTERS.map((s) => (
+          <Button
+            key={s}
+            variant={statusFilter === s ? "default" : "outline"}
+            size="sm"
+            className={
+              statusFilter === s && s === "Suspended"
+                ? "bg-red-600 hover:bg-red-700 text-white border-red-700"
+                : ""
+            }
+            onClick={() => setStatusFilter(s)}
+            data-testid={`chip-status-${s.toLowerCase()}`}
+          >
+            {s}
+          </Button>
+        ))}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading ? (
           [...Array(6)].map((_, i) => <Skeleton key={i} className="h-32" />)
-        ) : drivers?.map((driver) => (
+        ) : filtered?.map((driver: any) => (
           <Card key={driver.id} className="border-primary/10 hover:border-primary/30 transition-colors bg-card overflow-hidden flex flex-col">
             <CardContent className="p-5 flex-1 flex flex-col">
               <div className="flex justify-between items-start mb-4">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
                     <h3 className="font-bold text-lg text-foreground">{driver.name}</h3>
-                    {(driver as any).staff_no && (
+                    {driver.staff_no && (
                       <span className="font-mono text-xs px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/30">
-                        {(driver as any).staff_no}
+                        {driver.staff_no}
                       </span>
                     )}
                   </div>
                   <div className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
                     <Car className="w-3 h-3" />
-                    {[
-                      (driver as any).vehicle_year,
-                      (driver as any).vehicle_model,
-                    ].filter(Boolean).join(" ") || 'Vehicle TBC'}
+                    {driver.own_vehicle === false
+                      ? "No own vehicle"
+                      : [driver.vehicle_year, driver.vehicle_model].filter(Boolean).join(" ") || "Vehicle TBC"}
                   </div>
                 </div>
-                <Badge variant="outline" className={driver.status === 'Active' ? 'bg-green-500/20 text-green-500 border-green-500/50' : 'bg-secondary text-secondary-foreground'}>
-                  {driver.status}
+                <Badge
+                  variant="outline"
+                  className={
+                    driver.status === "Active"
+                      ? "bg-green-500/20 text-green-500 border-green-500/50"
+                      : driver.status === "Suspended"
+                      ? "bg-red-600/20 text-red-500 border-red-600/60"
+                      : "bg-secondary text-secondary-foreground"
+                  }
+                  data-testid={`badge-status-${driver.id}`}
+                >
+                  {driver.status === "Suspended" ? "⛔ Suspended" : driver.status}
                 </Badge>
               </div>
-              
+
               <div className="mt-auto grid grid-cols-2 gap-2 text-sm text-muted-foreground mb-4">
                 <div>
                   <span className="block text-xs uppercase opacity-70">Total Jobs</span>
@@ -74,19 +124,19 @@ export default function Drivers() {
                 <div>
                   <span className="block text-xs uppercase opacity-70">Rating</span>
                   <span className="font-medium text-primary flex items-center gap-1">
-                    {driver.avg_rating?.toFixed(1) || '0.0'} <Star className="w-3 h-3 fill-primary" />
+                    {driver.avg_rating?.toFixed(1) || "0.0"} <Star className="w-3 h-3 fill-primary" />
                   </span>
                 </div>
               </div>
-              
+
               <div className="flex gap-2 mt-auto pt-4 border-t border-border/50">
                 <Link href={`/drivers/${driver.id}`} className="flex-1">
                   <Button variant="outline" className="w-full h-10">View Profile</Button>
                 </Link>
                 {driver.whatsapp && (
-                  <a 
-                    href={`https://wa.me/${driver.whatsapp.replace(/\D/g, '')}`}
-                    target="_blank" 
+                  <a
+                    href={`https://wa.me/${driver.whatsapp.replace(/\D/g, "")}`}
+                    target="_blank"
                     rel="noopener noreferrer"
                     className="flex-1"
                   >

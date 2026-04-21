@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from "react";
 import {
   useListBookings, getListBookingsQueryKey,
   useUpdateBookingStatus, useUpdateBooking,
+  useListDrivers, getListDriversQueryKey,
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -44,6 +45,12 @@ export default function Jobs() {
 
   const updateStatus  = useUpdateBookingStatus();
   const updateBooking = useUpdateBooking();
+  const { data: drivers } = useListDrivers({}, { query: { queryKey: getListDriversQueryKey({}) } });
+  const driversById = useMemo(() => {
+    const m = new Map<string, any>();
+    (drivers as any[] | undefined)?.forEach((d) => m.set(d.id, d));
+    return m;
+  }, [drivers]);
 
   const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>, jobId: string) => {
     e.preventDefault();
@@ -352,6 +359,27 @@ export default function Jobs() {
                       <AlertTriangle className="w-3 h-3" /> No Driver
                     </span>
                   )}
+                  {/* WhatsApp Driver — Fix 13. Quick-ping the assigned
+                      driver from the jobs list with a pre-filled message. */}
+                  {job.driver_id && (() => {
+                    const drv = driversById.get(job.driver_id);
+                    const phone = (drv?.whatsapp || drv?.phone || "").replace(/[^0-9+]/g, "");
+                    if (!phone) return null;
+                    const msg = `Hi ${drv?.name ?? job.driver_name ?? ""}, I've just sent you booking ${job.tvl_ref}. Please confirm receipt. Thanks.`;
+                    return (
+                      <a
+                        href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="ml-1 text-green-500 hover:text-green-400"
+                        title="WhatsApp Driver"
+                        data-testid={`link-wa-driver-${job.id}`}
+                      >
+                        <MessageCircle className="w-4 h-4" />
+                      </a>
+                    );
+                  })()}
                 </div>
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-foreground">£{job.price}</span>
