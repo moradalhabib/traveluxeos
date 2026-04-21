@@ -13,9 +13,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   PhoneCall, MessageCircle, CheckCheck, RotateCcw, PhoneOff, Clock,
-  ChevronRight, AlertTriangle, X, ArrowLeft, TrendingUp, CalendarRange
+  ChevronRight, AlertTriangle, X, ArrowLeft, TrendingUp, CalendarRange, Download
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
+import * as XLSX from "xlsx";
 
 const API_BASE = `${import.meta.env.VITE_API_URL ?? ""}/api`;
 
@@ -217,6 +218,47 @@ export default function FollowUps() {
   const todayPending = followUps.filter(f => isDueToday(f)).length;
   const overduePending = followUps.filter(f => isOverdue(f)).length;
 
+  // ── Excel export ──────────────────────────────────────────────────────────
+  // Dumps the *currently filtered* follow-ups to a .xlsx file so operators
+  // can review them offline. Includes the booking + client context inline
+  // so each row stands alone.
+  const handleExport = () => {
+    if (followUps.length === 0) {
+      toast({ title: "Nothing to export", description: "No follow-ups match the current filters." });
+      return;
+    }
+    const rows = followUps.map((fu: any) => ({
+      "Booking Ref":     fu.booking?.tvl_ref ?? "—",
+      "Client":          fu.client?.name ?? "—",
+      "VIP Tier":        fu.client?.vip_tier ?? "",
+      "WhatsApp":        fu.client?.whatsapp ?? "",
+      "Service":         fu.booking?.service_type ?? "",
+      "Direction":       fu.booking?.direction ?? "",
+      "Pickup":          fu.booking?.pickup ?? "",
+      "Dropoff":         fu.booking?.dropoff ?? "",
+      "Booking Date":    fu.booking?.date_time ? format(new Date(fu.booking.date_time), "yyyy-MM-dd HH:mm") : "",
+      "Driver":          fu.driver?.name ?? "",
+      "Status":          statusLabel(fu.status),
+      "Due Date":        fu.due_date ?? "",
+      "No-Response Count": fu.no_response_count ?? 0,
+      "Notes":           fu.notes ?? "",
+      "Completed At":    fu.completed_at ? format(new Date(fu.completed_at), "yyyy-MM-dd HH:mm") : "",
+      "Created At":      fu.created_at ? format(new Date(fu.created_at), "yyyy-MM-dd HH:mm") : "",
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    // Auto-size columns based on the longest value in each
+    const colWidths = Object.keys(rows[0] ?? {}).map((key) => ({
+      wch: Math.min(40, Math.max(key.length, ...rows.map((r: any) => String(r[key] ?? "").length))) + 2,
+    }));
+    (ws as any)["!cols"] = colWidths;
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Follow-Ups");
+    const stamp = format(new Date(), "yyyy-MM-dd_HHmm");
+    const suffix = statusFilter !== "all" ? `_${statusFilter}` : "";
+    XLSX.writeFile(wb, `traveluxe_followups${suffix}_${stamp}.xlsx`);
+    toast({ title: "Exported", description: `${rows.length} follow-up${rows.length === 1 ? "" : "s"} downloaded.` });
+  };
+
   return (
     <div className="space-y-5 max-w-4xl mx-auto">
       {/* Header */}
@@ -230,6 +272,17 @@ export default function FollowUps() {
             Arrival clients to check in with and convert to return bookings
           </p>
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleExport}
+          disabled={loading || followUps.length === 0}
+          className="gap-2 flex-shrink-0"
+          data-testid="button-export-followups"
+        >
+          <Download className="w-4 h-4" />
+          <span className="hidden sm:inline">Export</span>
+        </Button>
       </div>
 
       {/* Daily digest banner */}
