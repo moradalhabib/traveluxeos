@@ -1,0 +1,184 @@
+Please audit and fix all connectivity and linking across the entire Traveluxe OS application. Every module must be fully connected to every other relevant module. No dead ends, no orphaned pages, no broken links anywhere.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CLIENT PROFILE — must link to:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Every booking in the client's booking history must be a clickable link → opens that booking's Job Sheet
+- "Create New Booking" button → opens New Booking form with client WhatsApp pre-filled and confirmed
+- "Create Request" button → opens New Request form with client pre-filled
+- WhatsApp button → opens WhatsApp to client number
+- All bookings listed must show service type, date, status, price, and driver
+- Requests tab on client profile → shows all open and past requests for this client
+- Invoices tab → shows all invoices generated for this client, each clickable to open invoice
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+BOOKING / JOB SHEET — must link to:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Client name → clickable → opens client profile
+- Driver name → clickable → opens driver profile
+- "Message Client" button → opens WhatsApp to client number with pre-filled message
+- "Message Driver" button → opens WhatsApp to driver number with pre-filled message
+- "Generate Invoice" button → creates invoice and links it to this booking
+- "View Invoice" button (if invoice already generated) → opens the invoice
+- Status change buttons → update status in real time and trigger relevant notifications
+- "Add Return Journey" button → opens New Booking form pre-filled with reversed route and same client
+- "Amend Booking" button → opens edit form for this booking
+- "Cancel Booking" button → opens cancellation flow
+- Back button → returns to Bookings list or Jobs Board depending on where operator came from
+- TVL reference → always visible and copyable
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DRIVER PROFILE — must link to:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- WhatsApp button → opens WhatsApp to driver number
+- Every job in job history → clickable → opens that booking's Job Sheet
+- Commission tab → shows all outstanding and settled commissions
+- Each commission entry → clickable → opens that booking's Job Sheet
+- "Send WhatsApp Statement" button → opens WhatsApp to driver with pre-filled weekly statement
+- "Mark as Settled" button → marks all outstanding cash commissions as settled, logs in audit trail
+- "Mark as Paid" button → marks all pending bank transfer payouts as paid, logs in audit trail
+- Back button → returns to Drivers list
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+JOBS BOARD — must link to:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Every job card → clickable → opens Job Sheet
+- "New Booking" button → opens New Booking form
+- Alert banner (no driver assigned) → clicking the alert opens the Job Sheet for that specific booking
+- Driver name on job card → clickable → opens driver profile
+- Client name on job card → clickable → opens client profile
+- Flight status badge on arrival jobs → clickable → opens Flight Tracker filtered to that flight
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FOLLOW-UPS — must link to:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Every follow-up card → clicking opens the client profile for that client
+- Client profile opened from Follow-Ups must show a prominent "Create New Booking" button at top
+- "Create New Booking" from here → opens New Booking form with client pre-filled
+- Original booking linked to the follow-up → clickable → opens that Job Sheet
+- "Mark as Done" button → marks follow-up complete, logs in audit trail
+- "Return Booked" button → marks follow-up as converted, prompts to create return booking
+- "No Response" button → marks follow-up with no response status, sets new follow-up date prompt
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REQUESTS — must link to:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Every request card → clicking opens full request detail
+- Client name on request → clickable → opens client profile
+- "Convert to Booking" button → opens New Booking form pre-filled with all request details and client confirmed
+- "Mark as Declined" → updates status, logs in audit trail
+- Back button → returns to Requests list
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+COMMISSIONS — must link to:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Every driver card → clickable → opens driver commission detail page
+- Every job entry in commission detail → clickable → opens that booking's Job Sheet
+- Driver name in commission detail → clickable → opens driver profile
+- "Send WhatsApp Statement" → opens WhatsApp to driver with pre-filled statement
+- "Mark as Settled" → updates all included jobs, logs in audit trail, triggers notification
+- Back button → returns to Commissions list
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+INVOICES — must link to:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Every invoice → clickable → opens invoice preview
+- Booking reference on invoice → clickable → opens that Job Sheet
+- Client name on invoice → clickable → opens client profile
+- "Download Invoice" button → downloads PDF to device
+- "Mark as Sent" button → updates invoice status
+- Back button → returns to Invoices list
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FLIGHT TRACKER — must link to:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Every flight row → clickable → opens the Job Sheet for that booking
+- Client name on flight row → clickable → opens client profile
+- Driver name on flight row → clickable → opens driver profile
+- "Notify Driver" button on delayed flights → opens WhatsApp with pre-filled delay message
+- Flight status updates in real time — no manual refresh needed
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FINANCE — must link to:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Every booking row in finance view → clickable → opens Job Sheet
+- Client name in finance view → clickable → opens client profile
+- Outstanding payments list → each row clickable → opens Job Sheet
+- "Chase Payment" shortcut on unpaid bookings → opens WhatsApp to client with pre-filled payment reminder message:
+  "Dear [Client Name], this is a friendly reminder that payment of £[Amount] for booking Ref TVL-XXXX is outstanding. Please arrange payment at your earliest convenience. Thank you, Traveluxe London"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+MARKETING HUB — must link to:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- "285 clients with email" counter → clickable → opens preview list of all clients with email
+- Preview list → each client row → clickable → opens client profile
+- Campaign log entries → show segment used, number exported, date — non-clickable (read only log)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NOTIFICATIONS — must link to:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Every notification in the bell drawer → clickable → takes operator directly to the relevant page:
+  — New booking notification → opens Job Sheet
+  — No driver alert → opens Job Sheet
+  — Flight delay → opens Flight Tracker and Job Sheet
+  — New message → opens Messages and that conversation
+  — New task → opens task detail
+  — Follow-up due → opens Request or Follow-Up detail
+  — Commission due → opens Commissions page
+  — Unpaid invoice → opens Job Sheet
+- Toast alert → clicking anywhere on it → takes to the relevant page
+- Notification must be marked as read when the linked page is opened
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ADMIN PANEL — must link to:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Dashboard stats → all clickable:
+  — Active jobs → opens Jobs Board filtered to active
+  — Jobs with no driver → opens Jobs Board filtered to no driver assigned
+  — Outstanding commission → opens Commissions page
+  — Unpaid invoices → opens Finance outstanding payments
+  — Upcoming bookings → opens Bookings page filtered to confirmed
+- Audit trail entries → each entry with a TVL reference → clickable → opens that Job Sheet
+- Users list → each user → shows their last active time and total bookings created
+- Fleet overview → each vehicle → clickable → opens that product in Products Catalogue for editing
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GLOBAL SEARCH — must link to:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Every search result → clickable → opens the exact relevant page:
+  — Client result → opens client profile
+  — Booking result → opens Job Sheet
+  — Driver result → opens driver profile
+  — Request result → opens request detail
+- Search results must open with a single tap — no intermediate steps
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+GENERAL NAVIGATION RULES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+- Every detail page must have a working Back button that returns to the correct previous page
+- Every list page must have a working search bar and filters
+- Every name (client, driver, booking ref) displayed anywhere in the app must be a clickable link to its profile or detail page
+- No orphaned pages — every page must be reachable from at least two places in the app
+- All WhatsApp buttons must use the wa.me deep link format and open WhatsApp directly
+- All data shown anywhere must reflect the current live database — no stale cached data
+- All status changes must update in real time across all pages via Supabase real-time — if one operator changes a booking status, all other operators see it update instantly without refreshing
+- Privacy rule enforced everywhere: client number never in driver messages, driver number never in client messages
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Audit every single page and component in the app. Fix every broken link, every non-clickable name, every dead-end page. The app must feel fully connected so an operator can navigate from any point to any other point in a maximum of 2 taps. Test every link and confirm it works before marking this complete.

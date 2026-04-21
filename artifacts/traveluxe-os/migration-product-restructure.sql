@@ -56,8 +56,30 @@ CREATE INDEX IF NOT EXISTS idx_vap_airport ON public.vehicle_airport_pricing (ai
 ALTER TABLE public.vehicle_airport_pricing ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "vap_read"  ON public.vehicle_airport_pricing;
 DROP POLICY IF EXISTS "vap_write" ON public.vehicle_airport_pricing;
-CREATE POLICY "vap_read"  ON public.vehicle_airport_pricing FOR SELECT TO authenticated USING (true);
-CREATE POLICY "vap_write" ON public.vehicle_airport_pricing FOR ALL    TO authenticated USING (true) WITH CHECK (true);
+
+-- Anyone signed in can READ pricing (booking form needs this).
+CREATE POLICY "vap_read"  ON public.vehicle_airport_pricing
+  FOR SELECT TO authenticated USING (true);
+
+-- Only admin / super_admin can WRITE pricing.
+-- (Assumes a `profiles` table with a `role` column — same pattern other
+--  admin-protected tables use in this DB.)
+CREATE POLICY "vap_write" ON public.vehicle_airport_pricing
+  FOR ALL TO authenticated
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+       WHERE p.id = auth.uid()
+         AND p.role IN ('admin','super_admin')
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.profiles p
+       WHERE p.id = auth.uid()
+         AND p.role IN ('admin','super_admin')
+    )
+  );
 
 
 -- ─── 3.  bookings — new product-link & markup columns  ─────

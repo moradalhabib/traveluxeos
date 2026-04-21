@@ -244,23 +244,11 @@ export default function Commissions() {
           </CardContent>
         </Card>
 
-        <Card className="border-border bg-card">
-          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Arrangement Fees</CardTitle>
-            <Hotel className="w-4 h-4 text-primary" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-primary">
-              {isSuperAdmin ? fmtMoney(s?.total_arrangement_outstanding ?? 0) : (outstandingFees.length > 0 ? `${outstandingFees.length} pending` : "All collected")}
-            </div>
-            <p className="text-xs text-muted-foreground mt-1">Hotel &amp; Apartment fees outstanding</p>
-          </CardContent>
-        </Card>
       </div>
 
       {/* Tabs */}
       <Tabs defaultValue="outstanding" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 max-w-[500px]">
+        <TabsList className="grid w-full grid-cols-2 max-w-[400px]">
           <TabsTrigger value="outstanding">
             Owed to TVL
             {owedToTvlDrivers.length > 0 && (
@@ -271,12 +259,6 @@ export default function Commissions() {
             Owed to Drivers
             {owedToDriverDrivers.length > 0 && (
               <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-green-400 inline-block" />
-            )}
-          </TabsTrigger>
-          <TabsTrigger value="arrangement">
-            Fees
-            {outstandingFees.length > 0 && (
-              <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-primary inline-block" />
             )}
           </TabsTrigger>
         </TabsList>
@@ -379,19 +361,9 @@ export default function Commissions() {
           )}
         </TabsContent>
 
-        {/* Hotel & Apartment arrangement fees */}
-        <TabsContent value="arrangement" className="mt-4 space-y-4">
-          <Card className="border-primary/20 bg-primary/5">
-            <CardContent className="p-4 flex items-start gap-3">
-              <Info className="w-4 h-4 text-primary mt-0.5 flex-shrink-0" />
-              <div className="text-xs text-muted-foreground">
-                <strong className="text-foreground">Arrangement fees</strong> are TVL's commission on Hotel and Apartment
-                bookings (separate from driver commissions). When you book a hotel or apartment for a client, the supplier
-                pays TVL a referral fee — that fee is tracked here so you can confirm it's been received.
-              </div>
-            </CardContent>
-          </Card>
-
+        {/* Arrangement Fees tab removed — Hotel/Apartment now use supplier_cost / client_price markup model */}
+        {false && (
+          <TabsContent value="arrangement" className="mt-4 space-y-4">
           {outstandingFees.length > 0 && (
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Outstanding</h3>
@@ -491,7 +463,8 @@ export default function Commissions() {
               No Hotel or Apartment bookings with arrangement fees recorded.
             </div>
           )}
-        </TabsContent>
+          </TabsContent>
+        )}
       </Tabs>
 
       {/* Driver detail dialog (history + actions) */}

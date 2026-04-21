@@ -1093,6 +1093,105 @@ const CATEGORY_ICONS: Record<string, string> = {
   "Vehicle": "🚘", "Meet & Greet": "✨", "Tour": "🗺", "Add-on": "➕", "Accommodation": "🏠",
 };
 
+// ─── Per-airport pricing editor (Vehicle products only) ──────────
+const AIRPORT_LIST: { code: string; name: string }[] = [
+  { code: "LHR",   name: "Heathrow"  },
+  { code: "LGW",   name: "Gatwick"   },
+  { code: "STN",   name: "Stansted"  },
+  { code: "LTN",   name: "Luton"     },
+  { code: "LCY",   name: "London City" },
+  { code: "OTHER", name: "Other / Custom" },
+];
+function AirportPricingEditor({ productId, productName }: { productId: string; productName: string }) {
+  const { toast } = useToast();
+  const [rows, setRows] = useState<Record<string, { price: number; hourly_rate: number | null }>>({});
+  const [loading, setLoading] = useState(true);
+  const [savingCode, setSavingCode] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      const { data } = await supabase
+        .from("vehicle_airport_pricing")
+        .select("airport_code, price, hourly_rate")
+        .eq("product_id", productId);
+      if (cancelled) return;
+      const map: Record<string, { price: number; hourly_rate: number | null }> = {};
+      AIRPORT_LIST.forEach(a => { map[a.code] = { price: 0, hourly_rate: null }; });
+      (data ?? []).forEach((r: any) => { map[r.airport_code] = { price: Number(r.price ?? 0), hourly_rate: r.hourly_rate }; });
+      setRows(map);
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, [productId]);
+
+  const saveRow = async (code: string, name: string) => {
+    setSavingCode(code);
+    const r = rows[code];
+    const { error } = await supabase
+      .from("vehicle_airport_pricing")
+      .upsert({
+        product_id:   productId,
+        airport_code: code,
+        airport_name: name,
+        price:        r.price ?? 0,
+        hourly_rate:  r.hourly_rate,
+        updated_at:   new Date().toISOString(),
+      }, { onConflict: "product_id,airport_code" });
+    setSavingCode(null);
+    if (error) toast({ title: "Save failed: " + error.message, variant: "destructive" });
+    else toast({ title: `${code} price saved` });
+  };
+
+  return (
+    <div className="space-y-2 pt-3 border-t border-border">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">Airport Transfer Pricing</h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">Set the fixed price for {productName} from each London airport.</p>
+        </div>
+      </div>
+      {loading ? (
+        <Skeleton className="h-32" />
+      ) : (
+        <div className="space-y-2">
+          {AIRPORT_LIST.map(a => {
+            const r = rows[a.code] ?? { price: 0, hourly_rate: null };
+            return (
+              <div key={a.code} className="flex items-center gap-2 p-2 rounded-lg border border-border bg-card">
+                <div className="w-14 flex-shrink-0">
+                  <div className="text-xs font-bold text-foreground">{a.code}</div>
+                  <div className="text-[10px] text-muted-foreground">{a.name}</div>
+                </div>
+                <div className="flex-1 grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] text-muted-foreground">Transfer £</label>
+                    <input type="number" step="0.01" className="w-full bg-background border border-border rounded-md px-2 py-1 text-sm focus:outline-none focus:border-primary"
+                      value={r.price}
+                      onChange={e => setRows(v => ({ ...v, [a.code]: { ...v[a.code], price: Number(e.target.value) } }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-muted-foreground">Hourly £ <span className="opacity-60">(optional)</span></label>
+                    <input type="number" step="0.01" className="w-full bg-background border border-border rounded-md px-2 py-1 text-sm focus:outline-none focus:border-primary"
+                      value={r.hourly_rate ?? ""}
+                      onChange={e => setRows(v => ({ ...v, [a.code]: { ...v[a.code], hourly_rate: e.target.value === "" ? null : Number(e.target.value) } }))}
+                    />
+                  </div>
+                </div>
+                <Button size="sm" variant="outline" className="text-xs h-8" onClick={() => saveRow(a.code, a.name)} disabled={savingCode === a.code}>
+                  {savingCode === a.code ? <Loader2 className="w-3 h-3 animate-spin" /> : "Save"}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const { toast } = useToast();
   const [products, setProducts] = useState<any[]>([]);
@@ -1238,6 +1337,15 @@ function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
               <span className="absolute top-0.5 w-5 h-5 rounded-full bg-white shadow transition-all" style={{ left: editing.active ? '22px' : '2px' }} />
             </button>
           </div>
+
+          {editing.category === "Vehicle" && editing.id && (
+            <AirportPricingEditor productId={editing.id} productName={editing.name} />
+          )}
+          {editing.category === "Vehicle" && !editing.id && (
+            <div className="p-3 rounded-xl bg-muted/30 border border-dashed border-border text-xs text-muted-foreground">
+              💡 Save the vehicle first, then re-open it to set per-airport pricing (LHR / LGW / STN / LTN / LCY / OTHER).
+            </div>
+          )}
         </div>
         <Button className="w-full h-12 font-semibold" onClick={saveProduct} disabled={saving || !editing.name}>
           {saving ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <CheckCircle2 className="w-4 h-4 mr-2" />}

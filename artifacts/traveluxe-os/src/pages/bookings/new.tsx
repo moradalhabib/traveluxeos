@@ -41,6 +41,8 @@ const registerSchema = z.object({
 const bookingSchema = z.object({
   client_id: z.string().optional(),
   service_type: z.string(),
+  airport_code: z.string().optional(),
+  hours: z.coerce.number().optional(),
   direction: z.string().optional(),
   pickup: z.string().optional(),
   dropoff: z.string().optional(),
@@ -297,6 +299,63 @@ export default function NewBooking() {
     }
   }, [orderLines]);
 
+  // ── Airport Transfer auto-pricing ──────────────────────────
+  // When both an airport AND a vehicle product are selected for an
+  // Airport Transfer, fetch the per-airport price from
+  // vehicle_airport_pricing and update the order line's unit_price.
+  // This keeps pricing consistent and removes manual entry.
+  const airportCode = bookingForm.watch("airport_code");
+  useEffect(() => {
+    if (serviceType !== "Airport Transfer" || !airportCode) return;
+    const vehicleLine = orderLines.find(l => l.category === "Vehicle" && l.product_id);
+    if (!vehicleLine || !vehicleLine.product_id) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("vehicle_airport_pricing")
+        .select("price")
+        .eq("product_id", vehicleLine.product_id)
+        .eq("airport_code", airportCode)
+        .maybeSingle();
+      if (cancelled || !data || data.price == null) return;
+      const newPrice = Number(data.price);
+      if (newPrice > 0 && newPrice !== vehicleLine.unit_price) {
+        setOrderLines(prev => prev.map(l => l.key === vehicleLine.key ? { ...l, unit_price: newPrice } : l));
+        toast({ title: `Auto-priced from ${airportCode}: £${newPrice}`, description: `${vehicleLine.name}` });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [airportCode, orderLines.map(l => l.product_id).join("|"), serviceType]);
+
+  // ── As Directed auto-pricing (vehicle hourly rate × hours) ──
+  const hoursWatched = bookingForm.watch("hours") || 0;
+  useEffect(() => {
+    if (serviceType !== "As Directed" || hoursWatched <= 0) return;
+    const vehicleLine = orderLines.find(l => l.category === "Vehicle" && l.product_id);
+    if (!vehicleLine || !vehicleLine.product_id) return;
+    let cancelled = false;
+    (async () => {
+      // Use OTHER airport row's hourly_rate as default chauffeuring rate;
+      // fall back to LHR if OTHER not set.
+      const { data } = await supabase
+        .from("vehicle_airport_pricing")
+        .select("airport_code, hourly_rate")
+        .eq("product_id", vehicleLine.product_id)
+        .not("hourly_rate", "is", null);
+      if (cancelled) return;
+      const rateRow = (data ?? []).find((r: any) => r.airport_code === "OTHER")
+                   ?? (data ?? []).find((r: any) => r.airport_code === "LHR")
+                   ?? (data ?? [])[0];
+      const hourly = Number(rateRow?.hourly_rate ?? 0);
+      if (hourly <= 0) return;
+      const newPrice = hourly * hoursWatched;
+      if (newPrice > 0 && newPrice !== vehicleLine.unit_price) {
+        setOrderLines(prev => prev.map(l => l.key === vehicleLine.key ? { ...l, unit_price: newPrice } : l));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [hoursWatched, orderLines.map(l => l.product_id).join("|"), serviceType]);
+
   const loadClientById = async (clientId: string) => {
     const { data } = await supabase
       .from("clients")
@@ -454,6 +513,8 @@ export default function NewBooking() {
     const allowedPayload: Record<string, any> = {
       client_id: values.client_id,
       service_type: values.service_type,
+      airport_code: values.airport_code ?? null,
+      hours: values.hours ?? null,
       ...transportSafe,
       date_time: effectiveDateTime,
       special_requests: values.extras
@@ -963,6 +1024,38 @@ export default function NewBooking() {
                   })()}
                   {serviceType === "Airport Transfer" && (
                     <>
+                      <FormField control={bookingForm.control} name="airport_code" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Airport <span className="text-xs text-muted-foreground font-normal ml-1">(auto-prices the vehicle)</span></FormLabel>
+                          <FormControl>
+                            <div className="grid grid-cols-3 gap-2">
+                              {[
+                                { code: "LHR", name: "Heathrow"   },
+                                { code: "LGW", name: "Gatwick"    },
+                                { code: "STN", name: "Stansted"   },
+                                { code: "LTN", name: "Luton"      },
+                                { code: "LCY", name: "City"       },
+                                { code: "OTHER", name: "Other"    },
+                              ].map(a => (
+                                <button
+                                  key={a.code}
+                                  type="button"
+                                  onClick={() => field.onChange(a.code)}
+                                  className={`px-2 py-2 rounded-lg text-xs font-semibold border transition-all ${
+                                    field.value === a.code
+                                      ? "bg-primary text-primary-foreground border-primary"
+                                      : "border-border text-foreground hover:border-primary/50"
+                                  }`}
+                                >
+                                  <div>{a.code}</div>
+                                  <div className="text-[10px] font-normal opacity-80">{a.name}</div>
+                                </button>
+                              ))}
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
                       <FlightLookupCard
                         flightNumber={watchedFlightNumber}
                         direction={watchedDirection}
@@ -1071,6 +1164,13 @@ export default function NewBooking() {
                           <FormItem>
                             <FormLabel>Rental Return Date</FormLabel>
                             <FormControl><Input type="datetime-local" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="hours" render={({ field }) => (
+                          <FormItem className="col-span-2">
+                            <FormLabel>Hours <span className="text-xs text-muted-foreground font-normal ml-1">(× vehicle hourly rate)</span></FormLabel>
+                            <FormControl><Input type="number" step="0.5" placeholder="e.g. 4" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />

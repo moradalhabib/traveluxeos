@@ -185,6 +185,9 @@ const BOOKING_COLUMNS = new Set([
   "tour_name","meeting_point","guide_included","itinerary",
   "property_name","property_address","check_in_date","check_out_date",
   "nights","property_contact","arrangement_fee_status",
+  // Product-restructure additions (April 2026)
+  "airport_code","hours","supplier_cost","client_price",
+  "vehicle_product_id","tour_product_id","meet_greet_product_id",
 ]);
 
 router.post("/", async (req, res) => {
@@ -205,7 +208,7 @@ router.post("/", async (req, res) => {
   };
 
   // Coerce numeric fields so strings like "150" don't cause type errors
-  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights"]) {
+  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights","hours","supplier_cost","client_price"]) {
     if (body[f] !== undefined && body[f] !== null) {
       const n = Number(body[f]);
       body[f] = isNaN(n) ? null : n;
@@ -348,7 +351,7 @@ router.put("/:id", async (req, res) => {
   for (const [k, v] of Object.entries(req.body)) {
     if (BOOKING_COLUMNS.has(k) && v !== "" && v !== undefined) raw[k] = v;
   }
-  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights"]) {
+  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights","hours","supplier_cost","client_price"]) {
     if (raw[f] !== undefined && raw[f] !== null) {
       const n = Number(raw[f]);
       raw[f] = isNaN(n) ? null : n;
