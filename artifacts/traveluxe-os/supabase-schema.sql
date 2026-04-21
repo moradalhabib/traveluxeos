@@ -22,7 +22,7 @@ CREATE TABLE IF NOT EXISTS public.clients (
   email TEXT,
   nationality TEXT,
   language_preference TEXT DEFAULT 'English' CHECK (language_preference IN ('English', 'Arabic', 'Other')),
-  vip_tier TEXT NOT NULL DEFAULT 'Standard' CHECK (vip_tier IN ('Standard', 'VIP', 'VVIP')),
+  vip_tier TEXT NOT NULL DEFAULT 'Standard' CHECK (vip_tier IN ('Standard', 'VIP', 'VVIP', 'Platinum')),
   notes TEXT,
   inactive BOOLEAN NOT NULL DEFAULT false,
   merged_into UUID REFERENCES public.clients(id),

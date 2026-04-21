@@ -231,6 +231,7 @@ export default function ClientDetail() {
 
   const getVipBadgeColor = (tier: string) => {
     switch (tier) {
+      case 'Platinum': return 'bg-gradient-to-r from-amber-500/30 to-yellow-300/30 text-amber-200 border-amber-400/70 shadow-[0_0_8px_rgba(251,191,36,0.35)]';
       case 'VVIP': return 'bg-purple-500/20 text-purple-400 border-purple-500/50';
       case 'VIP': return 'bg-primary/20 text-primary border-primary/50';
       default: return 'bg-secondary text-secondary-foreground border-border';
@@ -764,6 +765,7 @@ export default function ClientDetail() {
                 <option value="Standard">Standard</option>
                 <option value="VIP">VIP</option>
                 <option value="VVIP">VVIP</option>
+                <option value="Platinum">Platinum</option>
               </select>
             </div>
             <div>

@@ -133,6 +133,7 @@ function ImportTab() {
         vip_tier: (() => {
           if (!mapping.vip_tier) return 'Standard';
           const raw = row[mapping.vip_tier]?.trim().toUpperCase();
+          if (raw === 'PLATINUM') return 'Platinum';
           if (raw === 'VVIP') return 'VVIP';
           if (raw === 'VIP') return 'VIP';
           return 'Standard';

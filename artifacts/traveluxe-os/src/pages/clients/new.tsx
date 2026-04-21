@@ -171,6 +171,7 @@ export default function NewClient() {
                           <SelectItem value="Standard">Standard</SelectItem>
                           <SelectItem value="VIP">VIP</SelectItem>
                           <SelectItem value="VVIP">VVIP</SelectItem>
+                          <SelectItem value="Platinum">Platinum</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />

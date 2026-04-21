@@ -664,6 +664,29 @@ export default function NewBooking() {
         ? (values.check_in_date || values.date_time)
         : values.date_time;
 
+    // Past-date guardrail. We do NOT block historical entries (operators
+    // sometimes need to back-fill bookings that already happened) but we
+    // surface a clear warning so an accidental wrong-year/month doesn't slip
+    // through. Compares the date portion only against today's date so a
+    // booking earlier today (a few hours ago) doesn't trigger.
+    if (effectiveDateTime) {
+      const picked = new Date(effectiveDateTime);
+      if (!isNaN(picked.getTime())) {
+        const todayStart = new Date();
+        todayStart.setHours(0, 0, 0, 0);
+        if (picked < todayStart) {
+          const human = picked.toLocaleDateString("en-GB", {
+            weekday: "short", day: "2-digit", month: "short", year: "numeric",
+          });
+          const ok = window.confirm(
+            `This date (${human}) is in the past — are you sure you want to continue?\n\n` +
+            `Press OK to log this as a historical booking, or Cancel to go back and change the date.`
+          );
+          if (!ok) return;
+        }
+      }
+    }
+
     // As Directed: if there's overtime, append a calculated extra_charges line
     // so the cost-breakdown trigger picks it up in supplier_cost.
     let mergedExtras = Array.isArray((values as any).extra_charges)

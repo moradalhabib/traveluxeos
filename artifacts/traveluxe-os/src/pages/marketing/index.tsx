@@ -74,7 +74,7 @@ type Filters = {
   last_booking_within_days?: number | null;
   last_booking_min_days?: number | null;
   last_booking_max_days?: number | null;
-  vip_tier?: "Standard" | "VIP" | "VVIP" | "Any" | null;
+  vip_tier?: "Standard" | "VIP" | "VVIP" | "Platinum" | "Any" | null;
   nationality?: string | null;
   service_type?: string | null;
   min_total_spend?: number | null;
@@ -395,6 +395,7 @@ export default function MarketingHub() {
                   <SelectItem value="Standard">Standard</SelectItem>
                   <SelectItem value="VIP">VIP</SelectItem>
                   <SelectItem value="VVIP">VVIP</SelectItem>
+                  <SelectItem value="Platinum">Platinum</SelectItem>
                 </SelectContent>
               </Select>
             </div>
