@@ -219,7 +219,39 @@ export default function NewBooking() {
   const isAccommodation = serviceType === "Apartment";
   const isHotel = serviceType === "Hotel";
   const isAsDirected = serviceType === "As Directed";
+  const isCarRental = serviceType === "Car Rental";
   const needsCommission = isHotel || isAccommodation;
+  // Service types that benefit from a third-party Supplier link
+  const needsSupplier = isCarRental || isAccommodation || isHotel || isTourType;
+
+  // ─── Car Rental cost breakdown (live) ────────────────────────────────────
+  const baseDailyRate = bookingForm.watch("base_daily_rate" as any) || 0;
+  const rentalDays    = bookingForm.watch("rental_days" as any) || 0;
+  const fuelCost      = bookingForm.watch("fuel_cost" as any) || 0;
+  const driverCost    = bookingForm.watch("driver_cost" as any) || 0;
+  const extraCharges  = (bookingForm.watch("extra_charges" as any) as any[]) || [];
+  const extrasTotal   = extraCharges.reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
+  const carRentalSubtotal = (Number(baseDailyRate) * Number(rentalDays)) + Number(fuelCost) + Number(driverCost) + extrasTotal;
+  const clientPriceWatch = bookingForm.watch("price") || 0;
+  const carRentalMargin = Number(clientPriceWatch) - carRentalSubtotal;
+
+  // ─── Suppliers fetch (used by picker) ────────────────────────────────────
+  const [supplierList, setSupplierList] = useState<any[]>([]);
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch("/api/suppliers?active=true", {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (active) setSupplierList(Array.isArray(data) ? data : []);
+      } catch {}
+    })();
+    return () => { active = false; };
+  }, []);
 
   // Clear order lines AND any transport-specific fields when switching to
   // accommodation types — Hotel/Apartment have no vehicle, no name board, no
@@ -956,13 +988,196 @@ export default function NewBooking() {
                           <SelectItem value="As Directed">As Directed</SelectItem>
                           <SelectItem value="Apartment">Apartment</SelectItem>
                           <SelectItem value="Hotel">Hotel</SelectItem>
+                          <SelectItem value="Car Rental">Car Rental</SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />
                     </FormItem>
                   )} />
+
+                  {/* Supplier picker — appears for any service that
+                      typically uses a third-party provider. Filtered to the
+                      relevant category so the operator sees only car-rental
+                      suppliers when booking a Car Rental, etc. */}
+                  {needsSupplier && (
+                    <FormField control={bookingForm.control} name={"supplier_id" as any} render={({ field }) => {
+                      const filterCat = isCarRental ? "Car Rental"
+                        : isAccommodation ? "Apartment"
+                        : isHotel ? "Hotel"
+                        : isTourType ? "Tour Operator"
+                        : null;
+                      const filtered = filterCat
+                        ? supplierList.filter((s: any) => s.category === filterCat || s.category === "Other")
+                        : supplierList;
+                      return (
+                        <FormItem>
+                          <FormLabel>
+                            Supplier <span className="text-xs text-muted-foreground font-normal">(optional)</span>
+                          </FormLabel>
+                          <Select onValueChange={(v) => field.onChange(v === "none" ? "" : v)} value={field.value || "none"}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select supplier…" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent className="max-h-[55vh] overflow-y-auto">
+                              <SelectItem value="none">None</SelectItem>
+                              {filtered.map((s: any) => (
+                                <SelectItem key={s.id} value={s.id}>
+                                  {s.name}{s.city ? ` · ${s.city}` : ""}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <p className="text-[11px] text-muted-foreground mt-1">
+                            Manage suppliers from the Suppliers page in the menu.
+                          </p>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }} />
+                  )}
                 </CardContent>
               </Card>
+
+              {/* ─── Car Rental Cost Breakdown ─────────────────────────────
+                  Lets the operator capture true cost so we can compute the
+                  real margin. All fields persist to the booking row. */}
+              {isCarRental && (
+                <Card className="border-primary/20">
+                  <CardHeader className="pb-3">
+                    <CardTitle className="text-base">Cost Breakdown</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <Label>Base daily rate (£)</Label>
+                        <Input type="number" step="0.01" min="0"
+                          value={(bookingForm.watch("base_daily_rate" as any) as any) ?? ""}
+                          onChange={e => bookingForm.setValue("base_daily_rate" as any, e.target.value === "" ? undefined : Number(e.target.value))}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Rental days</Label>
+                        <Input type="number" step="1" min="0"
+                          value={(bookingForm.watch("rental_days" as any) as any) ?? ""}
+                          onChange={e => bookingForm.setValue("rental_days" as any, e.target.value === "" ? undefined : Number(e.target.value))}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Fuel cost (£)</Label>
+                        <Input type="number" step="0.01" min="0"
+                          value={(bookingForm.watch("fuel_cost" as any) as any) ?? ""}
+                          onChange={e => bookingForm.setValue("fuel_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <Label>Driver cost (£)</Label>
+                        <Input type="number" step="0.01" min="0"
+                          value={(bookingForm.watch("driver_cost" as any) as any) ?? ""}
+                          onChange={e => bookingForm.setValue("driver_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Extra charges — JSONB array of {description, amount} */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>Extra charges</Label>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const next = [...extraCharges, { description: "", amount: 0 }];
+                            bookingForm.setValue("extra_charges" as any, next);
+                          }}
+                        >
+                          + Add line
+                        </Button>
+                      </div>
+                      {extraCharges.length === 0 ? (
+                        <p className="text-xs text-muted-foreground italic">No extras (insurance excess, tolls, child seats…)</p>
+                      ) : (
+                        <div className="space-y-2">
+                          {extraCharges.map((extra: any, idx: number) => (
+                            <div key={idx} className="flex gap-2 items-start">
+                              <Input
+                                placeholder="Description"
+                                value={extra?.description ?? ""}
+                                onChange={e => {
+                                  const next = [...extraCharges];
+                                  next[idx] = { ...next[idx], description: e.target.value };
+                                  bookingForm.setValue("extra_charges" as any, next);
+                                }}
+                                className="flex-1"
+                              />
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="£"
+                                value={extra?.amount ?? ""}
+                                onChange={e => {
+                                  const next = [...extraCharges];
+                                  next[idx] = { ...next[idx], amount: e.target.value === "" ? 0 : Number(e.target.value) };
+                                  bookingForm.setValue("extra_charges" as any, next);
+                                }}
+                                className="w-28"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive"
+                                onClick={() => {
+                                  const next = extraCharges.filter((_: any, i: number) => i !== idx);
+                                  bookingForm.setValue("extra_charges" as any, next);
+                                }}
+                              >
+                                ×
+                              </Button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Live totals strip */}
+                    <div className="pt-3 border-t border-border space-y-1.5">
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Base × Days</span>
+                        <span className="font-medium text-foreground">£{(Number(baseDailyRate) * Number(rentalDays)).toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Fuel</span>
+                        <span className="font-medium text-foreground">£{Number(fuelCost).toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Driver</span>
+                        <span className="font-medium text-foreground">£{Number(driverCost).toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="text-muted-foreground">Extras</span>
+                        <span className="font-medium text-foreground">£{extrasTotal.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-sm pt-1.5 border-t border-border/50">
+                        <span className="font-semibold text-foreground">Cost subtotal</span>
+                        <span className="font-bold text-foreground">£{carRentalSubtotal.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-sm">
+                        <span className="font-semibold text-foreground">Client price</span>
+                        <span className="font-bold text-primary">£{Number(clientPriceWatch).toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between text-sm pt-1.5 border-t border-border/50">
+                        <span className="font-semibold text-foreground">Margin</span>
+                        <span className={`font-bold ${carRentalMargin >= 0 ? "text-green-400" : "text-destructive"}`}>
+                          £{carRentalMargin.toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Journey / Property Details */}
               <Card className="border-primary/10">

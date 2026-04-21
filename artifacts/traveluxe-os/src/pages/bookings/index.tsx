@@ -13,6 +13,7 @@ import { useAuth } from "@/hooks/use-auth";
 export default function Bookings() {
   const { user } = useAuth();
   const isResidenceManager = user?.role === "residence_manager";
+  const isSuperAdmin = user?.role === "super_admin";
 
   const [status, setStatus] = useState<string>("");
   const [search, setSearch] = useState<string>("");
@@ -112,8 +113,10 @@ export default function Bookings() {
         )}
       </div>
 
-      {/* Source tabs — keep imported Odoo data segregated from active ops */}
-      {!isResidenceManager && (
+      {/* Source tabs — keep imported Odoo data segregated from active ops.
+          Operators don't see the Imported tab; only super_admin can browse
+          legacy archived data. */}
+      {!isResidenceManager && isSuperAdmin && (
         <div className="flex gap-1 border border-border rounded-xl p-1 bg-secondary/20 w-full sm:w-fit">
           <button
             onClick={() => setSource("active")}
@@ -166,9 +169,16 @@ export default function Bookings() {
           <Card key={booking.id} className="border-primary/10 hover:border-primary/30 transition-colors bg-card overflow-hidden flex flex-col">
             <CardContent className="p-5 flex-1 flex flex-col">
               <div className="flex justify-between items-start mb-4">
-                <div>
-                  <div className="text-xs text-muted-foreground font-mono">{booking.tvl_ref}</div>
-                  <h3 className="font-bold text-lg text-foreground">{booking.client_name || "Unknown Client"}</h3>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="text-xs text-muted-foreground font-mono">{booking.tvl_ref}</div>
+                    {booking.service_type && (
+                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-secondary/40 text-foreground border-border">
+                        {booking.service_type}{booking.direction ? ` · ${booking.direction}` : ""}
+                      </Badge>
+                    )}
+                  </div>
+                  <h3 className="font-bold text-lg text-foreground truncate">{booking.client_name || "Unknown Client"}</h3>
                   <div className="text-sm text-muted-foreground mt-1 flex items-center">
                     <CalendarRange className="w-3 h-3 mr-1" />
                     {booking.date_time ? format(new Date(booking.date_time), "PPp") : "TBD"}

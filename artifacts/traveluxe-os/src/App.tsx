@@ -41,6 +41,8 @@ import Services from "@/pages/services/index";
 import Analytics from "@/pages/analytics/index";
 import Marketing from "@/pages/marketing/index";
 import FollowUps from "@/pages/follow-ups/index";
+import Suppliers from "@/pages/suppliers/index";
+import SupplierDetail from "@/pages/suppliers/[id]";
 
 const queryClient = new QueryClient();
 
@@ -122,6 +124,8 @@ function Router() {
       <ProtectedRoute path="/admin" component={Admin} allowedRoles={["super_admin", "operator"]} />
       <ProtectedRoute path="/marketing" component={Marketing} blockResidenceManager={true} />
       <ProtectedRoute path="/follow-ups" component={FollowUps} blockResidenceManager={true} />
+      <ProtectedRoute path="/suppliers" component={Suppliers} blockResidenceManager={true} />
+      <ProtectedRoute path="/suppliers/:id" component={SupplierDetail} blockResidenceManager={true} />
 
       <Route component={NotFound} />
     </Switch>

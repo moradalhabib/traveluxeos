@@ -130,10 +130,14 @@ router.get("/summary", async (req, res) => {
   // Operator performance
   const operatorMap: Record<string, { name: string; count: number; revenue: number }> = {};
   bookings.forEach(b => {
-    if (!b.operator_id) return;
-    if (!operatorMap[b.operator_id]) operatorMap[b.operator_id] = { name: b.operator_name ?? "Unknown", count: 0, revenue: 0 };
-    operatorMap[b.operator_id].count++;
-    operatorMap[b.operator_id].revenue += (b.price ?? 0) + (b.additional_charges ?? 0);
+    // Group bookings without an operator under the "Imported (Odoo)" bucket so
+    // the Operator Performance panel reflects that they came from a legacy
+    // import rather than an unknown TVL operator.
+    const opKey = b.operator_id ?? "__imported__";
+    const opName = b.operator_id ? (b.operator_name ?? "Unknown") : "Imported (Odoo)";
+    if (!operatorMap[opKey]) operatorMap[opKey] = { name: opName, count: 0, revenue: 0 };
+    operatorMap[opKey].count++;
+    operatorMap[opKey].revenue += (b.price ?? 0) + (b.additional_charges ?? 0);
   });
   const operator_performance = Object.entries(operatorMap)
     .map(([id, v]) => ({ operator_id: id, operator_name: v.name, total_bookings: v.count, total_revenue: v.revenue }))

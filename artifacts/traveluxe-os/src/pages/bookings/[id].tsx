@@ -20,6 +20,263 @@ import { Input } from "@/components/ui/input";
 import { useState, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
+import { Phone, MessageCircle, Mail, Pencil, Plus, Trash2 } from "lucide-react";
+import { Label } from "@/components/ui/label";
+
+function whatsappLink(num?: string) {
+  if (!num) return null;
+  const clean = num.replace(/[^\d+]/g, "");
+  return `https://wa.me/${clean.replace(/^\+/, "")}`;
+}
+
+function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => void }) {
+  const isCarRental = booking.service_type === "Car Rental";
+  const supplierId  = booking.supplier_id;
+  const [supplier, setSupplier] = useState<any>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [draft, setDraft] = useState<any>({});
+  const [saving, setSaving] = useState(false);
+  const { toast } = useToast();
+
+  useEffect(() => {
+    let active = true;
+    if (!supplierId) { setSupplier(null); return; }
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch(`/api/suppliers/${supplierId}`, {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (active) setSupplier(data);
+      } catch {}
+    })();
+    return () => { active = false; };
+  }, [supplierId]);
+
+  const baseDailyRate = Number(booking.base_daily_rate || 0);
+  const rentalDays    = Number(booking.rental_days || 0);
+  const fuelCost      = Number(booking.fuel_cost || 0);
+  const driverCost    = Number(booking.driver_cost || 0);
+  const extras        = Array.isArray(booking.extra_charges) ? booking.extra_charges : [];
+  const extrasTotal   = extras.reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
+  const subtotal      = (baseDailyRate * rentalDays) + fuelCost + driverCost + extrasTotal;
+  const margin        = Number(booking.price || 0) - subtotal;
+
+  const openEdit = () => {
+    setDraft({
+      base_daily_rate: booking.base_daily_rate ?? "",
+      rental_days:     booking.rental_days ?? "",
+      fuel_cost:       booking.fuel_cost ?? "",
+      driver_cost:     booking.driver_cost ?? "",
+      extra_charges:   extras.length ? [...extras] : [],
+    });
+    setEditOpen(true);
+  };
+
+  const saveCosts = async () => {
+    setSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const payload: any = {
+        base_daily_rate: draft.base_daily_rate === "" ? null : Number(draft.base_daily_rate),
+        rental_days:     draft.rental_days === "" ? null : Number(draft.rental_days),
+        fuel_cost:       draft.fuel_cost === "" ? null : Number(draft.fuel_cost),
+        driver_cost:     draft.driver_cost === "" ? null : Number(draft.driver_cost),
+        extra_charges:   draft.extra_charges,
+      };
+      const res = await fetch(`/api/bookings/${booking.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? "Failed to update costs");
+      }
+      toast({ title: "Cost breakdown updated" });
+      setEditOpen(false);
+      onSaved();
+    } catch (e: any) {
+      toast({ title: e.message ?? "Failed to update costs", variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const wa = whatsappLink(supplier?.whatsapp);
+
+  return (
+    <Card className="border-primary/20 bg-card">
+      <CardHeader className="pb-2 flex-row items-center justify-between">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Building2 className="w-4 h-4 text-primary" />
+          {isCarRental ? "Supplier & Cost" : "Supplier"}
+        </CardTitle>
+        {isCarRental && (
+          <Button size="sm" variant="ghost" onClick={openEdit} className="h-7 px-2 text-xs">
+            <Pencil className="w-3 h-3 mr-1" /> Edit
+          </Button>
+        )}
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {supplier ? (
+          <div className="flex items-start justify-between gap-3 p-3 rounded-lg bg-secondary/20 border border-border">
+            <div className="min-w-0">
+              <Link href={`/suppliers/${supplier.id}`}>
+                <div className="font-semibold text-foreground hover:text-primary cursor-pointer truncate">
+                  {supplier.name}
+                </div>
+              </Link>
+              {supplier.contact_name && (
+                <div className="text-xs text-muted-foreground">{supplier.contact_name}</div>
+              )}
+              <Badge variant="outline" className="mt-1 text-[10px] py-0 px-1.5 border-primary/30 text-primary bg-primary/5">
+                {supplier.category}
+              </Badge>
+            </div>
+            <div className="flex gap-1.5 shrink-0">
+              {wa && (
+                <a href={wa} target="_blank" rel="noopener noreferrer"
+                   className="w-8 h-8 rounded-full bg-green-500/10 hover:bg-green-500/20 text-green-400 flex items-center justify-center" title="WhatsApp">
+                  <MessageCircle className="w-4 h-4" />
+                </a>
+              )}
+              {supplier.phone && (
+                <a href={`tel:${supplier.phone}`}
+                   className="w-8 h-8 rounded-full bg-secondary/40 hover:bg-secondary/60 flex items-center justify-center" title="Call">
+                  <Phone className="w-4 h-4" />
+                </a>
+              )}
+              {supplier.email && (
+                <a href={`mailto:${supplier.email}`}
+                   className="w-8 h-8 rounded-full bg-secondary/40 hover:bg-secondary/60 flex items-center justify-center" title="Email">
+                  <Mail className="w-4 h-4" />
+                </a>
+              )}
+            </div>
+          </div>
+        ) : isCarRental ? (
+          <p className="text-xs text-muted-foreground italic">No supplier linked. Pick one when editing the booking.</p>
+        ) : null}
+
+        {isCarRental && (
+          <div className="space-y-1.5 text-sm">
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Base × Days ({baseDailyRate} × {rentalDays})</span>
+              <span className="font-medium">£{(baseDailyRate * rentalDays).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Fuel</span>
+              <span className="font-medium">£{fuelCost.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-muted-foreground">Driver</span>
+              <span className="font-medium">£{driverCost.toLocaleString()}</span>
+            </div>
+            {extras.length > 0 && (
+              <div className="space-y-0.5 pl-3 border-l-2 border-border">
+                {extras.map((x: any, i: number) => (
+                  <div key={i} className="flex justify-between text-xs">
+                    <span className="text-muted-foreground">{x.description || "(extra)"}</span>
+                    <span>£{Number(x.amount || 0).toLocaleString()}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex justify-between pt-2 border-t border-border">
+              <span className="font-semibold">Cost subtotal</span>
+              <span className="font-bold">£{subtotal.toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="font-semibold">Client price</span>
+              <span className="font-bold text-primary">£{Number(booking.price || 0).toLocaleString()}</span>
+            </div>
+            <div className="flex justify-between pt-1 border-t border-border">
+              <span className="font-semibold">Margin</span>
+              <span className={`font-bold ${margin >= 0 ? "text-green-400" : "text-destructive"}`}>
+                £{margin.toLocaleString()}
+              </span>
+            </div>
+          </div>
+        )}
+      </CardContent>
+
+      {/* Edit dialog (extras editable post-completion) */}
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit Cost Breakdown</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Base daily rate (£)</Label>
+                <Input type="number" step="0.01" value={draft.base_daily_rate ?? ""}
+                  onChange={e => setDraft({ ...draft, base_daily_rate: e.target.value })} />
+              </div>
+              <div>
+                <Label>Rental days</Label>
+                <Input type="number" step="1" value={draft.rental_days ?? ""}
+                  onChange={e => setDraft({ ...draft, rental_days: e.target.value })} />
+              </div>
+              <div>
+                <Label>Fuel cost (£)</Label>
+                <Input type="number" step="0.01" value={draft.fuel_cost ?? ""}
+                  onChange={e => setDraft({ ...draft, fuel_cost: e.target.value })} />
+              </div>
+              <div>
+                <Label>Driver cost (£)</Label>
+                <Input type="number" step="0.01" value={draft.driver_cost ?? ""}
+                  onChange={e => setDraft({ ...draft, driver_cost: e.target.value })} />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label>Extra charges</Label>
+                <Button type="button" variant="outline" size="sm"
+                  onClick={() => setDraft({ ...draft, extra_charges: [...(draft.extra_charges || []), { description: "", amount: 0 }] })}>
+                  <Plus className="w-3 h-3 mr-1" /> Add
+                </Button>
+              </div>
+              {(draft.extra_charges ?? []).map((extra: any, idx: number) => (
+                <div key={idx} className="flex gap-2 items-start">
+                  <Input placeholder="Description" value={extra?.description ?? ""}
+                    onChange={e => {
+                      const next = [...draft.extra_charges];
+                      next[idx] = { ...next[idx], description: e.target.value };
+                      setDraft({ ...draft, extra_charges: next });
+                    }} className="flex-1" />
+                  <Input type="number" step="0.01" placeholder="£" value={extra?.amount ?? ""}
+                    onChange={e => {
+                      const next = [...draft.extra_charges];
+                      next[idx] = { ...next[idx], amount: e.target.value === "" ? 0 : Number(e.target.value) };
+                      setDraft({ ...draft, extra_charges: next });
+                    }} className="w-28" />
+                  <Button type="button" variant="ghost" size="sm" className="text-destructive"
+                    onClick={() => {
+                      const next = draft.extra_charges.filter((_: any, i: number) => i !== idx);
+                      setDraft({ ...draft, extra_charges: next });
+                    }}>
+                    <Trash2 className="w-3 h-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditOpen(false)} disabled={saving}>Cancel</Button>
+            <Button onClick={saveCosts} disabled={saving}>{saving ? "Saving…" : "Save costs"}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
+}
 
 export default function BookingDetail() {
   const params = useParams();
@@ -1195,6 +1452,18 @@ export default function BookingDetail() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* ─── Supplier + Car Rental cost breakdown ─────────────────────────
+          Shows supplier name (with WhatsApp/phone shortcuts) and the live
+          margin for Car Rental bookings. Extras remain editable even after
+          the booking is completed (operators frequently add tolls / damage
+          charges later). */}
+      {!isResidenceManager && ((booking as any).supplier_id || svc === "Car Rental") && (
+        <SupplierCostCard
+          booking={booking}
+          onSaved={() => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) })}
+        />
       )}
 
       {/* Financials — hidden from Residence Managers.

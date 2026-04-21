@@ -188,7 +188,14 @@ export default function Jobs() {
               {/* Top row: ref + time + status dropdown */}
               <div className="flex items-start justify-between mb-3">
                 <div>
-                  <div className="text-xs text-muted-foreground font-mono">{job.tvl_ref}</div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <div className="text-xs text-muted-foreground font-mono">{job.tvl_ref}</div>
+                    {job.service_type && (
+                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-secondary/40 text-foreground border-border">
+                        {job.service_type}{(job as any).direction ? ` · ${(job as any).direction}` : ""}
+                      </Badge>
+                    )}
+                  </div>
                   <div className="font-bold text-foreground text-base mt-0.5 flex items-center gap-2">
                     {job.client_id ? (
                       <span
@@ -213,7 +220,9 @@ export default function Jobs() {
                     value={job.status}
                     onClick={e => e.stopPropagation()}
                     onChange={e => handleStatusChange(e, job.id)}
-                    className={`h-7 rounded-full border text-[11px] font-semibold px-2 cursor-pointer appearance-none text-center ${STATUS_COLORS[job.status] ?? 'bg-secondary text-secondary-foreground border-border'}`}
+                    disabled={job.status === 'Cancelled'}
+                    title={job.status === 'Cancelled' ? 'Cancelled bookings are read-only' : undefined}
+                    className={`h-7 rounded-full border text-[11px] font-semibold px-2 appearance-none text-center ${job.status === 'Cancelled' ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${STATUS_COLORS[job.status] ?? 'bg-secondary text-secondary-foreground border-border'}`}
                   >
                     <option value="Pending">Pending</option>
                     <option value="Confirmed">Confirmed</option>
@@ -228,9 +237,7 @@ export default function Jobs() {
                         {format(new Date(job.date_time), 'HH:mm')}
                       </div>
                       <span className="text-[10px] text-muted-foreground">
-                        {isToday(new Date(job.date_time)) ? "Today"
-                          : isTomorrow(new Date(job.date_time)) ? "Tomorrow"
-                          : format(new Date(job.date_time), "dd MMM")}
+                        {format(new Date(job.date_time), "EEE d MMM yyyy")}
                       </span>
                     </div>
                   )}

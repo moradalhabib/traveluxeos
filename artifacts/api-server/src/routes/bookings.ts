@@ -188,6 +188,10 @@ const BOOKING_COLUMNS = new Set([
   // Product-restructure additions (April 2026)
   "airport_code","hours","supplier_cost","client_price",
   "vehicle_product_id","tour_product_id","meet_greet_product_id",
+  // Build 4: supplier link + car-rental cost breakdown + notification timestamps
+  "supplier_id",
+  "base_daily_rate","rental_days","fuel_cost","driver_cost","extra_charges",
+  "client_notified_at","driver_notified_at",
 ]);
 
 router.post("/", async (req, res) => {
@@ -208,7 +212,7 @@ router.post("/", async (req, res) => {
   };
 
   // Coerce numeric fields so strings like "150" don't cause type errors
-  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights","hours","supplier_cost","client_price"]) {
+  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights","hours","supplier_cost","client_price","base_daily_rate","rental_days","fuel_cost","driver_cost"]) {
     if (body[f] !== undefined && body[f] !== null) {
       const n = Number(body[f]);
       body[f] = isNaN(n) ? null : n;
@@ -351,7 +355,7 @@ router.put("/:id", async (req, res) => {
   for (const [k, v] of Object.entries(req.body)) {
     if (BOOKING_COLUMNS.has(k) && v !== "" && v !== undefined) raw[k] = v;
   }
-  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights","hours","supplier_cost","client_price"]) {
+  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights","hours","supplier_cost","client_price","base_daily_rate","rental_days","fuel_cost","driver_cost"]) {
     if (raw[f] !== undefined && raw[f] !== null) {
       const n = Number(raw[f]);
       raw[f] = isNaN(n) ? null : n;

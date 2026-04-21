@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, ClipboardList, CalendarRange,
   Briefcase, PlaneTakeoff, Car, Calculator, MessageSquare,
   LineChart, Search, Settings, LogOut, Plus, X, Lock, Receipt, Layers, Home,
-  Megaphone, PhoneCall
+  Megaphone, PhoneCall, Building2
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -35,6 +35,7 @@ const OPERATOR_SIDEBAR = [
   { href: "/invoices",     label: "Invoices",     icon: Receipt },
   { href: "/flights",      label: "Flights",      icon: PlaneTakeoff },
   { href: "/drivers",      label: "Drivers",      icon: Car },
+  { href: "/suppliers",    label: "Suppliers",    icon: Building2 },
   { href: "/commissions",  label: "Commissions",  icon: Calculator, blockAdmin: true },
   { href: "/messages",     label: "Messages",     icon: MessageSquare },
   { href: "/finance",      label: "Finance",      icon: LineChart, blockAdmin: true },
@@ -49,6 +50,7 @@ const OPERATOR_MORE = [
   { href: "/invoices",     label: "Invoices",     icon: Receipt },
   { href: "/flights",      label: "Flights",      icon: PlaneTakeoff },
   { href: "/drivers",      label: "Drivers",      icon: Car },
+  { href: "/suppliers",    label: "Suppliers",    icon: Building2 },
   { href: "/commissions",  label: "Commissions",  icon: Calculator, blockAdmin: true },
   { href: "/messages",     label: "Messages",     icon: MessageSquare },
   { href: "/finance",      label: "Finance",      icon: LineChart, blockAdmin: true },

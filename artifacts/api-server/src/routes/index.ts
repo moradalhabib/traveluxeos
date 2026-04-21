@@ -21,6 +21,7 @@ import adminRouter from "./admin";
 import marketingRouter from "./marketing";
 import followUpsRouter from "./follow-ups";
 import notificationsRouter from "./notifications";
+import suppliersRouter from "./suppliers";
 
 const router: IRouter = Router();
 
@@ -47,5 +48,6 @@ router.use("/admin", adminRouter);
 router.use("/marketing", marketingRouter);
 router.use("/follow-ups", followUpsRouter);
 router.use("/notifications", notificationsRouter);
+router.use("/suppliers", suppliersRouter);
 
 export default router;

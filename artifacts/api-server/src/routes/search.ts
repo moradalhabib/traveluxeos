@@ -20,11 +20,13 @@ router.get("/", async (req, res) => {
     supabase.from("drivers").select("id, name, staff_no, whatsapp, vehicle_type, vehicle_model, plate, status, avg_rating:driver_ratings(rating)"),
   ]);
 
+  // Strict match: name / WhatsApp / email only. Nationality intentionally
+  // excluded — it caused unrelated clients to surface (e.g. searching a name
+  // returned anyone whose nationality string happened to share characters).
   const clients = (allClients ?? []).filter(c =>
     c.name?.toLowerCase().includes(q) ||
     c.whatsapp?.toLowerCase().includes(q) ||
-    c.email?.toLowerCase().includes(q) ||
-    c.nationality?.toLowerCase().includes(q)
+    c.email?.toLowerCase().includes(q)
   ).slice(0, 10);
 
   const bookings = (allBookings ?? []).filter((b: any) =>

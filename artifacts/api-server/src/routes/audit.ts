@@ -1,14 +1,19 @@
 import { Router } from "express";
-import { supabase } from "../lib/supabase";
+import { supabase, getServiceRoleClient } from "../lib/supabase";
 
 const router = Router();
 
 router.get("/", async (req, res) => {
   const { operator_id, action_type, action, date_from, date_to } = req.query;
 
-  let query = supabase
+  // Use the service-role client so the join to `users(name)` always resolves.
+  // The user-scoped JWT client is subject to RLS on `users` and would return
+  // null for `users.name`, which surfaced as every audit row showing "System".
+  const client = getServiceRoleClient() ?? supabase;
+
+  let query = client
     .from("audit_log")
-    .select("*, users(name)")
+    .select("*, users:operator_id(name, email)")
     .order("created_at", { ascending: false })
     .limit(500);
 
@@ -31,7 +36,7 @@ router.get("/", async (req, res) => {
 
   const result = (data ?? []).map((a: any) => ({
     ...a,
-    operator_name: a.users?.name ?? null,
+    operator_name: a.users?.name ?? a.users?.email ?? null,
     users: undefined,
   }));
 
