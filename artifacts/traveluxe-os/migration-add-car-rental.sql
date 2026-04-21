@@ -1,5 +1,5 @@
 -- Build 4.x — Add 'Car Rental' to the allowed service_type values.
--- The bookings/quotes CHECK constraints were tightened earlier and accidentally
+-- The bookings CHECK constraint was tightened earlier and accidentally
 -- dropped 'Car Rental', so creating a Car Rental booking currently fails with:
 --   new row for relation "bookings" violates check constraint "bookings_service_type_check"
 -- Run in the Supabase SQL editor.
@@ -18,16 +18,24 @@ ALTER TABLE public.bookings
     'Car Rental'
   ));
 
-ALTER TABLE public.quotes
-  DROP CONSTRAINT IF EXISTS quotes_service_type_check;
-ALTER TABLE public.quotes
-  ADD CONSTRAINT quotes_service_type_check
-  CHECK (service_type IN (
-    'Airport Transfer',
-    'Tour',
-    'Tours',
-    'As Directed',
-    'Apartment',
-    'Hotel',
-    'Car Rental'
-  ));
+-- Quotes table: only patch if it exists in this database (it isn't created
+-- in every environment). Wrapped in a DO block so missing-table doesn't
+-- abort the whole migration.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM information_schema.tables
+     WHERE table_schema = 'public' AND table_name = 'quotes'
+  ) THEN
+    EXECUTE 'ALTER TABLE public.quotes DROP CONSTRAINT IF EXISTS quotes_service_type_check';
+    EXECUTE $sql$
+      ALTER TABLE public.quotes
+        ADD CONSTRAINT quotes_service_type_check
+        CHECK (service_type IN (
+          'Airport Transfer','Tour','Tours','As Directed',
+          'Apartment','Hotel','Car Rental'
+        ))
+    $sql$;
+  END IF;
+END
+$$;

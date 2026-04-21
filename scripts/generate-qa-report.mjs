@@ -153,12 +153,13 @@ KV([
   ["Fix", "Pre-check kept for the common case; insert wrapped to swallow any 'duplicate key' error so the partial unique index added by migration-followup-unique.sql closes the race window deterministically."],
 ]);
 
-H2("Fix 3 — Driver WhatsApp brief was missing client name + phone");
+H2("Fix 3 — Driver WhatsApp brief: add client name (NOT phone)");
 KV([
-  ["Severity", "High — driver could not contact client en route"],
+  ["Severity", "Medium — driver brief lacked context"],
   ["File", "artifacts/traveluxe-os/src/pages/bookings/[id].tsx"],
-  ["Symptom", "The wa.me prefilled message to the driver showed ref, route, vehicle and name board, but no client name and no client phone — the driver had no way to call the passenger."],
-  ["Fix", "Added 'Client:' and 'Client phone:' lines immediately after the ref/service block in buildDriverMessage(). Verified: brief now contains both."],
+  ["Symptom", "The driver brief showed ref, route, vehicle and name board but no client name."],
+  ["Fix", "Added a 'Client:' line with the client's name immediately after the ref/service block."],
+  ["Privacy policy", "Per Traveluxe rules the driver brief MUST NOT contain the client phone number — operator handles all direct comms. Implementation reflects this; a comment in code makes the rule explicit so future edits don't reintroduce the phone."],
 ]);
 
 H2("Fix 4 — Car Rental margin display ignored manual supplier_cost override");
@@ -192,14 +193,7 @@ const sql = [
   "    'Apartment','Hotel','Car Rental'",
   "  ));",
   "",
-  "ALTER TABLE public.quotes",
-  "  DROP CONSTRAINT IF EXISTS quotes_service_type_check;",
-  "ALTER TABLE public.quotes",
-  "  ADD CONSTRAINT quotes_service_type_check",
-  "  CHECK (service_type IN (",
-  "    'Airport Transfer','Tour','Tours','As Directed',",
-  "    'Apartment','Hotel','Car Rental'",
-  "  ));",
+  "-- quotes table is patched only if it exists (DO block in repo).",
 ].join("\n");
 doc.text(sql, { width: 500 });
 doc.moveDown(0.6);
@@ -220,7 +214,7 @@ Table(
     ["2", "Create new client", "PASS"],
     ["3", "Create Airport Transfer Arrival LHR", "PASS"],
     ["4", "WhatsApp client template", "PASS"],
-    ["5", "WhatsApp driver brief (client name + phone)", "FIXED + PASS"],
+    ["5", "WhatsApp driver brief (client name; phone deliberately excluded)", "FIXED + PASS"],
     ["6", "Mark Active → Completed", "PASS"],
     ["7", "Auto follow-up appears on /follow-ups", "FIXED + PASS"],
     ["8", "Mark 'Return Booked' clears pending", "PASS"],

@@ -787,13 +787,11 @@ export default function BookingDetail() {
     ];
     if (driverStaffNo) lines.push(`Assigned to: *${driverStaffNo}*`);
 
-    // Client identity — needed by the driver for meet & greet, on-route
-    // contact and any last-minute changes. Add immediately after the header
-    // so it's the first thing visible after the ref/service block.
+    // Client identity — name only. Per Traveluxe policy the driver brief
+    // must NOT include the client phone number: the operator handles all
+    // direct comms with the client over WhatsApp. The driver only needs the
+    // client's name (for the name board / meet & greet) and the job details.
     if (booking.client_name) lines.push(`Client: ${booking.client_name}`);
-    if ((booking as any).client_whatsapp) {
-      lines.push(`Client phone: ${(booking as any).client_whatsapp}`);
-    }
 
     if (svc === "Airport Transfer") {
       lines.push(`Date: ${dateStr}`, `Time: ${timeStr}`);
