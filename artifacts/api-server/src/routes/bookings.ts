@@ -18,6 +18,11 @@ import { bookingConfirmationHtml, paymentReceiptHtml } from "../templates/emailT
 const router = Router();
 
 // ─── Auto-create follow-up for Arrival Airport Transfers ─────────────────────
+// Race-safe in two layers:
+//  1) Pre-check via SELECT covers the common case (no extra row).
+//  2) The partial unique index on follow_ups(booking_id) added in
+//     migration-followup-unique.sql will reject any racing duplicate insert
+//     with a "duplicate key" error, which we swallow.
 async function autoCreateFollowUp(bookingId: string, booking: any) {
   if (booking.service_type !== "Airport Transfer" || booking.direction !== "Arrival") return;
   const { data: existing } = await supabase
@@ -29,13 +34,16 @@ async function autoCreateFollowUp(bookingId: string, booking: any) {
   const base = booking.date_time ? new Date(booking.date_time) : new Date();
   const due = new Date(base);
   due.setDate(due.getDate() + 3);
-  await supabase.from("follow_ups").insert({
+  const { error } = await supabase.from("follow_ups").insert({
     booking_id: bookingId,
     client_id: booking.client_id ?? null,
     driver_id: booking.driver_id ?? null,
     due_date: due.toISOString().split("T")[0],
     status: "pending",
   });
+  if (error && !/duplicate key|unique/i.test(error.message)) {
+    console.error("[FollowUp] insert failed:", error.message);
+  }
 }
 
 async function fetchDriverSafely(driverId: string | null) {
@@ -543,8 +551,17 @@ router.put("/:id", async (req, res) => {
     );
   }
 
-  // Manual status change to Completed → auto-create follow-up
-  if (body.status === "Completed" && prev?.status !== "Completed") {
+  // Manual status change to Completed → auto-create follow-up.
+  // Skip if the payment-paid block above already auto-completed this booking
+  // in the same request (avoids double-firing; the upsert is idempotent but
+  // we'd rather not waste the round-trip).
+  const completedByPaymentPath =
+    body.payment_status === "Paid" && prevPaymentStatus !== "Paid";
+  if (
+    body.status === "Completed" &&
+    prev?.status !== "Completed" &&
+    !completedByPaymentPath
+  ) {
     autoCreateFollowUp(req.params.id, updated).catch(err =>
       console.error("[FollowUp] auto-create error:", err?.message)
     );
@@ -650,6 +667,14 @@ router.put("/:id/status", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
   const { status } = req.body;
 
+  // Capture the previous status so we can act only on real transitions
+  // (e.g. Active → Completed) and not on no-op resaves.
+  const { data: prev } = await supabase
+    .from("bookings")
+    .select("status")
+    .eq("id", req.params.id)
+    .maybeSingle();
+
   const { data, error } = await supabase
     .from("bookings")
     .update({ status })
@@ -670,6 +695,16 @@ router.put("/:id/status", async (req, res) => {
     const bookingWithEmail = { ...enriched };
     sendConfirmationEmail(bookingWithEmail, invNumber).catch(err =>
       console.error("[Email] Confirmation send error:", err?.message)
+    );
+  }
+
+  // On Completed: auto-create the arrival follow-up. Most status changes
+  // come through this endpoint (the dedicated status control on the booking
+  // detail / jobs board uses it), not the general PUT /:id, so without this
+  // hook the operator never sees the follow-up appear.
+  if (status === "Completed" && prev?.status !== "Completed") {
+    autoCreateFollowUp(req.params.id, data).catch(err =>
+      console.error("[FollowUp] auto-create error:", err?.message)
     );
   }
 
