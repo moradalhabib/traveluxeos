@@ -100,6 +100,12 @@ async function buildAll() {
       "puppeteer",
       "puppeteer-core",
       "electron",
+      // pdfkit reads its built-in font .afm files from `<pkg>/js/data/` at
+      // runtime via fs.readFileSync; bundling it loses that data dir and
+      // crashes the receipt-PDF endpoint with ENOENT for Helvetica.afm.
+      // Externalize so it loads from node_modules where the data dir lives.
+      "pdfkit",
+      "fontkit",
     ],
     sourcemap: "linked",
     plugins: [
