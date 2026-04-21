@@ -1,0 +1,172 @@
+Please fix the following issues and add the following improvements to Traveluxe OS. All existing data must be preserved. Do not reset the database.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CRITICAL FIXES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FIX 1 — NOTIFICATION BELL
+The bell icon shows on every page but does nothing when tapped. No badge, no drawer, no notifications firing. Fix the entire notification system:
+- Bell must show a red unread badge count in real time via Supabase real-time subscription
+- Tapping the bell opens a notification drawer from the right showing last 50 notifications
+- Each notification shows: icon, message, timestamp, unread dot
+- Clicking any notification takes operator directly to the relevant page
+- Toast alerts must slide in from top right when new bookings are created, driver alerts trigger, or flight delays detected
+- Test end to end and confirm working
+
+FIX 2 — AIRPORT PRICING NOT CONNECTED
+When operator selects an airport (e.g. Heathrow LHR) in the booking form the vehicle price does not update. Fix this so:
+- When operator selects airport AND vehicle, price auto-fills immediately from vehicle_airport_pricing table
+- If no airport-specific price exists for that vehicle, show the default price
+- Price updates instantly on mobile without page reload
+- Operator can still override the auto-filled price manually
+
+FIX 3 — FOLLOW-UPS LIST EMPTY
+Banner correctly shows 2 pending follow-ups but the actual list shows "All clear." Fix the data query so follow-up records render correctly in the list. The count and the list must pull from the same data source.
+
+FIX 4 — GLOBAL SEARCH IRRELEVANT RESULTS
+Searching "Morad" returns "Abdulaziz aalagmi" as a result. Fix search to only return clients where name, phone, or email strictly matches the search term. Minimum 2 characters before search activates. No partial or unrelated matches.
+
+FIX 5 — SERVICE TYPE MISSING ON JOB CARDS
+Jobs Board and Bookings page cards must clearly show service type badge on every card:
+- ✈️ Airport Transfer — Arrival (green badge)
+- ✈️ Airport Transfer — Departure (blue badge)
+- 🗺️ Tour (teal badge)
+- 🚗 As Directed / Car Rental (amber badge)
+- 🏨 Apartment / Hotel (purple badge)
+Operator must be able to identify job type without opening the job sheet.
+
+FIX 6 — JOBS BOARD DATE FORMAT
+Cards currently show "01:00 · Today" — change to show actual date: "01:00 · Tue 21 Apr 2026" for full clarity.
+
+FIX 7 — DRIVER CARDS VEHICLE DISPLAY
+Remove "Saloon - No plate" from driver cards. Show vehicle make and model only (e.g. "Mercedes Benz V-Class"). If no vehicle is set show "No vehicle set" in grey italic text.
+
+FIX 8 — FINANCE UNKNOWN OPERATOR
+"Unknown" operator in Operator Performance must show as "Imported (Odoo)" instead of Unknown.
+
+FIX 9 — CANCELLED BOOKING ACTIONS
+"Tap to assign driver" and all action buttons must be completely hidden when booking status is Cancelled. Cancelled bookings are read-only — only View is permitted.
+
+FIX 10 — AUDIT TRAIL ACTOR NAME
+All audit trail entries currently show "System" as the actor. Update so entries show the actual logged-in operator name who performed each action.
+
+FIX 11 — COMMISSIONS PAGE DESCRIPTION
+Remove all references to "arrangement fees" from the commissions page description, subtitle, and tabs. Replace with: "Track driver commissions from cash and bank transfer jobs. Drivers settle weekly."
+
+FIX 12 — ODOO TAB ON BOOKINGS PAGE
+The "Imported (Odoo)" tab on the Bookings page must be hidden from Operators. Only Super Admin can see it. Operators only need to see Active bookings — showing old imported data causes confusion.
+
+FIX 13 — DRIVER PROFILE EDIT
+Confirm the driver profile edit button is fully working. Clicking edit must open a form with all fields editable and saveable — name, WhatsApp, vehicle make and model, notes, active/inactive. Test and confirm this works.
+
+FIX 14 — WHATSAPP BUTTONS ON JOB SHEET
+Confirm the two WhatsApp buttons on every job sheet are working correctly:
+- "Message Client" opens WhatsApp to the client's number with correct pre-filled confirmation message
+- "Message Driver" opens WhatsApp to the driver's number with correct pre-filled job sheet message
+- CRITICAL: Client number must never appear in the driver message. Driver number must never appear in the client message.
+- Both buttons must use wa.me deep link format
+- Test on a real booking and confirm
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+NEW ADDITIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ADDITION 1 — TODAY'S JOBS ON DASHBOARD
+Add a "Today's Jobs" section on the dashboard below the stat cards:
+- Shows next 5 upcoming jobs for today sorted by time ascending
+- Each job shows: time, TVL ref, client name, service type badge, route summary, driver assigned or "No Driver ⚠️"
+- Clicking any job opens the job sheet directly
+- If no jobs today show: "No jobs scheduled for today"
+- Updates in real time
+
+ADDITION 2 — DRIVER AVAILABILITY INDICATOR
+When assigning a driver in the booking form, the driver dropdown must show availability:
+- If the driver has another job within 2 hours of the selected booking time, show: "⚠️ Busy — has job at [time]" in amber next to their name
+- If the driver is free, show: "✅ Available" in green
+- Operator can still select a busy driver but must be warned first with a confirmation: "This driver has another job at [time]. Are you sure you want to assign them?"
+
+ADDITION 3 — CLIENT CONFIRMATION BADGE ON JOB CARDS
+On each job card on the Jobs Board and Bookings page, show whether the WhatsApp confirmation has been sent to the client:
+- "✅ Client notified" in green if Message Client WhatsApp was tapped
+- "⚠️ Not notified" in amber if no confirmation has been sent yet
+- This is tracked by logging when the Message Client button is tapped
+- Same badge on the job sheet
+
+ADDITION 4 — DRIVER NOTIFIED BADGE
+Same as above but for the driver:
+- "✅ Driver notified" in green if Message Driver WhatsApp was tapped
+- "⚠️ Driver not notified" in amber if not sent
+- Shown on job card and job sheet
+
+ADDITION 5 — RETURN JOURNEY PROMPT AFTER COMPLETION
+When an Airport Transfer Arrival booking is marked as Completed:
+- Automatically show a prompt: "Does [Client Name] need a return transfer?"
+- Two buttons: "Yes — Create Return" and "No thanks"
+- If "Yes" is tapped: opens New Booking form pre-filled with the same client, reversed pickup and dropoff, linked to the original booking
+- This prompt also appears on the Follow-Ups page as a pending follow-up if the operator dismisses it
+- This ensures no return journey opportunity is ever missed
+
+ADDITION 6 — QUICK STATUS UPDATE FROM JOB CARD
+Add a quick status update option on job cards without opening the full job sheet:
+- Long press or swipe on a job card reveals quick action buttons
+- Buttons: "Mark Active" / "Mark Completed" / "Assign Driver"
+- Tapping any quick action updates the status immediately
+- A confirmation toast appears: "TVL-XXXX marked as Completed"
+- Full job sheet still accessible by tapping the card normally
+
+ADDITION 7 — COMMISSION DRIVER BREAKDOWN CONFIRMATION
+When clicking a driver on the Commissions page confirm the following is working:
+- Opens full commission breakdown for that driver
+- Shows two tabs: Owed to TVL (cash jobs) and Owed to Driver (bank transfer jobs)
+- Each job listed: TVL ref, date, client name, fare, commission amount, status
+- Total outstanding shown in gold at top
+- "Mark All as Settled" button — logs settlement, updates all jobs to Settled
+- "Send WhatsApp Statement" button — opens WhatsApp to driver with pre-filled weekly statement listing all jobs and total owed
+- Settlement history tab showing all past settlements
+If any of these are missing or broken, fix them now.
+
+ADDITION 8 — CLIENT PROFILE REVIEW
+Confirm the following are all working on every client profile:
+- Full client details visible
+- Complete booking history listed — each booking clickable to open job sheet
+- Total bookings count and total spend in GBP
+- VIP tier badge
+- WhatsApp button opens WhatsApp to client directly
+- "Create New Booking" button pre-fills booking form with this client confirmed
+- "Create Request" button opens new request form with client pre-filled
+- Requests tab showing all requests for this client
+- Invoices tab showing all invoices for this client
+Fix anything that is missing or not working.
+
+ADDITION 9 — MORE MENU AUDIT
+Confirm all of the following modules are accessible from the More menu on mobile:
+- Drivers
+- Commissions
+- Flights
+- Marketing Hub
+- Finance
+- Requests
+- Admin
+- Settings
+If any are missing from the More menu add them now.
+
+ADDITION 10 — MARKETING HUB EXPORT TEST
+Confirm the Marketing Hub CSV export works correctly:
+- Clicking "Preview & Export" on Cold Clients segment shows the filtered client list
+- Export to CSV downloads a file containing ONLY two columns: First Name and Email
+- No other data included in the export file
+- Campaign is logged in the Campaign Log after export
+Fix if not working correctly.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+PRIVACY RULE — REMINDER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+This rule must be enforced throughout every WhatsApp message in the entire app without exception:
+- Client WhatsApp number must NEVER appear in any message sent to a driver
+- Driver WhatsApp number must NEVER appear in any message sent to a client
+- All communication is managed exclusively by the operator
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Fix all 14 issues and implement all 10 additions. Test every fix before marking complete. Publish to production when all are confirmed working.

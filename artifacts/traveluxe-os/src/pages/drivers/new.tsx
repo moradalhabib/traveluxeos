@@ -18,19 +18,11 @@ const formSchema = z.object({
   whatsapp: z.string().min(5, "WhatsApp required"),
   email: z.string().email("Valid email required for job alerts").optional().or(z.literal("")),
   vehicle_model: z.string().min(1, "Vehicle name required (e.g. MB V-Class)"),
-  vehicle_type: z.string().default("MPV"),
+  vehicle_type: z.string().regex(/^(19|20)\d{2}$/, "Enter a 4-digit year").or(z.literal("")).default(""),
   plate: z.string().optional(),
   status: z.string().default("Active"),
   notes: z.string().optional(),
 });
-
-const VEHICLE_CLASS_OPTIONS = [
-  "Saloon",
-  "Estate",
-  "MPV",
-  "Minibus",
-  "Luxury",
-];
 
 export default function NewDriver() {
   const [, setLocation] = useLocation();
@@ -45,7 +37,7 @@ export default function NewDriver() {
       whatsapp: "",
       email: "",
       vehicle_model: "",
-      vehicle_type: "MPV",
+      vehicle_type: "",
       plate: "",
       status: "Active",
       notes: "",
@@ -164,15 +156,17 @@ export default function NewDriver() {
                 <div className="grid grid-cols-2 gap-3">
                   <FormField control={form.control} name="vehicle_type" render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Vehicle Class</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl><SelectTrigger><SelectValue /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          {VEHICLE_CLASS_OPTIONS.map(opt => (
-                            <SelectItem key={opt} value={opt}>{opt}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormLabel>Vehicle Year</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          inputMode="numeric"
+                          placeholder="e.g. 2024"
+                          min={1990}
+                          max={2030}
+                          {...field}
+                        />
+                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )} />
