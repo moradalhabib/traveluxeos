@@ -21,7 +21,8 @@ import { Input } from "@/components/ui/input";
 import { useState, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
-import { Phone, MessageCircle, Mail, Pencil, Plus, Trash2 } from "lucide-react";
+import { Phone, MessageCircle, Mail, Pencil, Plus, Trash2, FileDown } from "lucide-react";
+import { getVipBadgeColor } from "@/lib/vip";
 import { Label } from "@/components/ui/label";
 
 function whatsappLink(num?: string) {
@@ -573,11 +574,7 @@ export default function BookingDetail() {
     }
   };
 
-  const getVipBadgeColor = (tier?: string) => {
-    if (tier === 'VVIP') return 'bg-purple-500/20 text-purple-400 border-purple-500/50';
-    if (tier === 'VIP') return 'bg-primary/20 text-primary border-primary/50';
-    return 'bg-secondary text-secondary-foreground border-border';
-  };
+  // VIP badge styling delegated to shared helper so Platinum etc. stays in sync.
 
   const handleUpdateStatus = (status: string) => {
     const wasArrival =
@@ -703,9 +700,12 @@ export default function BookingDetail() {
 
   const buildClientMessage = () => {
     const lines: string[] = [
+      `*TRAVELUXE LONDON*`,
+      `_Booking Confirmation_`,
+      ``,
       `Dear ${booking.client_name},`,
       ``,
-      `Your Traveluxe London booking is confirmed.`,
+      `Your booking is confirmed. The full details are below for your records.`,
       ``,
       `Ref: *${booking.tvl_ref}*`,
       `Service: ${svc}`,
@@ -721,7 +721,11 @@ export default function BookingDetail() {
       if (booking.luggage) lines.push(`Luggage: ${booking.luggage}`);
       if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
       if (booking.nameboard) lines.push(``, `Your driver will be waiting with a name board: *"${booking.nameboard}"*`);
-      if (booking.driver_name) lines.push(`Your driver: *${booking.driver_name}*${(booking as any).driver_staff_no ? ` (Staff ${(booking as any).driver_staff_no})` : ''}`);
+      if (booking.driver_name) {
+        lines.push(`Your driver: *${booking.driver_name}*${(booking as any).driver_staff_no ? ` (Staff ${(booking as any).driver_staff_no})` : ''}`);
+      } else {
+        lines.push(`Driver: _will be confirmed shortly_`);
+      }
     } else if (svc === "Tour") {
       lines.push(`Date: ${dateStr}`, `Time: ${timeStr}`);
       if ((booking as any).tour_name) lines.push(`Tour: ${(booking as any).tour_name}`);
@@ -731,14 +735,22 @@ export default function BookingDetail() {
       if ((booking as any).itinerary) lines.push(``, `Itinerary:`, `${(booking as any).itinerary}`);
       if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
       if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
-      if (booking.driver_name) lines.push(`Your driver: *${booking.driver_name}*${(booking as any).driver_staff_no ? ` (Staff ${(booking as any).driver_staff_no})` : ""}`);
+      if (booking.driver_name) {
+        lines.push(`Your driver: *${booking.driver_name}*${(booking as any).driver_staff_no ? ` (Staff ${(booking as any).driver_staff_no})` : ""}`);
+      } else {
+        lines.push(`Driver: _will be confirmed shortly_`);
+      }
     } else if (svc === "As Directed") {
       lines.push(`Date: ${dateStr}`, `Start time: ${timeStr}`);
       if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
       if ((booking as any).duration) lines.push(`Duration: ${(booking as any).duration}`);
       if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
       if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
-      if (booking.driver_name) lines.push(`Your chauffeur: *${booking.driver_name}*${(booking as any).driver_staff_no ? ` (Staff ${(booking as any).driver_staff_no})` : ""}`);
+      if (booking.driver_name) {
+        lines.push(`Your chauffeur: *${booking.driver_name}*${(booking as any).driver_staff_no ? ` (Staff ${(booking as any).driver_staff_no})` : ""}`);
+      } else {
+        lines.push(`Chauffeur: _will be confirmed shortly_`);
+      }
     } else if (svc === "Hotel") {
       // NO driver, NO vehicle, NO name board for hotel bookings.
       if ((booking as any).hotel_name) lines.push(`Hotel: ${(booking as any).hotel_name}`);
@@ -765,7 +777,18 @@ export default function BookingDetail() {
     }
 
     if (extras) lines.push(``, `Extras: ${extras}`);
-    lines.push(``, `Any questions? We are always here for you.`, `Traveluxe London — Mayfair`);
+
+    // Payment status — included for client peace of mind.
+    const ps = (booking as any).payment_status;
+    if (ps) lines.push(``, `Payment: *${ps}*`);
+
+    lines.push(
+      ``,
+      `It is our privilege to look after you. Should you require anything at all, our team is on hand around the clock.`,
+      ``,
+      `With our warmest regards,`,
+      `*Traveluxe London* — Mayfair`,
+    );
     return lines.join('\n');
   };
 
@@ -901,6 +924,38 @@ export default function BookingDetail() {
         }
         return null;
       })()}
+
+      {/* Download branded confirmation PDF — always available, even before
+          confirmation, since it doubles as a quote/proforma the operator can
+          send to the client. */}
+      <Button
+        variant="outline"
+        className="w-full border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+        onClick={async () => {
+          try {
+            const { data: { session } } = await supabase.auth.getSession();
+            const token = session?.access_token;
+            const res = await fetch(`/api/bookings/${booking.id}/confirmation.pdf`, {
+              headers: token ? { Authorization: `Bearer ${token}` } : {},
+            });
+            if (!res.ok) throw new Error(await res.text());
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = `traveluxe-${booking.tvl_ref ?? booking.id}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+          } catch (e: any) {
+            toast({ title: "PDF failed", description: e?.message ?? "Could not generate PDF", variant: "destructive" });
+          }
+        }}
+      >
+        <FileDown className="w-4 h-4 mr-2" />
+        Download Booking Confirmation (PDF)
+      </Button>
 
       <div className={`grid grid-cols-1 gap-3 ${['Quote','Pending','Cancelled'].includes(booking.status) ? 'hidden' : ''}`}>
         {clientWa ? (

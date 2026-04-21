@@ -8,6 +8,7 @@ import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, 
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { getVipPillClass } from "@/lib/vip";
 
 function whatsappLink(num?: string | null, message?: string) {
   if (!num) return null;
@@ -135,7 +136,7 @@ export default function Dashboard() {
                             <span className="text-xs text-muted-foreground">·</span>
                             <span className="text-xs text-foreground truncate">{b.client?.name ?? "—"}</span>
                             {b.client?.vip_tier && b.client.vip_tier !== "Standard" && (
-                              <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary uppercase">{b.client.vip_tier}</span>
+                              <span className={getVipPillClass(b.client.vip_tier)}>{b.client.vip_tier}</span>
                             )}
                             <span className="text-[10px] text-amber-400 ml-auto">
                               {b.days_waiting === 0 ? "today" : `${b.days_waiting}d waiting`}
@@ -204,7 +205,7 @@ export default function Dashboard() {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="text-sm font-semibold text-foreground truncate">{j.client_name ?? "Unknown"}</span>
                       {j.client_vip_tier && j.client_vip_tier !== "Standard" && (
-                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary uppercase">{j.client_vip_tier}</span>
+                        <span className={getVipPillClass(j.client_vip_tier)}>{j.client_vip_tier}</span>
                       )}
                       <span className="text-[10px] font-mono text-muted-foreground">{j.tvl_ref}</span>
                     </div>

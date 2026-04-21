@@ -2088,6 +2088,9 @@ function ServicesTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
 export default function Admin() {
   const { user } = useAuth();
   const isSuperAdmin = user?.role === "super_admin";
+  // RLS on app_settings only allows admin/super_admin to write; hide the
+  // Settings tab from operators so they don't get a broken PUT flow.
+  const canEditSettings = user?.role === "super_admin" || user?.role === "admin";
 
   const { data: users, isLoading: usersLoading } = useListUsers(
     { query: { enabled: true, queryKey: getListUsersQueryKey() } }
@@ -2127,6 +2130,9 @@ export default function Admin() {
             )}
             <TabsTrigger value="audit" className="text-xs px-3 whitespace-nowrap">Audit</TabsTrigger>
             <TabsTrigger value="api" className="text-xs px-3 whitespace-nowrap">API</TabsTrigger>
+            {canEditSettings && (
+              <TabsTrigger value="settings" className="text-xs px-3 whitespace-nowrap">Settings</TabsTrigger>
+            )}
           </TabsList>
         </div>
 
@@ -2182,7 +2188,92 @@ export default function Admin() {
         <TabsContent value="api" className="mt-5">
           <IntegrationTab />
         </TabsContent>
+
+        {canEditSettings && (
+          <TabsContent value="settings" className="mt-5">
+            <SettingsTab />
+          </TabsContent>
+        )}
       </Tabs>
+    </div>
+  );
+}
+
+function SettingsTab() {
+  const [adminEmail, setAdminEmail] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<Date | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch("/api/settings", {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        });
+        if (res.ok) {
+          const json = await res.json();
+          setAdminEmail(json.admin_email ?? "");
+        }
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ admin_email: adminEmail.trim() }),
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setSavedAt(new Date());
+    } catch (e: any) {
+      alert("Failed to save: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-5 max-w-2xl">
+      <Card className="border-border">
+        <CardHeader>
+          <CardTitle className="text-base">App Settings</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Admin email (Daily Briefing recipient)</label>
+            <p className="text-xs text-muted-foreground">
+              The 07:00 UK Daily Briefing email is sent to this address. Adjusts automatically for BST and GMT.
+            </p>
+            <input
+              type="email"
+              value={adminEmail}
+              onChange={(e) => setAdminEmail(e.target.value)}
+              disabled={loading}
+              placeholder="info@traveluxelondon.com"
+              className="w-full h-10 px-3 rounded-md border border-border bg-background text-sm text-foreground"
+            />
+          </div>
+          <div className="flex items-center gap-3">
+            <Button onClick={save} disabled={saving || loading || !adminEmail.includes("@")}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+            {savedAt && (
+              <span className="text-xs text-green-500">Saved at {format(savedAt, "HH:mm:ss")}</span>
+            )}
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

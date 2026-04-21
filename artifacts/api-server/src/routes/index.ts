@@ -22,6 +22,8 @@ import marketingRouter from "./marketing";
 import followUpsRouter from "./follow-ups";
 import notificationsRouter from "./notifications";
 import suppliersRouter from "./suppliers";
+import settingsRouter from "./settings";
+import bookingPdfRouter from "./booking-pdf";
 
 const router: IRouter = Router();
 
@@ -49,5 +51,7 @@ router.use("/marketing", marketingRouter);
 router.use("/follow-ups", followUpsRouter);
 router.use("/notifications", notificationsRouter);
 router.use("/suppliers", suppliersRouter);
+router.use("/settings", settingsRouter);
+router.use("/bookings", bookingPdfRouter);
 
 export default router;

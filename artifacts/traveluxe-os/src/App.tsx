@@ -122,7 +122,7 @@ function Router() {
       <ProtectedRoute path="/search" component={Search} blockResidenceManager={true} />
       <ProtectedRoute path="/services" component={Services} blockResidenceManager={true} />
       <ProtectedRoute path="/analytics" component={Analytics} blockResidenceManager={true} />
-      <ProtectedRoute path="/admin" component={Admin} allowedRoles={["super_admin", "operator"]} />
+      <ProtectedRoute path="/admin" component={Admin} allowedRoles={["super_admin", "admin", "operator"]} />
       <ProtectedRoute path="/marketing" component={Marketing} blockResidenceManager={true} />
       <ProtectedRoute path="/follow-ups" component={FollowUps} blockResidenceManager={true} />
       <ProtectedRoute path="/suppliers" component={Suppliers} blockResidenceManager={true} />

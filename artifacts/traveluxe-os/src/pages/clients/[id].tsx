@@ -296,6 +296,14 @@ export default function ClientDetail() {
           <ClipboardList className="w-4 h-4 mr-2" />
           Create Request
         </Button>
+        <Button
+          variant="outline"
+          className="col-span-2 border-blue-500/30 text-blue-400 hover:bg-blue-500/10"
+          onClick={() => setLocation(`/follow-ups?new=1&client_id=${client.id}`)}
+        >
+          <PhoneCall className="w-4 h-4 mr-2" />
+          Log Follow-up
+        </Button>
       </div>
 
       {/* Stats strip */}
@@ -317,6 +325,36 @@ export default function ClientDetail() {
           </div>
         </div>
       </div>
+
+      {/* Lifetime stats — first booking, most recent, and average spend.
+          Computed from the bookings array already included with the client. */}
+      {(() => {
+        const bks = ((client as any).bookings ?? []).filter((b: any) => b.date_time);
+        if (bks.length === 0) return null;
+        const sorted = [...bks].sort(
+          (a: any, b: any) => new Date(a.date_time).getTime() - new Date(b.date_time).getTime(),
+        );
+        const first = sorted[0];
+        const last = sorted[sorted.length - 1];
+        const totalPaid = bks.reduce((s: number, b: any) => s + (Number(b.price) || 0), 0);
+        const avg = totalPaid / bks.length;
+        return (
+          <div className="grid grid-cols-3 gap-3">
+            <div className="rounded-xl border border-border bg-card p-3 text-center">
+              <div className="text-xs text-muted-foreground mb-1">First booking</div>
+              <div className="text-sm font-semibold text-foreground">{format(new Date(first.date_time), "d MMM yy")}</div>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-3 text-center">
+              <div className="text-xs text-muted-foreground mb-1">Most recent</div>
+              <div className="text-sm font-semibold text-foreground">{format(new Date(last.date_time), "d MMM yy")}</div>
+            </div>
+            <div className="rounded-xl border border-border bg-card p-3 text-center">
+              <div className="text-xs text-muted-foreground mb-1">Avg spend</div>
+              <div className="text-sm font-semibold text-primary">£{Math.round(avg).toLocaleString()}</div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── RECOGNITION TIER (Operator-only) ─────────────────────────── */}
       <Card className={`${tierCfg.bg} border`}>
@@ -473,10 +511,14 @@ export default function ClientDetail() {
                         </div>
                         <div className="text-xs text-muted-foreground mt-0.5">
                           {booking.date_time ? format(new Date(booking.date_time), 'dd MMM yyyy · HH:mm') : 'No date'}
+                          {booking.vehicle_type ? ` · ${booking.vehicle_type}` : ''}
                         </div>
                       </div>
                       <div className="text-right flex-shrink-0">
                         <div className="font-semibold text-sm text-primary">£{(booking.price || 0).toLocaleString()}</div>
+                        {booking.commission != null && Number(booking.commission) > 0 && (
+                          <div className="text-[10px] text-muted-foreground">comm £{Number(booking.commission).toLocaleString()}</div>
+                        )}
                         <Badge variant="outline" className={`text-[10px] mt-0.5 ${
                           booking.status === 'Completed' ? 'text-green-400 border-green-400/30' :
                           booking.status === 'Cancelled' ? 'text-destructive border-destructive/30' :

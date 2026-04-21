@@ -13,6 +13,7 @@ import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCi
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useQueryClient } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { getVipBadgeColor } from "@/lib/vip";
 
 const STATUS_COLORS: Record<string, string> = {
   'Pending':   'bg-amber-500/20 text-amber-400 border-amber-500/50',
@@ -285,7 +286,7 @@ export default function Jobs() {
                       <span>{job.client_name || 'Unknown Client'}</span>
                     )}
                     {job.client_vip_tier && job.client_vip_tier !== 'Standard' && (
-                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-primary/10 text-primary border-primary/30">
+                      <Badge variant="outline" className={`text-[10px] py-0 px-1.5 ${getVipBadgeColor(job.client_vip_tier)}`}>
                         {job.client_vip_tier}
                       </Badge>
                     )}

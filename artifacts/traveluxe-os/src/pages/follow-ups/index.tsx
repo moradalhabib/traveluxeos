@@ -16,6 +16,7 @@ import {
   ChevronRight, AlertTriangle, X, ArrowLeft, TrendingUp, CalendarRange, Download
 } from "lucide-react";
 import { format, formatDistanceToNow } from "date-fns";
+import { getVipPillClass } from "@/lib/vip";
 import * as XLSX from "xlsx";
 
 const API_BASE = `${import.meta.env.VITE_API_URL ?? ""}/api`;
@@ -439,7 +440,7 @@ export default function FollowUps() {
                           )
                         )}
                         {fu.client?.vip_tier && fu.client.vip_tier !== "Standard" && (
-                          <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary uppercase font-semibold tracking-wider">
+                          <span className={getVipPillClass(fu.client.vip_tier)}>
                             {fu.client.vip_tier}
                           </span>
                         )}

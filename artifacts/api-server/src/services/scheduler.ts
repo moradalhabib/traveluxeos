@@ -231,6 +231,251 @@ async function sendDailyDigest() {
     `Daily digest sent: ${todayRows.length} today, ${unassignedRows.length} unassigned, ${overdueRows.length} overdue`).catch(() => {});
 }
 
+// ─── 07:00 UK admin daily briefing ────────────────────────────────────────
+// Configurable recipient (app_settings.admin_email), BST/GMT-aware, sent
+// from the 'system' (info@) mailbox. Always sends — even when there are no
+// jobs — so the admin knows the system is alive.
+
+const APP_URL =
+  process.env.APP_PUBLIC_URL ??
+  process.env.PUBLIC_APP_URL ??
+  "https://app.traveluxelondon.com";
+
+async function getAdminBriefingRecipient(): Promise<string> {
+  try {
+    const { data } = await supabase
+      .from("app_settings")
+      .select("value")
+      .eq("key", "admin_email")
+      .maybeSingle();
+    const v = (data as any)?.value;
+    if (v && typeof v === "string" && v.includes("@")) return v;
+  } catch {}
+  return "info@traveluxelondon.com";
+}
+
+function moneyGBP(n: number): string {
+  return `£${(Number(n) || 0).toLocaleString("en-GB", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
+function briefingHtml(opts: {
+  todayDateLabel: string;
+  jobs: any[];
+  unassigned: any[];
+  overdueFollowUps: any[];
+  commissionRows: Array<{ ref: string; client: string; amount: number }>;
+  commissionTotal: number;
+}) {
+  const { todayDateLabel, jobs, unassigned, overdueFollowUps, commissionRows, commissionTotal } = opts;
+
+  const goldBar  = "background:linear-gradient(90deg,#c9a961,#8a7340);height:4px";
+  const panel    = "background:#141414;border:1px solid #2a2a2a;border-radius:8px;padding:16px";
+  const muted    = "color:#9a9a9a;font-size:12px";
+  const stat     = (label: string, value: string, accent = "#c9a961") => `
+    <td style="${panel};text-align:center;width:25%">
+      <div style="${muted};text-transform:uppercase;letter-spacing:1px">${label}</div>
+      <div style="color:${accent};font-size:24px;font-weight:700;margin-top:6px">${value}</div>
+    </td>`;
+
+  const jobRow = (b: any) => `
+    <tr>
+      <td style="padding:8px;border-bottom:1px solid #222;color:#c9a961;font-weight:600">
+        ${b.date_time ? new Date(b.date_time).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" }) : "—"}
+      </td>
+      <td style="padding:8px;border-bottom:1px solid #222;color:#f5f5f5">${b.client_name ?? "—"}</td>
+      <td style="padding:8px;border-bottom:1px solid #222;color:#f5f5f5">${b.service_type ?? "—"}</td>
+      <td style="padding:8px;border-bottom:1px solid #222;color:#f5f5f5">${b.vehicle_type ?? "—"}</td>
+      <td style="padding:8px;border-bottom:1px solid #222;color:${b.driver_name ? "#f5f5f5" : "#e26666"}">
+        ${b.driver_name ?? "<b>UNASSIGNED</b>"}
+      </td>
+    </tr>`;
+
+  const unassignedAlert = unassigned.length > 0 ? `
+    <div style="background:#3a0e0e;border:1px solid #e26666;border-radius:8px;padding:14px;margin-top:18px">
+      <div style="color:#ffb4b4;font-weight:700;font-size:13px">⚠ ${unassigned.length} JOB${unassigned.length === 1 ? "" : "S"} TODAY WITHOUT A DRIVER</div>
+      <div style="color:#f5cccc;font-size:12px;margin-top:4px">
+        ${unassigned.map((u: any) => `${u.tvl_ref ?? ""} — ${u.client_name ?? ""}`).join("<br>")}
+      </div>
+    </div>` : "";
+
+  const followUpsBlock = overdueFollowUps.length > 0 ? `
+    <h3 style="color:#c9a961;margin:24px 0 8px">Overdue Follow-ups (${overdueFollowUps.length})</h3>
+    <div style="${panel}">
+      ${overdueFollowUps.map((f: any) => `
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #222;color:#f5f5f5">
+          <span>${f.client_name ?? "—"}</span>
+          <span style="color:#e26666;font-weight:600">${f.days_overdue}d overdue</span>
+        </div>`).join("")}
+    </div>` : `
+    <h3 style="color:#c9a961;margin:24px 0 8px">Overdue Follow-ups</h3>
+    <div style="${panel};color:#9a9a9a">All follow-ups are on schedule.</div>`;
+
+  const commissionBlock = commissionRows.length > 0 ? `
+    <h3 style="color:#c9a961;margin:24px 0 8px">Commission to Collect Today (${moneyGBP(commissionTotal)})</h3>
+    <div style="${panel}">
+      ${commissionRows.map(r => `
+        <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid #222;color:#f5f5f5">
+          <span>${r.ref} · ${r.client}</span>
+          <span style="color:#c9a961;font-weight:700">${moneyGBP(r.amount)}</span>
+        </div>`).join("")}
+    </div>` : "";
+
+  const jobsBlock = jobs.length > 0 ? `
+    <h3 style="color:#c9a961;margin:24px 0 8px">Today's Jobs (${jobs.length})</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;${panel};padding:0">
+      <thead><tr style="background:#1a1a1a;color:#9a9a9a;font-size:11px;text-transform:uppercase;letter-spacing:1px">
+        <th style="padding:10px 8px;text-align:left">Time</th>
+        <th style="padding:10px 8px;text-align:left">Client</th>
+        <th style="padding:10px 8px;text-align:left">Service</th>
+        <th style="padding:10px 8px;text-align:left">Vehicle</th>
+        <th style="padding:10px 8px;text-align:left">Driver</th>
+      </tr></thead>
+      <tbody>${jobs.map(jobRow).join("")}</tbody>
+    </table>` : `
+    <h3 style="color:#c9a961;margin:24px 0 8px">Today's Jobs</h3>
+    <div style="${panel};color:#9a9a9a;text-align:center;padding:28px">
+      No jobs scheduled for today.
+    </div>`;
+
+  return `
+  <div style="background:#0b0b0b;padding:0;margin:0">
+    <div style="max-width:720px;margin:0 auto;background:#0b0b0b;font-family:Helvetica,Arial,sans-serif;color:#f5f5f5">
+      <div style="${goldBar}"></div>
+      <div style="padding:24px 28px 8px">
+        <div style="color:#c9a961;font-size:22px;font-weight:700;letter-spacing:1px">TRAVELUXE <span style="color:#f5f5f5">LONDON</span></div>
+        <div style="${muted};margin-top:4px">Daily Briefing · ${todayDateLabel}</div>
+      </div>
+
+      <div style="padding:8px 28px 0">
+        <table style="width:100%;border-collapse:separate;border-spacing:8px">
+          <tr>
+            ${stat("Jobs Today", String(jobs.length))}
+            ${stat("Unassigned", String(unassigned.length), unassigned.length > 0 ? "#e26666" : "#7ed957")}
+            ${stat("Overdue F/U", String(overdueFollowUps.length), overdueFollowUps.length > 0 ? "#f4c542" : "#7ed957")}
+            ${stat("Commission", moneyGBP(commissionTotal))}
+          </tr>
+        </table>
+      </div>
+
+      <div style="padding:0 28px 12px">
+        ${unassignedAlert}
+        ${jobsBlock}
+        ${followUpsBlock}
+        ${commissionBlock}
+      </div>
+
+      <div style="padding:24px 28px;text-align:center;border-top:1px solid #2a2a2a;margin-top:24px">
+        <a href="${APP_URL}" style="display:inline-block;background:#c9a961;color:#0b0b0b;padding:10px 22px;border-radius:6px;text-decoration:none;font-weight:700;letter-spacing:0.5px">Open Traveluxe OS →</a>
+        <div style="${muted};margin-top:14px">Sent automatically at 07:00 UK time. Adjust the recipient under Settings → Admin Email.</div>
+      </div>
+      <div style="${goldBar}"></div>
+    </div>
+  </div>`;
+}
+
+async function sendDailyBriefing() {
+  const recipient = await getAdminBriefingRecipient();
+
+  // ── Today window in UK time ───────────────────────────────────────────
+  // Compute the start/end of "today in London" expressed as ISO strings.
+  // We do this by formatting Date in the London timezone, then constructing
+  // the boundaries in that local day.
+  const tzFmt = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Europe/London",
+  });
+  const ymd = tzFmt.format(new Date()); // YYYY-MM-DD
+  // Build start/end as UTC ISO by treating "ymd 00:00 London" → UTC instant.
+  // DST-safe: compute the offset AT midnight (not noon) and iterate once
+  // to converge across BST/GMT transition days where the offset can change
+  // mid-day. This handles spring-forward and fall-back boundaries correctly.
+  const londonOffsetMinAt = (utc: Date): number => {
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23",
+    }).formatToParts(utc);
+    const get = (t: string) => parseInt(parts.find(p => p.type === t)?.value ?? "0", 10);
+    const ld = Date.UTC(get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second"));
+    return Math.round((ld - utc.getTime()) / 60000);
+  };
+  // Converge on the UTC instant for London local midnight on a given YYYY-MM-DD.
+  const londonStartOfDayUtc = (y: string): Date => {
+    let utc = new Date(`${y}T00:00:00Z`);
+    for (let i = 0; i < 2; i++) {
+      const off = londonOffsetMinAt(utc);
+      utc = new Date(new Date(`${y}T00:00:00Z`).getTime() - off * 60000);
+    }
+    return utc;
+  };
+  // Compute next day's midnight INDEPENDENTLY so DST-transition days that
+  // are 23h or 25h long are handled correctly (not always exactly +24h).
+  const nextYmd = tzFmt.format(new Date(Date.now() + 36 * 60 * 60 * 1000));
+  const startUtc = londonStartOfDayUtc(ymd);
+  const endUtc = new Date(londonStartOfDayUtc(nextYmd).getTime() - 1);
+
+  const todayDateLabel = new Intl.DateTimeFormat("en-GB", {
+    weekday: "long", day: "numeric", month: "long", year: "numeric",
+    timeZone: "Europe/London",
+  }).format(new Date());
+
+  const { data: todayJobsRaw } = await supabase
+    .from("bookings")
+    .select("id, tvl_ref, client_name, service_type, vehicle_type, status, date_time, price, payment_status, driver_id, drivers(name)")
+    .gte("date_time", startUtc.toISOString())
+    .lte("date_time", endUtc.toISOString())
+    .neq("status", "Cancelled")
+    .order("date_time", { ascending: true });
+
+  const todayJobs = (todayJobsRaw ?? []).map((b: any) => ({
+    ...b,
+    driver_name: b.drivers?.name ?? null,
+  }));
+
+  const unassignedToday = todayJobs.filter(j => !j.driver_name);
+
+  // ── Overdue follow-ups (due_date < today_uk, status pending) ─────────
+  const { data: overdueRaw } = await supabase
+    .from("follow_ups")
+    .select("id, due_date, status, clients(name)")
+    .lt("due_date", ymd)
+    .eq("status", "pending")
+    .limit(50);
+
+  const overdueFollowUps = (overdueRaw ?? []).map((f: any) => {
+    const due = new Date(f.due_date);
+    const today = new Date(`${ymd}T00:00:00Z`);
+    const days = Math.max(0, Math.round((today.getTime() - due.getTime()) / 86400000));
+    return { client_name: f.clients?.name ?? "—", days_overdue: days };
+  });
+
+  // ── Commission to collect today (unpaid bookings due today) ──────────
+  const commissionRows = todayJobs
+    .filter((j: any) => j.payment_status !== "Paid")
+    .map((j: any) => ({
+      ref: j.tvl_ref ?? "—",
+      client: j.client_name ?? "—",
+      amount: Number(j.price ?? 0),
+    }))
+    .filter(r => r.amount > 0);
+  const commissionTotal = commissionRows.reduce((s, r) => s + r.amount, 0);
+
+  const html = briefingHtml({
+    todayDateLabel,
+    jobs: todayJobs,
+    unassigned: unassignedToday,
+    overdueFollowUps,
+    commissionRows,
+    commissionTotal,
+  });
+
+  const subject = `Traveluxe OS — Daily Briefing ${todayDateLabel}`;
+  await sendEmail({ to: recipient, subject, html, account: "system" }).catch(() => {});
+
+  await auditLog(
+    "daily_briefing_sent", "system", "00000000-0000-0000-0000-000000000000", null,
+    `Briefing → ${recipient}: ${todayJobs.length} jobs, ${unassignedToday.length} unassigned, ${overdueFollowUps.length} overdue, ${moneyGBP(commissionTotal)} to collect`,
+  ).catch(() => {});
+}
+
 // ─── Driver-side email (called from routes/bookings.ts on assignment) ────────
 function driverAssignedHtml(b: any) {
   const when = b.date_time ? new Date(b.date_time).toLocaleString("en-GB") : "—";
@@ -408,9 +653,28 @@ async function checkFollowUpsDue() {
 let started = false;
 let timer: ReturnType<typeof setInterval> | null = null;
 let lastDigestDate = "";
+let lastBriefingDate = "";
 let lastBackupDate = "";
 let lastFollowUpDate = "";
 let lastNoDriverTickMs = 0;
+
+// ── UK time helpers (BST/GMT-aware via Intl) ──────────────────────────
+// Returns the current hour-of-day in Europe/London regardless of server TZ.
+function ukHourNow(): number {
+  return parseInt(
+    new Intl.DateTimeFormat("en-GB", { hour: "2-digit", hour12: false, timeZone: "Europe/London" })
+      .format(new Date()),
+    10,
+  );
+}
+// Returns YYYY-MM-DD for "today" in Europe/London — used for daily dedupe so
+// a 23:00 UTC trigger that's 00:00 BST counts as the new local day.
+function ukDateKey(): string {
+  const fmt = new Intl.DateTimeFormat("en-CA", {
+    year: "numeric", month: "2-digit", day: "2-digit", timeZone: "Europe/London",
+  });
+  return fmt.format(new Date()); // en-CA gives YYYY-MM-DD
+}
 
 async function maybeRunDigest() {
   const now = new Date();
@@ -422,6 +686,17 @@ async function maybeRunDigest() {
   if (lastDigestDate === today) return;
   lastDigestDate = today;
   await sendDailyDigest();
+}
+
+async function maybeRunBriefing() {
+  // Daily admin briefing at 07:00 Europe/London (handles BST/GMT automatically).
+  if (ukHourNow() !== 7) return;
+  const today = ukDateKey();
+  if (lastBriefingDate === today) return;
+  lastBriefingDate = today;
+  await sendDailyBriefing().catch(e =>
+    console.error("[Scheduler] briefing error:", e?.message),
+  );
 }
 
 async function maybeRunFollowUpScan() {
@@ -469,6 +744,7 @@ export function startScheduler() {
       await maybeRunNoDriverScan();
       await maybeRunFollowUpScan();
       await maybeRunDigest();
+      await maybeRunBriefing();
       await maybeRunBackup();
     } catch (e: any) {
       console.error("[Scheduler] tick error:", e?.message);
