@@ -379,6 +379,38 @@ export default function NewBooking() {
     // Auto return-trip prefill (from "Create return" toast on a completed
     // Arrival booking). Fetch the source booking and reverse the route /
     // direction so the operator only confirms date+time.
+    // Rebook prefill (from booking detail "Rebook" button or client profile).
+    // Loads the source booking and pre-populates client + service details so
+    // the operator only confirms the new date / pickup time. Always issues a
+    // fresh tvl_ref because it's saved as a brand-new booking.
+    const cloneOf = params.get("clone_of");
+    if (cloneOf) {
+      (async () => {
+        const { data: src } = await supabase
+          .from("bookings")
+          .select("tvl_ref, client_id, service_type, direction, pickup, dropoff, airport_code, vehicle_type, passengers, luggage, notes, special_requests, price")
+          .eq("id", cloneOf)
+          .maybeSingle();
+        if (!src) return;
+        if (src.client_id) loadClientById(src.client_id);
+        if (src.service_type) bookingForm.setValue("service_type", src.service_type as any);
+        if (src.direction) bookingForm.setValue("direction", src.direction as any);
+        if (src.pickup)  bookingForm.setValue("pickup", src.pickup);
+        if (src.dropoff) bookingForm.setValue("dropoff", src.dropoff);
+        if (src.airport_code) bookingForm.setValue("airport_code" as any, src.airport_code);
+        if (src.vehicle_type) bookingForm.setValue("vehicle_type", src.vehicle_type);
+        if (src.passengers) bookingForm.setValue("passengers", src.passengers);
+        if (src.luggage) bookingForm.setValue("luggage", src.luggage);
+        if (src.notes) bookingForm.setValue("notes" as any, src.notes);
+        if (src.special_requests) bookingForm.setValue("special_requests" as any, src.special_requests);
+        if (src.price) bookingForm.setValue("price", Number(src.price));
+        toast({
+          title: "Rebooking prefilled",
+          description: `Cloned from ${src.tvl_ref ?? "source booking"} — set the new date/time and save.`,
+        });
+      })();
+    }
+
     const returnOf = params.get("return_of");
     if (returnOf) {
       (async () => {
@@ -538,8 +570,11 @@ export default function NewBooking() {
   // Live WhatsApp search
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    const trimmed = waInput.trim();
     const normalized = waInput.replace(/\D/g, "");
-    if (normalized.length < 6) {
+    const looksLikePhone = normalized.length >= 6;
+    const looksLikeName = trimmed.length >= 2 && /[a-zA-Z]/.test(trimmed);
+    if (!looksLikePhone && !looksLikeName) {
       setFoundClient(null);
       if (phase === "found") setPhase("lookup");
       return;
@@ -547,10 +582,19 @@ export default function NewBooking() {
     debounceRef.current = setTimeout(async () => {
       setIsSearching(true);
       try {
+        const orParts: string[] = [];
+        if (looksLikePhone) {
+          orParts.push(`whatsapp.ilike.%${normalized}%`);
+          orParts.push(`whatsapp.ilike.%${trimmed}%`);
+        }
+        if (looksLikeName) {
+          const safe = trimmed.replace(/[,()]/g, " ");
+          orParts.push(`name.ilike.%${safe}%`);
+        }
         const { data } = await supabase
           .from("clients")
           .select("id, name, whatsapp, email, nationality, vip_tier")
-          .or(`whatsapp.ilike.%${normalized}%,whatsapp.ilike.%${waInput.trim()}%`)
+          .or(orParts.join(","))
           .eq("inactive", false)
           .limit(1)
           .maybeSingle();
@@ -563,6 +607,8 @@ export default function NewBooking() {
           setPhase("found");
         } else {
           setFoundClient(null);
+          // Only auto-jump to register when we have a usable phone number; a
+          // bare name without a number can't create a client record.
           if (normalized.length >= 8) {
             setPhase("register");
           } else {
@@ -868,6 +914,7 @@ export default function NewBooking() {
   };
 
   const getVipColor = (tier: string) => {
+    if (tier === "Platinum") return "bg-gradient-to-r from-amber-500/30 to-yellow-300/30 text-amber-200 border-amber-400/70 shadow-[0_0_8px_rgba(251,191,36,0.35)]";
     if (tier === "VVIP") return "bg-purple-500/20 text-purple-400 border-purple-500/50";
     if (tier === "VIP") return "bg-primary/20 text-primary border-primary/50";
     return "bg-secondary text-secondary-foreground border-border";
@@ -1037,6 +1084,7 @@ export default function NewBooking() {
                             <SelectItem value="Standard">Standard</SelectItem>
                             <SelectItem value="VIP">VIP</SelectItem>
                             <SelectItem value="VVIP">VVIP</SelectItem>
+                            <SelectItem value="Platinum">Platinum</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -1097,6 +1145,7 @@ export default function NewBooking() {
                               <SelectItem value="Standard">Standard</SelectItem>
                               <SelectItem value="VIP">VIP</SelectItem>
                               <SelectItem value="VVIP">VVIP</SelectItem>
+                              <SelectItem value="Platinum">Platinum</SelectItem>
                             </SelectContent>
                           </Select>
                           <FormMessage />
@@ -1458,8 +1507,21 @@ export default function NewBooking() {
                     const dt = bookingForm.watch("date_time") ?? "";
                     const dateVal = dt.slice(0, 10);
                     const timeVal = dt.slice(11, 16);
-                    const writeDate = (d: string) =>
+                    const writeDate = (d: string) => {
+                      // Past-date guardrail: ask the operator to confirm if
+                      // the chosen pickup date is in the past (typo guard).
+                      if (d) {
+                        const today = new Date(); today.setHours(0,0,0,0);
+                        const chosen = new Date(`${d}T00:00:00`);
+                        if (chosen < today) {
+                          const ok = window.confirm(
+                            `Pickup date ${d} is in the past. Continue anyway?\n\n(Useful for back-dating completed bookings — otherwise pick a future date.)`,
+                          );
+                          if (!ok) return;
+                        }
+                      }
                       bookingForm.setValue("date_time", d ? `${d}T${timeVal || "00:00"}` : "");
+                    };
                     const writeTime = (t: string) =>
                       bookingForm.setValue(
                         "date_time",

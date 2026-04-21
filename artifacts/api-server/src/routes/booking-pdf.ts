@@ -184,14 +184,54 @@ function buildPdf(b: any, client: any, driver: any): Promise<Buffer> {
     });
     y = pTop + pH + 14;
 
-    // Payment status pill
+    // ── Payment block ─────────────────────────────────────────────────
+    // When the booking is Paid or Partial, render a structured panel with
+    // the date paid, amount paid, method, and any payment notes. Falls back
+    // to a simple status pill for Unpaid bookings.
     const ps = b.payment_status ?? "Unpaid";
     const pillColor = ps === "Paid" ? "#7ed957" : ps === "Partial" ? "#f4c542" : "#e26666";
-    const pillText = `Payment: ${ps}`;
-    const pillW = doc.widthOfString(pillText) + 18;
-    doc.roundedRect(50, y, pillW, 18, 9).fillAndStroke(pillColor, pillColor);
-    doc.fillColor(COLOR_BG).font("Helvetica-Bold").fontSize(9).text(pillText, 59, y + 5);
-    y += 36;
+    const paidAmount = Number(b.paid_amount ?? (ps === "Paid" ? grand : 0));
+    const outstanding = Math.max(0, grand - paidAmount);
+    const payRows: Array<[string, string]> = [["Status", ps]];
+    if (b.payment_method)               payRows.push(["Method", String(b.payment_method)]);
+    if (b.payment_date)                 payRows.push(["Date Paid", fmtDate(b.payment_date)]);
+    if (paidAmount > 0)                 payRows.push(["Amount Paid", fmtMoney(paidAmount)]);
+    if (ps !== "Paid" && outstanding>0) payRows.push(["Outstanding", fmtMoney(outstanding)]);
+    if (b.payment_notes)                payRows.push(["Notes", String(b.payment_notes)]);
+
+    const payTop = y;
+    const payH = payRows.length * 18 + 30;
+    doc.roundedRect(50, payTop, doc.page.width - 100, payH, 6).fill(COLOR_PANEL);
+    doc.fillColor(COLOR_GOLD).font("Helvetica-Bold").fontSize(10).text("PAYMENT", 64, payTop + 10);
+    // Status pill in the panel header (right-aligned)
+    const pillText = ps;
+    const pillW = doc.widthOfString(pillText) + 16;
+    const pillX = doc.page.width - 50 - pillW - 14;
+    doc.roundedRect(pillX, payTop + 8, pillW, 16, 8).fillAndStroke(pillColor, pillColor);
+    doc.fillColor(COLOR_BG).font("Helvetica-Bold").fontSize(8).text(pillText, pillX + 8, payTop + 13);
+    let py = payTop + 30;
+    for (const [label, value] of payRows) {
+      doc.fillColor(COLOR_MUTED).font("Helvetica").fontSize(9)
+        .text(label.toUpperCase(), 64, py, { width: 130 });
+      doc.fillColor(COLOR_TEXT).font("Helvetica-Bold").fontSize(10)
+        .text(value, 200, py - 1, { width: doc.page.width - 250 });
+      py += 18;
+    }
+    y = payTop + payH + 14;
+
+    // PAID stamp — diagonal watermark over the pricing area when fully paid.
+    if (ps === "Paid") {
+      doc.save();
+      doc.translate(doc.page.width - 150, 250);
+      doc.rotate(-22);
+      doc.lineWidth(3).strokeColor("#7ed957");
+      doc.roundedRect(-50, -22, 130, 50, 6).stroke();
+      doc.fillColor("#7ed957").font("Helvetica-Bold").fontSize(28).text("PAID", -38, -14);
+      doc.fillColor("#7ed957").font("Helvetica").fontSize(7)
+        .text(b.payment_date ? fmtDate(b.payment_date) : "Settled", -38, 18);
+      doc.restore();
+    }
+
 
     // ── Terms section ─────────────────────────────────────────────────
     if (y > doc.page.height - 200) {
@@ -231,6 +271,129 @@ function buildPdf(b: any, client: any, driver: any): Promise<Buffer> {
     doc.end();
   });
 }
+
+// ── Receipt PDF ────────────────────────────────────────────────────────────
+// Compact one-page receipt for paid (or partially paid) bookings. Sent as a
+// stand-alone document independently of the booking confirmation.
+function buildReceiptPdf(b: any, client: any): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "A4", margin: 50, bufferPages: true });
+    const chunks: Buffer[] = [];
+    doc.on("data", (c: Buffer) => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    doc.rect(0, 0, doc.page.width, doc.page.height).fill(COLOR_BG);
+    doc.rect(0, 0, doc.page.width, 6).fill(COLOR_GOLD);
+
+    // Brand header
+    doc.fillColor(COLOR_GOLD).font("Helvetica-Bold").fontSize(24)
+      .text("TRAVELUXE", 50, 50, { continued: true })
+      .fillColor(COLOR_TEXT).text(" LONDON");
+    doc.fillColor(COLOR_MUTED).font("Helvetica").fontSize(9)
+      .text("Private Concierge · Mayfair, London", 50, 80);
+
+    // Reference panel
+    const refX = doc.page.width - 200, refY = 50;
+    doc.roundedRect(refX, refY, 150, 56, 4).fill(COLOR_PANEL);
+    doc.fillColor(COLOR_MUTED).fontSize(8).text("RECEIPT FOR", refX + 12, refY + 8);
+    doc.fillColor(COLOR_GOLD).font("Helvetica-Bold").fontSize(16)
+      .text(b.tvl_ref ?? "—", refX + 12, refY + 22);
+    doc.fillColor(COLOR_MUTED).font("Helvetica").fontSize(8)
+      .text(`Issued ${new Date().toLocaleDateString("en-GB")}`, refX + 12, refY + 44);
+
+    doc.fillColor(COLOR_TEXT).font("Helvetica-Bold").fontSize(20)
+      .text("Payment Receipt", 50, 130);
+    doc.moveTo(50, 160).lineTo(doc.page.width - 50, 160).strokeColor(COLOR_GOLD).lineWidth(0.6).stroke();
+
+    let y = 180;
+    doc.fillColor(COLOR_GOLD).font("Helvetica-Bold").fontSize(11).text("RECEIVED FROM", 50, y);
+    y += 16;
+    doc.fillColor(COLOR_TEXT).font("Helvetica-Bold").fontSize(14)
+      .text(b.client_name ?? client?.name ?? "—", 50, y);
+    y += 30;
+
+    const price = Number(b.price ?? 0);
+    const extras = Array.isArray(b.extras) ? b.extras : [];
+    const extrasTotal = extras.reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
+    const grand = price + extrasTotal;
+    const ps = b.payment_status ?? "Unpaid";
+    const paidAmount = Number(b.paid_amount ?? (ps === "Paid" ? grand : 0));
+    const outstanding = Math.max(0, grand - paidAmount);
+
+    const rows: Array<[string, string]> = [
+      ["Service", b.service_type ?? "—"],
+      ["Booking Total", fmtMoney(grand)],
+      ["Amount Paid", fmtMoney(paidAmount)],
+      ["Method", b.payment_method ?? "—"],
+      ["Date Paid", b.payment_date ? fmtDate(b.payment_date) : new Date().toLocaleDateString("en-GB")],
+      ["Status", ps],
+    ];
+    if (outstanding > 0) rows.push(["Outstanding", fmtMoney(outstanding)]);
+    if (b.payment_notes) rows.push(["Notes", String(b.payment_notes)]);
+
+    const rowH = 22;
+    const panelTop = y;
+    const panelH = rows.length * rowH + 16;
+    doc.roundedRect(50, panelTop, doc.page.width - 100, panelH, 6).fill(COLOR_PANEL);
+    y = panelTop + 12;
+    for (const [label, value] of rows) {
+      doc.fillColor(COLOR_MUTED).font("Helvetica").fontSize(9)
+        .text(label.toUpperCase(), 64, y, { width: 130 });
+      doc.fillColor(COLOR_TEXT).font("Helvetica-Bold").fontSize(11)
+        .text(value, 200, y - 1, { width: doc.page.width - 250 });
+      y += rowH;
+    }
+    y = panelTop + panelH + 22;
+
+    // PAID stamp when fully paid
+    if (ps === "Paid") {
+      doc.save();
+      doc.translate(doc.page.width - 170, 200);
+      doc.rotate(-22);
+      doc.lineWidth(3).strokeColor("#7ed957");
+      doc.roundedRect(-50, -22, 140, 56, 6).stroke();
+      doc.fillColor("#7ed957").font("Helvetica-Bold").fontSize(30).text("PAID", -32, -14);
+      doc.restore();
+    }
+
+    doc.fillColor(COLOR_GOLD_DIM).fontSize(9).font("Helvetica-Oblique")
+      .text("Thank you. — Traveluxe London", 50, y, {
+        width: doc.page.width - 100, align: "center",
+      });
+
+    const range = doc.bufferedPageRange();
+    for (let i = 0; i < range.count; i++) {
+      doc.switchToPage(i);
+      paintChrome(doc, i + 1, range.count);
+    }
+    doc.end();
+  });
+}
+
+router.get("/:id/receipt.pdf", async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { data: b, error } = await supabase
+    .from("bookings").select("*").eq("id", id).single();
+  if (error || !b) { res.status(404).json({ error: "Booking not found" }); return; }
+  let client: any = null;
+  if ((b as any).client_id) {
+    const { data } = await supabase
+      .from("clients").select("name, vip_tier, email, whatsapp")
+      .eq("id", (b as any).client_id).maybeSingle();
+    client = data;
+  }
+  try {
+    const buf = await buildReceiptPdf(b, client);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="traveluxe-receipt-${b.tvl_ref ?? id}.pdf"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.end(buf);
+  } catch (e: any) {
+    console.error("[receipt-pdf]", e?.message);
+    res.status(500).json({ error: "Failed to render receipt" });
+  }
+});
 
 router.get("/:id/confirmation.pdf", async (req: Request, res: Response) => {
   const { id } = req.params;

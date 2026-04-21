@@ -1029,6 +1029,17 @@ export default function BookingDetail() {
           <Button variant="outline" size="sm" onClick={() => handleUpdateStatus('Completed')} className="text-gray-400 hover:bg-gray-500/10">
             Mark Completed
           </Button>
+          {/* Rebook — clone this booking into a new draft with a fresh TVL
+              ref. The operator only needs to set the new date/time. */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setLocation(`/bookings/new?clone_of=${id}`)}
+            className="text-emerald-400 hover:bg-emerald-500/10 border-emerald-500/30"
+            data-testid="button-rebook"
+          >
+            <CalendarRange className="w-3.5 h-3.5 mr-1.5" /> Rebook
+          </Button>
           {/* Edit available for every service type — clients change flight
               dates, swap vehicles, extend stays, and tweak tour itineraries. */}
           <Button variant="outline" size="sm" onClick={openEdit} className="text-primary hover:bg-primary/10 border-primary/30">
@@ -1713,6 +1724,103 @@ export default function BookingDetail() {
                 </div>
               )}
             </div>
+
+            {/* Payment details — date, amount, method, notes (Migration B). */}
+            <div className="grid grid-cols-2 gap-3 pt-3 border-t border-border">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Date Paid</p>
+                <Input
+                  type="date"
+                  defaultValue={(booking as any).payment_date?.slice(0,10) || ""}
+                  onBlur={e => updateBooking.mutate({ id, data: { payment_date: e.target.value || null } as any }, {
+                    onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
+                  })}
+                  className="h-9"
+                  data-testid="input-payment-date"
+                />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Amount Paid (£)</p>
+                <Input
+                  type="number" step="0.01" min="0"
+                  defaultValue={(booking as any).paid_amount ?? ""}
+                  onBlur={e => updateBooking.mutate({ id, data: { paid_amount: e.target.value === "" ? null : Number(e.target.value) } as any }, {
+                    onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
+                  })}
+                  className="h-9"
+                  data-testid="input-paid-amount"
+                />
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Method</p>
+                <select
+                  value={booking.payment_method || ""}
+                  onChange={e => updateBooking.mutate({ id, data: { payment_method: e.target.value || null } as any }, {
+                    onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
+                  })}
+                  className="h-9 w-full rounded-md border border-border px-3 text-sm bg-background"
+                  data-testid="select-payment-method"
+                >
+                  <option value="">—</option>
+                  <option value="Cash">Cash</option>
+                  <option value="Card">Card</option>
+                  <option value="Bank Transfer">Bank Transfer</option>
+                  <option value="Stripe">Stripe</option>
+                  <option value="Wise">Wise</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Outstanding</p>
+                <div className="h-9 flex items-center px-3 rounded-md border border-border bg-muted/30 font-bold">
+                  £{Math.max(0, Number(booking.price ?? 0) - Number((booking as any).paid_amount ?? (booking.payment_status === "Paid" ? booking.price ?? 0 : 0))).toLocaleString()}
+                </div>
+              </div>
+              <div className="col-span-2">
+                <p className="text-xs text-muted-foreground mb-1">Payment Notes</p>
+                <Textarea
+                  defaultValue={(booking as any).payment_notes || ""}
+                  onBlur={e => updateBooking.mutate({ id, data: { payment_notes: e.target.value || null } as any }, {
+                    onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
+                  })}
+                  placeholder="e.g. Wise transfer ref TX12345 · settled by Mr Khalifa"
+                  rows={2}
+                  data-testid="textarea-payment-notes"
+                />
+              </div>
+            </div>
+
+            {/* Receipt download — appears once any payment has been recorded. */}
+            {(booking.payment_status === "Paid" || booking.payment_status === "Partial" || (booking as any).paid_amount) && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full mt-3 border-green-500/40 text-green-400 hover:bg-green-500/10"
+                onClick={async () => {
+                  try {
+                    const { data: { session } } = await supabase.auth.getSession();
+                    const token = session?.access_token;
+                    const res = await fetch(`/api/bookings/${booking.id}/receipt.pdf`, {
+                      headers: token ? { Authorization: `Bearer ${token}` } : {},
+                    });
+                    if (!res.ok) throw new Error(await res.text());
+                    const blob = await res.blob();
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement("a");
+                    a.href = url;
+                    a.download = `traveluxe-receipt-${booking.tvl_ref ?? booking.id}.pdf`;
+                    document.body.appendChild(a); a.click(); a.remove();
+                    setTimeout(() => URL.revokeObjectURL(url), 1000);
+                  } catch (e: any) {
+                    toast({ title: "Receipt failed", description: e?.message ?? "Could not generate receipt", variant: "destructive" });
+                  }
+                }}
+                data-testid="button-download-receipt"
+              >
+                <FileDown className="w-4 h-4 mr-2" />
+                Download Payment Receipt (PDF)
+              </Button>
+            )}
           </CardContent>
         </Card>
       )}
