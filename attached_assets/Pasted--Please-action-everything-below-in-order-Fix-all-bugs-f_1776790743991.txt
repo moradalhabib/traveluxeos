@@ -1,0 +1,397 @@
+"Please action everything below in order. Fix all bugs first, then build all features, then run a full QA, then republish.
+
+CRITICAL GLOBAL REQUIREMENT
+Every single fix, change, and new feature must be fully integrated and connected across the entire platform — bookings, invoices, job sheets, WhatsApp notifications, driver assignments, commission tracking, follow-ups, dashboard stats, and every other connected module. Nothing should work in isolation. Test every single thing end to end before marking as complete. This app represents Traveluxe London — a 10 year old luxury concierge business serving high net worth Gulf clients. Every detail must be professional, accurate, and seamless.
+
+SECTION 1 — BUGS TO FIX
+Bug 1 — Supplier profile cannot save
+When trying to save a supplier profile it throws the error: 'Could not find the commission_rate column of suppliers in the schema cache.' This is blocking the entire supplier management section. Fix the database schema error so supplier profiles save correctly without any errors.
+Bug 2 — Remove Commission % from supplier profile
+The Commission % field on the supplier profile form must be completely removed. We do not work on a commission percentage basis with suppliers. Our suppliers charge flat rates per vehicle per day which are already captured in the Products section. Remove this field from the form and from the database schema entirely.
+Bug 3 — Car Rental commission logic is wrong and supplier products cannot save
+The current commission calculation for Car Rental is incorrect. Remove all existing commission logic for Car Rental and replace it with the following exact formula:
+Total operator cost = Car cost per day × number of days + Driver rate + Fuel cost + any additional extras
+TVL Commission = Total charged to client minus Total operator cost
+Margin % = TVL Commission divided by Total charged to client × 100
+The Car Rental booking form must clearly show all of the following fields:
+
+Car cost per day (auto-populated from supplier product flat rate — always manually editable)
+Number of days (from booking dates — always manually editable)
+Driver rate (manual input)
+Fuel cost (manual input)
+Additional extras (manual input with description field for each extra)
+Total operator cost (auto-calculated as sum of all above — display only but manually overridable)
+Total charged to client (manual input)
+TVL Commission (auto-calculated as client total minus operator total — display only but manually overridable)
+Margin % (auto-calculated and displayed for reference — display only)
+
+All figures must flow through correctly to the invoice, job sheet, Intel, and commission reports.
+The supplier product form is also broken by the commission_rate schema error. When adding or editing a product under a supplier, the save fails due to the same missing commission_rate column. This must be fixed as part of the schema fix so that supplier products save correctly. Remove any reference to commission_rate from the supplier products form and database schema entirely. Supplier products only need: vehicle name, year, day rate, hourly rate, and notes. Nothing else.
+Bug 4 — Supplier products must auto-populate Car Rental booking
+When a supplier product is selected in a Car Rental booking, the car cost per day field must auto-populate with the flat rate from the supplier product. This field must always remain manually editable in case the rate has been negotiated differently for that specific booking.
+Bug 5 — Manual override on every field
+Every single calculated or auto-populated field across the entire platform must be manually editable. Never lock any field. Always allow the operator to override any figure in case of special arrangements or negotiated rates.
+Bug 6 — Blank job page
+When clicking on a job from the dashboard the page sometimes renders completely blank. The job detail page must always load correctly showing all booking info, client details, driver assignment, service type, pickup, dropoff, flight number, and financials. Fix any remaining instances of this.
+Bug 7 — Vehicle prices must change by airport and be editable on the spot
+On the Airport Transfer booking form, the vehicle list and prices must change automatically based on which airport is selected. LHR, LGW, STN, LTN, and LCY must each have their own pricing per vehicle class. These prices must flow through automatically to the invoice, job sheet, cost breakdown, and commission calculation.
+Critically, the operator must always be able to edit the price manually on the spot within the booking form without going into settings. This is because the same vehicle class can have different prices depending on the specific destination. For example a Mercedes V Class from Heathrow to Mayfair may be £100 but from Heathrow to Canary Wharf may be £150. The auto-populated price is a starting point only. The operator must be able to click the price and change it instantly within the booking form. The edited price must then flow through correctly to the invoice, job sheet, WhatsApp messages, and commission calculation.
+Bug 8 — OTHER airport manual input
+On the Airport Transfer form, clicking OTHER must reveal a manual text input field so a custom airport, private terminal, or non-standard location can be typed in manually. This custom location must appear correctly on the job sheet, invoice, and WhatsApp messages to the driver and client.
+Bug 9 — Follow-ups list not displaying correctly
+The Follow-Ups page must always show the correct pending items in the list matching the count shown in the banner and stats. Fix any remaining instances where the list says All clear while the counter shows pending items.
+Bug 10 — Follow-ups banner must be clickable
+The follow-ups pending banner on the dashboard must always navigate directly to the Follow-Ups page and display the pending items automatically when clicked.
+Bug 11 — No driver assigned alert
+Jobs with no driver assigned must show a prominent pulsing alert on both the dashboard and the job detail page. This alert must also trigger a WhatsApp notification to the admin. Make sure this is working correctly after all recent changes.
+Bug 12 — Past date guardrail
+When a past date is selected on any booking form, show a clear confirmation dialog saying 'This date is in the past — are you sure you want to continue?' with a confirm and cancel option. Never block past dates completely as historical bookings need to be possible. Make sure this is working correctly.
+Bug 13 — Client lookup by name or WhatsApp number
+On the create booking form, the client lookup field must allow the operator to search and identify a client by either their name or their WhatsApp number. Many Gulf clients are saved in the system by name but operators often only have the WhatsApp number when a new enquiry comes in. The operator must be able to type either the client name or WhatsApp number into the client field and the system will find the matching client. If no match is found, give the option to create a new client on the spot without leaving the booking form.
+
+SECTION 2 — NEW FEATURES TO BUILD
+Feature 1 — Client WhatsApp confirmation message
+When a booking is created and confirmed, automatically generate a professional WhatsApp message to send to the client. The message must include:
+
+Traveluxe London branding at the top
+Booking reference number
+Service type
+Date and time
+Vehicle selected
+Pickup and dropoff details
+Flight number for airport transfers only
+Driver name once assigned — if not yet assigned show 'Driver will be confirmed shortly'
+Meet and greet name board for airport transfers only
+Payment status
+A professional warm closing line appropriate for a luxury Gulf client
+Must work correctly for every service type with relevant fields showing and irrelevant fields hidden
+Must be professional, warm, and appropriate for high net worth Gulf clients
+
+Feature 2 — Booking confirmation PDF
+Generate a professional PDF booking confirmation that can be downloaded or sent to the client directly from the booking detail page. The PDF must include:
+
+Traveluxe London logo and branding at the top
+TVL booking reference number prominently displayed
+Client name and VIP tier
+Full booking details — service type, date, time, vehicle, pickup, dropoff, flight number, driver name, meet and greet board
+Full price breakdown — client price, operator cost, TVL commission, any extras
+Payment status
+A professional terms and conditions section at the bottom
+Clean luxury design with dark and gold colour scheme consistent with Traveluxe branding
+Must be professional enough to send directly to a high net worth Gulf client
+
+Feature 3 — Daily briefing email to admin
+Every morning at 7am UK time, automatically send an email to the admin email address with the following:
+
+Professional subject line: Traveluxe OS — Daily Briefing followed by the date
+Traveluxe London branding in the email header
+Summary section at the very top showing: total jobs today, number of unassigned jobs, number of overdue follow-ups, and total commission to collect today
+All jobs for today listed clearly with time, client name, service type, vehicle, and assigned driver
+Any unassigned jobs highlighted clearly in red with a prominent warning
+Any overdue follow-ups listed with client name and how many days overdue
+Commission to collect today — total figure and a breakdown per booking
+A direct link to the Traveluxe OS app at the bottom of the email
+Clean professional email design appropriate for a luxury business
+The admin email address must be configurable in the app settings so it can be changed without touching the code
+The 7am send time must be based on UK time and must automatically account for the difference between GMT and BST throughout the year
+If there are no jobs today the email must still send with a clear No jobs scheduled for today message so the admin knows the system is running
+
+Feature 4 — Full client booking history on profile
+When viewing a client profile, show a complete and detailed booking history section including:
+
+All past and upcoming bookings listed in chronological order with most recent first
+Each booking showing: date, service type, vehicle, amount paid, TVL commission, booking status, and booking reference number
+Total lifetime spend with Traveluxe displayed prominently
+Total number of bookings displayed
+VIP tier displayed prominently with correct colour styling — Standard, VIP, VVIP, Platinum
+Date of first booking with Traveluxe
+Date of most recent booking
+Average spend per booking
+A quick action button to create a new booking directly from the client profile
+A quick action button to log a follow-up directly from the client profile
+If the client has no bookings yet show a clear No bookings yet message with a prompt to create their first booking
+
+Feature 5 — Platinum VIP tier
+Add Platinum as the highest VIP tier above VVIP. The full tier order must be: Standard, VIP, VVIP, Platinum. Platinum must have distinct gold and amber styling that clearly differentiates it from VVIP purple. Platinum must appear correctly across all parts of the platform — booking form, client profile, job sheet, invoice, WhatsApp messages, Intel, marketing filters, and CSV import.
+Feature 6 — Repeat booking / quick rebook
+On every booking detail page and every client profile page, add a prominent Rebook button. When clicked it duplicates the entire booking for the same client with all the same details — service type, vehicle, pickup, dropoff, flight details, driver — and opens it as a new booking form pre-filled with all those details ready for the operator to adjust the date and any changed details before saving. This is essential for regular Gulf clients who repeat the same airport transfer or car rental every visit. The rebooked booking must get a new unique TVL reference number. All pre-filled details must remain manually editable before saving.
+Feature 7 — Payment tracking with method, date, and receipt
+Every booking must have a dedicated payment section that includes:
+
+Payment status — Unpaid, Partially Paid, Paid
+Payment method — Cash, Bank Transfer, Card, Other
+Payment date — date the payment was received
+Amount received — to support partial payments
+Payment notes — any relevant notes about the payment
+Once payment is marked as received generate a professional payment receipt that can be downloaded or sent to the client
+The receipt must include: Traveluxe London branding, TVL booking reference number, client name, service details, amount paid, payment method, payment date, and a thank you message appropriate for a luxury Gulf client
+Outstanding payment amount must show clearly on the booking, dashboard, and Intel
+Commission to collect on the dashboard must only show commission from fully or partially paid bookings
+Payment history must show on the client profile
+
+Feature 8 — Notes and special requests on every booking
+Add a dedicated notes and special requests field on every booking form and booking detail page. This field must:
+
+Allow free text input for any special client request — child seat, specific music, temperature preference, dietary requirements for tours, meet and greet preferences, VIP requests, anything else
+Appear prominently on the job sheet so the driver sees it immediately — highlight it clearly so it cannot be missed
+Appear on the booking confirmation PDF sent to the client
+Be editable at any time before and after the booking is confirmed
+Have a character limit of at least 500 characters to allow detailed instructions
+If notes exist on a booking show a visual indicator on the booking list and dashboard so the operator knows there are special instructions without having to open the booking
+
+
+SECTION 3 — FULL QA AFTER ALL FIXES AND FEATURES
+After completing all fixes and features above, run a full QA test across every part of the platform. Actually click, actually create, actually test everything live. Do not just check theoretically. Fix anything that breaks immediately.
+Step 1 — Dashboard
+
+Check all stats load correctly — Follow-ups, Active Jobs, Upcoming Bookings, Commission to Collect
+Click every banner and card and confirm correct navigation
+Check no driver assigned alert is visible, pulsing, and clickable
+Confirm today's jobs show correctly including special request indicator where applicable
+Check notification bell works and shows correct count
+Confirm all alert banners are dismissible but return if issue is still unresolved
+
+Step 2 — Create a test booking for every service type
+
+Airport Transfer Arrival at LHR with flight BA123, Mercedes E Class, driver assigned, meet and greet, special request noted
+Airport Transfer Departure at LGW with Range Rover Vogue, driver assigned
+Airport Transfer with OTHER airport using manual location input
+Car Rental multi-day with supplier product selected, manual driver rate, fuel cost, and extras — confirm TVL commission calculates correctly as client total minus operator total
+Hotel Transfer with notes and special requests
+Tour Package with notes and special requests
+Any other service types in the system
+For each booking confirm: all fields save correctly, vehicle prices auto-populate and change by airport, prices are editable on the spot within the booking form, invoice generates correctly, job sheet is complete and shows special requests prominently, WhatsApp fires correctly for client and driver, booking appears on dashboard and jobs board, booking reference number is unique and appears everywhere, notes indicator shows on booking list
+
+Step 3 — Repeat booking / quick rebook
+
+Open an existing booking and click Rebook
+Confirm the new booking form opens pre-filled with all the same details
+Change the date and confirm the new booking saves with a new unique TVL reference number
+Confirm all pre-filled details were editable before saving
+Test rebook from both the booking detail page and the client profile page
+
+Step 4 — Payment tracking
+
+Mark a booking as paid by cash and confirm payment date and method save correctly
+Mark a booking as partially paid and confirm outstanding amount shows correctly
+Generate a payment receipt and confirm it is professional and complete
+Confirm commission to collect on dashboard updates correctly based on payment status
+Confirm payment history shows correctly on client profile
+
+Step 5 — Jobs Board
+
+Click every job and confirm detail page loads correctly and is never blank
+Confirm special requests are prominently visible on job detail page
+Test changing job status and confirm it updates everywhere
+Test assigning and unassigning a driver
+Check all filters work correctly
+
+Step 6 — Bookings
+
+Check all bookings list correctly with special request indicator showing where applicable
+Test editing a booking including adding and changing notes
+Test cancelling a booking and confirm all figures update correctly
+
+Step 7 — Follow-Ups
+
+Confirm pending count matches the list at all times
+Test all filters and date ranges
+Confirm completing a booking auto-creates a follow-up
+Confirm only one follow-up is ever created per booking — never duplicates
+Test marking follow-ups as Done, Return Booked, and No Response
+
+Step 8 — Clients
+
+Test full client profile with booking history, lifetime spend, total bookings, average spend, VIP tier
+Test payment history on client profile
+Test quick action buttons — new booking and log follow-up
+Test searching clients by both name and WhatsApp number
+Confirm new client can be created on the spot from within the booking form without leaving the form
+Test rebook button from client profile
+
+Step 9 — Drivers
+
+Test adding and editing drivers
+Test assigning a driver to a job
+Test assigning the same driver to two jobs at the same time and confirm conflict warning
+Confirm driver WhatsApp brief contains client name, special requests, and does not contain client phone number
+
+Step 10 — Suppliers
+
+Confirm supplier profiles save correctly with no schema errors
+Confirm Commission % field is completely removed from supplier form and database
+Test adding and editing supplier products — confirm they save correctly
+Confirm flat rates auto-populate Car Rental bookings correctly
+Test manual override on all auto-populated fields
+
+Step 11 — Car Rental end to end
+
+Create a full Car Rental booking with supplier product selected
+Confirm car cost per day auto-populates from supplier product
+Enter number of days, driver rate, fuel cost, and an additional extra with description
+Add special requests and notes
+Confirm total operator cost calculates correctly
+Enter client total and confirm TVL commission and margin calculate correctly
+Confirm all figures appear correctly on invoice, job sheet, and Intel
+Confirm special requests appear prominently on job sheet
+
+Step 12 — Airport Transfer spot price editing
+
+Create an Airport Transfer booking at LHR
+Confirm vehicle price auto-populates based on airport selected
+Change the price on the spot within the booking form
+Confirm the edited price flows through correctly to invoice, job sheet, WhatsApp, and commission
+
+Step 13 — Intel and Finance
+
+Confirm all revenue, commission, and supplier cost figures are accurate
+Test all date range and service type filters
+Confirm commission to collect only shows unpaid commission
+Test marking commission as collected
+
+Step 14 — Invoices
+
+Check invoices for every service type
+Confirm client price, operator cost, TVL commission, and any extras all show correctly
+Confirm invoice numbering is sequential and never duplicated
+Confirm invoices look professional and are appropriate for luxury Gulf clients
+Confirm special requests do not appear on client-facing invoice unless specifically requested
+
+Step 15 — WhatsApp messages
+
+Confirm client confirmation message generates correctly for every service type
+Confirm driver brief contains client name, special requests, and does not contain client phone number
+Confirm admin alert fires when no driver is assigned
+Confirm all messages are professional and appropriate for luxury Gulf clients
+
+Step 16 — Booking confirmation PDF
+
+Generate PDF for every service type
+Confirm special requests appear on the PDF
+Confirm all details are correct and complete
+Confirm design is professional with dark and gold luxury branding
+
+Step 17 — Payment receipts
+
+Generate a payment receipt for a fully paid booking
+Generate a payment receipt for a partially paid booking
+Confirm both are professional and complete with all required details
+Confirm Traveluxe branding is correct on all receipts
+
+Step 18 — Daily briefing email
+
+Confirm admin email is set correctly in settings
+Confirm the email will send at 7am UK time accounting for GMT and BST
+Trigger a test send and confirm the email arrives correctly formatted with all sections present
+Confirm jobs with special requests are flagged in the daily briefing
+
+Step 19 — Tablet responsiveness
+
+Check every page on tablet screen size
+Check all forms, buttons, modals, and popups work correctly on touchscreen
+Check all tap targets are large enough to use accurately on a touchscreen
+
+Step 20 — Speed and performance
+
+Check every page loads in under 3 seconds
+Flag and fix any slow pages or actions
+
+Step 21 — Full end to end client journey
+Complete one full journey without stopping:
+
+Create a new client with Platinum VIP tier
+Search for the client by WhatsApp number to confirm lookup works
+Create an LHR airport transfer booking for that client with special requests noted
+Edit the vehicle price on the spot within the booking form
+Assign a driver
+Generate and check client WhatsApp confirmation message
+Generate and check driver WhatsApp brief — confirm client name and special requests present, phone number absent
+Download and check booking confirmation PDF — confirm special requests visible
+Mark job as complete
+Mark payment as received by bank transfer and generate payment receipt
+Confirm follow-up auto-created and only one follow-up exists
+Mark follow-up as Return Booked
+Use Rebook button to create a repeat booking and confirm it pre-fills correctly
+Confirm commission tracked correctly in Intel
+Confirm invoice is correct and professional
+Confirm client profile shows full booking history, lifetime spend, payment history, and VIP tier correctly
+Confirm daily briefing email will include this job tomorrow morning
+
+Step 22 — Final checklist
+Before marking QA complete confirm every single one of these:
+
+✅ Every page loads without errors
+✅ Every form saves correctly
+✅ Every calculation is accurate
+✅ Every notification fires correctly
+✅ Every navigation link works
+✅ Every filter and search works
+✅ App works perfectly on tablet
+✅ No blank pages anywhere
+✅ No broken buttons anywhere
+✅ No missing data anywhere
+✅ Commission tracking 100% accurate end to end
+✅ Car Rental commission calculates as client total minus operator total
+✅ Supplier profiles save without errors
+✅ Commission % field completely removed from supplier form and database
+✅ Supplier products save correctly with no schema errors
+✅ Supplier flat rates auto-populate Car Rental bookings
+✅ Airport Transfer prices auto-populate by airport and are editable on the spot
+✅ Edited prices flow through correctly to invoice, job sheet, WhatsApp, and commission
+✅ OTHER airport manual input works and flows through everywhere
+✅ Client lookup works by both name and WhatsApp number
+✅ New client can be created on the spot from within booking form
+✅ Repeat booking rebook button works from both booking detail and client profile
+✅ Pre-filled rebook details are all editable before saving
+✅ New TVL reference number generated for every rebooked booking
+✅ Payment tracking works correctly — status, method, date, amount, notes
+✅ Partial payments show outstanding amount correctly everywhere
+✅ Payment receipts generate correctly and look professional
+✅ Commission to collect only shows from paid or partially paid bookings
+✅ Notes and special requests field works on every service type
+✅ Special requests appear prominently on job sheet
+✅ Special requests appear on booking confirmation PDF
+✅ Special requests appear in driver WhatsApp brief
+✅ Special request indicator shows on booking list and dashboard
+✅ WhatsApp messages professional and complete for every service type
+✅ Driver brief contains client name and special requests but not client phone number
+✅ Invoices accurate and professional for every service type
+✅ Follow-ups banner clickable and navigates correctly
+✅ Follow-ups list always matches the count
+✅ Job detail page always loads correctly and never blank
+✅ No driver assigned alert prominent, pulsing, and triggers WhatsApp to admin
+✅ Past date guardrail working correctly on all booking forms
+✅ Platinum tier working correctly across entire platform
+✅ Client booking history complete and accurate on profile including payment history
+✅ Booking confirmation PDF professional and complete for every service type
+✅ Payment receipts professional and complete
+✅ Daily briefing email configured, tested, and ready to send at 7am UK time
+✅ Full client journey works seamlessly from booking to follow-up
+✅ No duplicate follow-ups ever created
+
+
+SECTION 4 — DATABASE MIGRATIONS
+For every database migration required as part of this build, provide me the complete SQL code directly in the chat so I can copy and paste it into Supabase myself. Do not run any migrations automatically. For each migration clearly state:
+
+The migration name
+What it does in plain English
+The complete SQL code to copy and paste
+Whether it needs to be run before or after the code is deployed
+How to verify the migration ran successfully — what to check in Supabase to confirm it worked
+
+List all required migrations at the start of your response before writing any code so I know exactly how many there are and what they do.
+
+SECTION 5 — FINAL REPORT
+After completing all fixes, all features, and the full QA, provide a comprehensive report covering:
+
+All bugs fixed — with details of what was wrong and what was done
+All features built — with confirmation each is working end to end
+All QA steps — pass or fail with details
+Any issues found during QA that needed fixing
+Any decisions or input needed from me before anything can be completed
+Any suggestions for additional features that would benefit a luxury travel concierge business
+Any inconsistencies in design, language, or flow that look unprofessional
+Overall health score of the app out of 10
+Priority list of what still needs to be built to make this a world class luxury travel operating system
+
+Republish when everything is complete and confirmed."

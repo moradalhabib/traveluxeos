@@ -4,10 +4,12 @@ import { supabase, auditLog, getUserFromToken } from "../lib/supabase";
 const router = Router();
 
 // Whitelisted columns for the suppliers table. Mirrors migration-build4.sql.
+// commission_rate was removed in migration-remove-supplier-commission.sql —
+// suppliers charge flat per-vehicle rates (held in supplier_products), not
+// a percentage commission, and the lingering column was breaking saves.
 const SUPPLIER_COLUMNS = new Set([
   "name", "category", "contact_name", "whatsapp", "phone", "email",
   "address", "city", "country", "website", "notes", "rating", "is_active",
-  "commission_rate",
 ]);
 
 // ─── GET /suppliers — list with optional category + search filters ─────────

@@ -1425,11 +1425,19 @@ export default function NewBooking() {
                         <span className="font-bold text-primary">£{Number(clientPriceWatch).toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between text-sm pt-1.5 border-t border-border/50">
-                        <span className="font-semibold text-foreground">Margin</span>
+                        <span className="font-semibold text-foreground">TVL Commission</span>
                         <span className={`font-bold ${carRentalMargin >= 0 ? "text-green-400" : "text-destructive"}`}>
                           £{carRentalMargin.toLocaleString()}
                         </span>
                       </div>
+                      {Number(clientPriceWatch) > 0 && (
+                        <div className="flex justify-between text-xs">
+                          <span className="text-muted-foreground">Margin %</span>
+                          <span className={`font-semibold ${carRentalMargin >= 0 ? "text-green-400" : "text-destructive"}`}>
+                            {((carRentalMargin / Number(clientPriceWatch)) * 100).toFixed(1)}%
+                          </span>
+                        </div>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
