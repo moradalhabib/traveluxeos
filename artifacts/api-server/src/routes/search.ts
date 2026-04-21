@@ -17,7 +17,7 @@ router.get("/", async (req, res) => {
   ] = await Promise.all([
     supabase.from("clients").select("id, name, whatsapp, email, vip_tier, nationality, inactive").is("merged_into", null),
     supabase.from("bookings").select("id, tvl_ref, service_type, status, pickup, dropoff, flight_number, date_time, price, client_id, clients(name, vip_tier)").limit(1000),
-    supabase.from("drivers").select("id, name, staff_no, whatsapp, vehicle_type, vehicle_model, plate, status, avg_rating:driver_ratings(rating)"),
+    supabase.from("drivers").select("id, name, staff_no, whatsapp, vehicle_type, vehicle_model, vehicle_year, plate, status, avg_rating:driver_ratings(rating)"),
   ]);
 
   // Strict match: name / WhatsApp / email only. Nationality intentionally

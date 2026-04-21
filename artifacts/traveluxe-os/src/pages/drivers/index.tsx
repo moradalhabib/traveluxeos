@@ -55,7 +55,10 @@ export default function Drivers() {
                   </div>
                   <div className="text-sm text-muted-foreground mt-1 flex items-center gap-1">
                     <Car className="w-3 h-3" />
-                    {(driver as any).vehicle_model || driver.vehicle_type || 'Vehicle TBC'}
+                    {[
+                      (driver as any).vehicle_year,
+                      (driver as any).vehicle_model,
+                    ].filter(Boolean).join(" ") || 'Vehicle TBC'}
                   </div>
                 </div>
                 <Badge variant="outline" className={driver.status === 'Active' ? 'bg-green-500/20 text-green-500 border-green-500/50' : 'bg-secondary text-secondary-foreground'}>

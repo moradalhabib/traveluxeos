@@ -18,7 +18,13 @@ const formSchema = z.object({
   whatsapp: z.string().min(5, "WhatsApp required"),
   email: z.string().email("Valid email required for job alerts").optional().or(z.literal("")),
   vehicle_model: z.string().min(1, "Vehicle name required (e.g. MB V-Class)"),
-  vehicle_type: z.string().regex(/^(19|20)\d{2}$/, "Enter a 4-digit year").or(z.literal("")).default(""),
+  vehicle_year: z
+    .union([
+      z.string().regex(/^(19|20)\d{2}$/, "Enter a 4-digit year").transform((v) => Number(v)),
+      z.literal("").transform(() => undefined),
+      z.undefined(),
+    ])
+    .optional(),
   plate: z.string().optional(),
   status: z.string().default("Active"),
   notes: z.string().optional(),
@@ -37,7 +43,7 @@ export default function NewDriver() {
       whatsapp: "",
       email: "",
       vehicle_model: "",
-      vehicle_type: "",
+      vehicle_year: undefined,
       plate: "",
       status: "Active",
       notes: "",
@@ -154,7 +160,7 @@ export default function NewDriver() {
                 )} />
 
                 <div className="grid grid-cols-2 gap-3">
-                  <FormField control={form.control} name="vehicle_type" render={({ field }) => (
+                  <FormField control={form.control} name="vehicle_year" render={({ field }) => (
                     <FormItem>
                       <FormLabel>Vehicle Year</FormLabel>
                       <FormControl>
@@ -164,7 +170,11 @@ export default function NewDriver() {
                           placeholder="e.g. 2024"
                           min={1990}
                           max={2030}
-                          {...field}
+                          value={field.value ?? ""}
+                          onChange={field.onChange}
+                          onBlur={field.onBlur}
+                          name={field.name}
+                          ref={field.ref}
                         />
                       </FormControl>
                       <FormMessage />

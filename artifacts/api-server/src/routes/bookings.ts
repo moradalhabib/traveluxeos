@@ -51,13 +51,13 @@ async function fetchDriverSafely(driverId: string | null) {
   // Try with staff_no first (post-migration). Fall back without it if column is missing.
   const withStaff = await supabase
     .from("drivers")
-    .select("name, staff_no, vehicle_type, vehicle_model")
+    .select("name, staff_no, vehicle_type, vehicle_model, vehicle_year")
     .eq("id", driverId)
     .single();
   if (!withStaff.error) return withStaff.data;
   const fallback = await supabase
     .from("drivers")
-    .select("name, vehicle_type, vehicle_model")
+    .select("name, vehicle_type, vehicle_model, vehicle_year")
     .eq("id", driverId)
     .single();
   if (fallback.error) return null;
@@ -78,7 +78,9 @@ async function enrichBooking(booking: any) {
     client_email: client?.email ?? null,
     driver_name: driver?.name ?? null,
     driver_staff_no: driver?.staff_no ?? null,
-    driver_vehicle: driver ? `${driver.vehicle_type} ${driver.vehicle_model ?? ""}`.trim() : null,
+    driver_vehicle: driver
+      ? [driver.vehicle_year, driver.vehicle_model ?? driver.vehicle_type].filter(Boolean).join(" ").trim() || null
+      : null,
     operator_name: operator?.name ?? null,
   };
 }
@@ -132,7 +134,7 @@ router.get("/", async (req, res) => {
 
   let query = db
     .from("bookings")
-    .select("*, clients(name, vip_tier), drivers(name, vehicle_type, vehicle_model), users!bookings_operator_id_fkey(name)")
+    .select("*, clients(name, vip_tier), drivers(name, vehicle_type, vehicle_model, vehicle_year), users!bookings_operator_id_fkey(name)")
     // Newest bookings first (UI may re-sort further on date_time as needed).
     .order("date_time", { ascending: false, nullsFirst: false });
 
@@ -167,7 +169,9 @@ router.get("/", async (req, res) => {
     client_name: b.clients?.name ?? null,
     client_vip_tier: b.clients?.vip_tier ?? null,
     driver_name: b.drivers?.name ?? null,
-    driver_vehicle: b.drivers ? `${b.drivers.vehicle_type} ${b.drivers.vehicle_model ?? ""}`.trim() : null,
+    driver_vehicle: b.drivers
+      ? [b.drivers.vehicle_year, b.drivers.vehicle_model ?? b.drivers.vehicle_type].filter(Boolean).join(" ").trim() || null
+      : null,
     operator_name: b.users?.name ?? null,
     clients: undefined,
     drivers: undefined,
@@ -321,7 +325,7 @@ router.get("/:id", async (req, res) => {
   const db = getDbClient(req.headers.authorization);
   const { data: booking, error } = await db
     .from("bookings")
-    .select("*, clients(name, vip_tier, whatsapp), drivers(name, vehicle_type, vehicle_model, whatsapp), users!bookings_operator_id_fkey(name)")
+    .select("*, clients(name, vip_tier, whatsapp), drivers(name, vehicle_type, vehicle_model, vehicle_year, whatsapp), users!bookings_operator_id_fkey(name)")
     .eq("id", req.params.id)
     .single();
 
@@ -366,7 +370,9 @@ router.get("/:id", async (req, res) => {
     client_vip_tier: booking.clients?.vip_tier ?? null,
     client_whatsapp: booking.clients?.whatsapp ?? null,
     driver_name: booking.drivers?.name ?? null,
-    driver_vehicle: booking.drivers ? `${booking.drivers.vehicle_type} ${booking.drivers.vehicle_model ?? ""}`.trim() : null,
+    driver_vehicle: booking.drivers
+      ? [booking.drivers.vehicle_year, booking.drivers.vehicle_model ?? booking.drivers.vehicle_type].filter(Boolean).join(" ").trim() || null
+      : null,
     driver_whatsapp: booking.drivers?.whatsapp ?? null,
     operator_name: booking.users?.name ?? null,
     clients: undefined,

@@ -28,9 +28,28 @@ router.get("/", async (req, res) => {
   return res.json(result);
 });
 
+// Whitelist of mutable driver columns. Anything not in this set is ignored
+// so callers can't write columns we don't manage from the UI.
+const DRIVER_COLUMNS = new Set([
+  "name", "staff_no", "whatsapp", "email",
+  "vehicle_model", "vehicle_year", "vehicle_type", "plate",
+  "status", "notes",
+]);
+
+function pickDriverFields(body: Record<string, any>) {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(body || {})) {
+    if (!DRIVER_COLUMNS.has(k)) continue;
+    if (v === "" || v === undefined) continue;
+    out[k] = v;
+  }
+  return out;
+}
+
 router.post("/", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
-  const { data, error } = await supabase.from("drivers").insert(req.body).select().single();
+  const payload = pickDriverFields(req.body);
+  const { data, error } = await supabase.from("drivers").insert(payload).select().single();
   if (error) return res.status(400).json({ error: error.message });
   await auditLog("create_driver", "driver", data.id, user?.id ?? null, `Created driver ${data.name}`);
   return res.status(201).json({ ...data, avg_rating: 0, total_jobs: 0 });
@@ -106,9 +125,19 @@ router.get("/:id", async (req, res) => {
 
 router.put("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
+
+  // Build a mutation payload from the whitelist. Allow null explicitly so
+  // operators can clear vehicle_year, plate, notes from the edit form.
+  const payload: Record<string, any> = {};
+  for (const [k, v] of Object.entries(req.body || {})) {
+    if (!DRIVER_COLUMNS.has(k)) continue;
+    if (v === undefined) continue;
+    payload[k] = v === "" ? null : v;
+  }
+
   const { data, error } = await supabase
     .from("drivers")
-    .update(req.body)
+    .update(payload)
     .eq("id", req.params.id)
     .select()
     .single();

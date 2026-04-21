@@ -108,7 +108,7 @@ export default function Search() {
                               </span>
                             )}
                           </div>
-                          <div className="text-sm text-muted-foreground">{driver.vehicle_type}</div>
+                          <div className="text-sm text-muted-foreground">{[(driver as any).vehicle_year, (driver as any).vehicle_model].filter(Boolean).join(" ") || (driver as any).vehicle_model || ""}</div>
                         </div>
                       </CardContent>
                     </Card>

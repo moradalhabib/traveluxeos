@@ -148,7 +148,7 @@ router.get("/:id", async (req, res) => {
 
   const { data: bookings } = await supabase
     .from("bookings")
-    .select("*, drivers(name, vehicle_type, vehicle_model)")
+    .select("*, drivers(name, vehicle_type, vehicle_model, vehicle_year)")
     .eq("client_id", id)
     .order("date_time", { ascending: false });
 
@@ -158,7 +158,9 @@ router.get("/:id", async (req, res) => {
   const enrichedBookings = (bookings ?? []).map((b: any) => ({
     ...b,
     driver_name: b.drivers?.name ?? null,
-    driver_vehicle: b.drivers?.vehicle_type ?? null,
+    driver_vehicle: b.drivers
+      ? [b.drivers.vehicle_year, b.drivers.vehicle_model ?? b.drivers.vehicle_type].filter(Boolean).join(" ").trim() || null
+      : null,
     drivers: undefined,
   }));
 

@@ -10,8 +10,10 @@ export interface Driver {
   id: string;
   name: string;
   whatsapp?: string;
-  vehicle_type: string;
+  /** @deprecated */
+  vehicle_type?: string;
   vehicle_model?: string;
+  vehicle_year?: number | null;
   plate?: string;
   notes?: string;
   status: string;

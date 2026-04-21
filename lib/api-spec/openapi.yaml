@@ -1362,8 +1362,12 @@ components:
           type: string
         vehicle_type:
           type: string
+          deprecated: true
         vehicle_model:
           type: string
+        vehicle_year:
+          type: integer
+          nullable: true
         plate:
           type: string
         notes:
@@ -1376,7 +1380,7 @@ components:
           type: integer
         created_at:
           type: string
-      required: [id, name, vehicle_type, status]
+      required: [id, name, status]
 
     DriverDetail:
       allOf:
@@ -1403,17 +1407,18 @@ components:
           type: string
         whatsapp:
           type: string
-        vehicle_type:
-          type: string
         vehicle_model:
           type: string
+        vehicle_year:
+          type: integer
+          nullable: true
         plate:
           type: string
         notes:
           type: string
         status:
           type: string
-      required: [name, whatsapp, vehicle_type]
+      required: [name, whatsapp]
 
     DriverRating:
       type: object
