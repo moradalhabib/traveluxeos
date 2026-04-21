@@ -5,6 +5,7 @@ import { Toaster as SonnerToaster } from "sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { useVersionCheck } from "@/hooks/use-version-check";
 import { Shell } from "@/components/layout/Shell";
 import { setAuthTokenGetter } from "@workspace/api-client-react";
 import { supabase } from "@/lib/supabase";
@@ -133,6 +134,7 @@ function Router() {
 }
 
 function App() {
+  useVersionCheck();
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
