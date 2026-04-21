@@ -12,7 +12,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift, Map, Building2, CalendarRange, RotateCcw } from "lucide-react";
+import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift, Map, Building2, CalendarRange, RotateCcw, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
@@ -871,14 +871,38 @@ export default function BookingDetail() {
                 <div className="text-sm text-muted-foreground">{booking.flight_status.origin} → {booking.flight_status.destination}</div>
               </div>
             </div>
-            <div className="text-right">
+            <div className="text-right space-y-1">
               <div className={`font-bold ${flightStatusColor(booking.flight_status.status)}`}>{booking.flight_status.status}</div>
               {booking.flight_status.delay_minutes ? (
                 <div className="text-sm text-amber-400">Delayed {booking.flight_status.delay_minutes} mins</div>
               ) : null}
+              {booking.flight_number && (
+                <a
+                  href={`https://www.flightradar24.com/${encodeURIComponent(booking.flight_number.replace(/\s+/g, ""))}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-blue-400 hover:underline inline-flex items-center gap-1"
+                >
+                  Live tracker <ExternalLink className="w-3 h-3" />
+                </a>
+              )}
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* Flight number link (when no live status yet, e.g. before flight tracking begins) */}
+      {!booking.flight_status && booking.flight_number && booking.service_type === "Airport Transfer" && (
+        <a
+          href={`https://www.flightradar24.com/${encodeURIComponent(booking.flight_number.replace(/\s+/g, ""))}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:underline"
+        >
+          <Plane className="w-3.5 h-3.5" />
+          Track flight {booking.flight_number} on Flightradar24
+          <ExternalLink className="w-3 h-3" />
+        </a>
       )}
 
       {/* Client + Driver */}

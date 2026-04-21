@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { MessageSquare, Edit, ArrowLeft, Ban, Plus, CalendarRange, Trash2, Crown, Sparkles, ShieldCheck, Lock, Star, PhoneCall, CheckCheck, RotateCcw, PhoneOff, ClipboardList } from "lucide-react";
+import { MessageSquare, Edit, ArrowLeft, Ban, Plus, CalendarRange, Trash2, Crown, Sparkles, ShieldCheck, Lock, Star, PhoneCall, CheckCheck, RotateCcw, PhoneOff, ClipboardList, FileText } from "lucide-react";
 import { format, differenceInMonths } from "date-fns";
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
@@ -69,6 +69,9 @@ export default function ClientDetail() {
   // Follow-up history state
   const [fuHistory, setFuHistory] = useState<any[]>([]);
   const [fuStats, setFuStats] = useState<{ total: number; return_booked: number } | null>(null);
+  // Requests + Invoices for this client
+  const [clientRequests, setClientRequests] = useState<any[]>([]);
+  const [clientInvoices, setClientInvoices] = useState<any[]>([]);
 
   useEffect(() => {
     if (!id) return;
@@ -76,13 +79,28 @@ export default function ClientDetail() {
       try {
         const { data: { session } } = await supabase.auth.getSession();
         const token = session?.access_token ?? "";
-        const res = await fetch(`${API_BASE}/follow-ups/client/${id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        if (res.ok) {
-          const json = await res.json();
+        const headers = { Authorization: `Bearer ${token}` };
+
+        const [fuRes, reqRes, invRes] = await Promise.all([
+          fetch(`${API_BASE}/follow-ups/client/${id}`, { headers }),
+          fetch(`${API_BASE}/requests?client_id=${id}`, { headers }),
+          fetch(`${API_BASE}/invoices`, { headers }),
+        ]);
+
+        if (fuRes.ok) {
+          const json = await fuRes.json();
           setFuHistory(json.history ?? []);
           setFuStats(json.stats ?? null);
+        }
+        if (reqRes.ok) {
+          const json = await reqRes.json();
+          setClientRequests(Array.isArray(json) ? json : (json.requests ?? []));
+        }
+        if (invRes.ok) {
+          const json = await invRes.json();
+          const all = Array.isArray(json) ? json : (json.invoices ?? []);
+          // We don't have client_id on invoices directly — match via booking_id later
+          setClientInvoices(all);
         }
       } catch { /* ignore */ }
     })();
@@ -483,6 +501,138 @@ export default function ClientDetail() {
           )}
         </CardContent>
       </Card>
+
+      {/* Client Requests */}
+      <Card className="border-primary/10 bg-card">
+        <CardHeader className="pb-3 flex flex-row items-center justify-between">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <ClipboardList className="w-4 h-4 text-amber-400" />
+              Requests
+            </CardTitle>
+            {clientRequests.length > 0 && (
+              <p className="text-xs text-muted-foreground mt-0.5">
+                {clientRequests.length} total · {clientRequests.filter(r => r.status === "Open" || r.status === "Pending").length} open
+              </p>
+            )}
+          </div>
+          <Link href={`/requests/new?client_id=${client.id}`}>
+            <Button size="sm" variant="outline" className="text-xs h-8">
+              <Plus className="w-3 h-3 mr-1" /> New Request
+            </Button>
+          </Link>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {clientRequests.length > 0 ? (
+            <div className="space-y-2">
+              {clientRequests.slice(0, 8).map((req: any) => (
+                <Link key={req.id} href={`/requests/${req.id}`}>
+                  <div className="flex items-center gap-3 p-3 rounded-xl border border-border bg-background/50 hover:border-amber-500/40 transition-colors cursor-pointer">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm truncate">{req.summary || req.service_type || "Request"}</span>
+                        {req.priority && (
+                          <Badge variant="outline" className={`text-[10px] shrink-0 ${
+                            req.priority === "High" ? "text-destructive border-destructive/30" :
+                            req.priority === "Medium" ? "text-amber-400 border-amber-500/30" :
+                            "text-muted-foreground border-border"
+                          }`}>{req.priority}</Badge>
+                        )}
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-0.5">
+                        {req.created_at ? format(new Date(req.created_at), "dd MMM yyyy") : ""}
+                        {req.service_type && req.summary ? ` · ${req.service_type}` : ""}
+                      </div>
+                    </div>
+                    <Badge variant="outline" className={`text-[10px] flex-shrink-0 ${
+                      req.status === "Converted" || req.status === "Booked" ? "text-green-400 border-green-400/30" :
+                      req.status === "Lost" || req.status === "Cancelled" ? "text-destructive border-destructive/30" :
+                      "text-amber-400 border-amber-500/30"
+                    }`}>
+                      {req.status || "Open"}
+                    </Badge>
+                  </div>
+                </Link>
+              ))}
+              {clientRequests.length > 8 && (
+                <Link href={`/requests?client_id=${client.id}`}>
+                  <Button variant="ghost" size="sm" className="w-full text-xs">
+                    View all {clientRequests.length} requests →
+                  </Button>
+                </Link>
+              )}
+            </div>
+          ) : (
+            <div className="flex flex-col items-center py-6 text-center">
+              <ClipboardList className="w-8 h-8 text-muted-foreground/30 mb-2" />
+              <p className="text-sm text-muted-foreground">No requests for this client yet</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Client Invoices (matched via the client's bookings) */}
+      {(() => {
+        const bookingIds = new Set(((client as any).bookings ?? []).map((b: any) => b.id));
+        const myInvoices = clientInvoices.filter((inv: any) => bookingIds.has(inv.booking_id));
+        const bookingsById = new Map(((client as any).bookings ?? []).map((b: any) => [b.id, b]));
+        return (
+          <Card className="border-primary/10 bg-card">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <FileText className="w-4 h-4 text-primary" />
+                Invoices
+              </CardTitle>
+              {myInvoices.length > 0 && (
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  {myInvoices.length} invoice{myInvoices.length !== 1 ? "s" : ""}
+                </p>
+              )}
+            </CardHeader>
+            <CardContent className="pt-0">
+              {myInvoices.length > 0 ? (
+                <div className="space-y-2">
+                  {myInvoices.slice(0, 10).map((inv: any) => {
+                    const bk: any = bookingsById.get(inv.booking_id);
+                    return (
+                      <Link key={inv.id} href={`/invoices/${inv.id}`}>
+                        <div className="flex items-center gap-3 p-3 rounded-xl border border-border bg-background/50 hover:border-primary/30 transition-colors cursor-pointer">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-semibold text-sm">{inv.invoice_number || `INV-${(inv.id || "").slice(0, 6)}`}</span>
+                              {bk?.tvl_ref && (
+                                <Badge variant="outline" className="text-[10px] shrink-0 font-mono">{bk.tvl_ref}</Badge>
+                              )}
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              {inv.created_at ? format(new Date(inv.created_at), "dd MMM yyyy") : ""}
+                            </div>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <div className="font-semibold text-sm text-primary">£{(bk?.price ?? 0).toLocaleString()}</div>
+                            <Badge variant="outline" className={`text-[10px] mt-0.5 ${
+                              inv.status === "Paid" ? "text-green-400 border-green-400/30" :
+                              inv.status === "Sent" ? "text-blue-400 border-blue-400/30" :
+                              "text-amber-400 border-amber-500/30"
+                            }`}>
+                              {inv.status || "Generated"}
+                            </Badge>
+                          </div>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="flex flex-col items-center py-6 text-center">
+                  <FileText className="w-8 h-8 text-muted-foreground/30 mb-2" />
+                  <p className="text-sm text-muted-foreground">No invoices yet — generated from a booking detail page.</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Follow-Up History */}
       {(fuHistory.length > 0 || fuStats) && (

@@ -85,6 +85,29 @@ export default function Jobs() {
   const urgentJobs = filteredBookings.filter(b => !b.driver_id && b.status !== 'Completed');
   const activeJobs = bookings?.filter(b => b.status !== 'Cancelled') || [];
 
+  // Group jobs by date for date-section headings
+  const groupedByDate = useMemo(() => {
+    const groups = new Map<string, { label: string; sortKey: string; jobs: typeof filteredBookings }>();
+    const undated: typeof filteredBookings = [];
+    for (const job of filteredBookings) {
+      if (!job.date_time) { undated.push(job); continue; }
+      const d = new Date(job.date_time);
+      const sortKey = format(d, "yyyy-MM-dd");
+      const label = isToday(d) ? `Today · ${format(d, "EEE d MMMM yyyy")}`
+        : isTomorrow(d) ? `Tomorrow · ${format(d, "EEE d MMMM yyyy")}`
+        : format(d, "EEEE d MMMM yyyy");
+      if (!groups.has(sortKey)) groups.set(sortKey, { label, sortKey, jobs: [] });
+      groups.get(sortKey)!.jobs.push(job);
+    }
+    const sorted = [...groups.values()].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+    // Sort jobs within each day by time
+    for (const g of sorted) {
+      g.jobs.sort((a, b) => new Date(a.date_time!).getTime() - new Date(b.date_time!).getTime());
+    }
+    if (undated.length > 0) sorted.push({ label: "Date TBC", sortKey: "zzz", jobs: undated });
+    return sorted;
+  }, [filteredBookings]);
+
   return (
     <div className="space-y-5">
       {/* Header */}
@@ -142,12 +165,21 @@ export default function Jobs() {
         </Select>
       )}
 
-      {/* Job cards */}
-      <div className="space-y-3">
+      {/* Job cards grouped by date */}
+      <div className="space-y-6">
         {isLoading ? (
           [...Array(4)].map((_, i) => <Skeleton key={i} className="h-36" />)
-        ) : filteredBookings.length > 0 ? filteredBookings.map((job) => (
-          <Card
+        ) : filteredBookings.length > 0 ? groupedByDate.map((group) => (
+          <div key={group.sortKey} className="space-y-3">
+            <div className="flex items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-sm py-1.5 z-10">
+              <h2 className="text-sm font-bold text-primary uppercase tracking-wide">{group.label}</h2>
+              <div className="flex-1 h-px bg-border" />
+              <Badge variant="outline" className="text-[10px] text-muted-foreground border-border">
+                {group.jobs.length} job{group.jobs.length !== 1 ? "s" : ""}
+              </Badge>
+            </div>
+            {group.jobs.map((job) => (
+              <Card
             key={job.id}
             className="border-border hover:border-primary/40 hover:bg-secondary/10 transition-all bg-card overflow-hidden cursor-pointer"
             onClick={() => setLocation(`/bookings/${job.id}`)}
@@ -253,6 +285,8 @@ export default function Jobs() {
               </div>
             </CardContent>
           </Card>
+            ))}
+          </div>
         )) : (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <Briefcase className="w-12 h-12 text-muted-foreground/30 mb-4" />
