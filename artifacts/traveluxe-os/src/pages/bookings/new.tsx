@@ -113,6 +113,7 @@ const bookingSchema = z.object({
     amount: z.coerce.number().optional().default(0),
   })).optional(),
   as_directed_supplier_driver: z.boolean().optional().default(false),
+  overtime_hours: z.coerce.number().optional().default(0),
 });
 
 export default function NewBooking() {
@@ -386,16 +387,39 @@ export default function NewBooking() {
     return () => { cancelled = true; };
   }, [airportCode, orderLines.map(l => l.product_id).join("|"), serviceType]);
 
-  // ── As Directed auto-pricing (vehicle hourly rate × hours) ──
-  const hoursWatched = bookingForm.watch("hours") || 0;
+  // ── As Directed: auto-compute rental_days (inclusive) from start → return ──
+  // Same calendar day = 1 day. Sat 21st → Sat 21st = 1 day. 21st → 26th = 6 days.
+  const adStart = bookingForm.watch("check_in_date");
+  const adEnd   = bookingForm.watch("check_out_date");
   useEffect(() => {
-    if (serviceType !== "As Directed" || hoursWatched <= 0) return;
+    if (serviceType !== "As Directed") return;
+    // Clear stale days if dates are missing/invalid/inverted
+    if (!adStart || !adEnd) {
+      bookingForm.setValue("rental_days" as any, 0);
+      return;
+    }
+    const s = new Date(adStart.slice(0, 10) + "T00:00:00");
+    const e = new Date(adEnd.slice(0, 10) + "T00:00:00");
+    if (isNaN(s.getTime()) || isNaN(e.getTime()) || e.getTime() < s.getTime()) {
+      bookingForm.setValue("rental_days" as any, 0);
+      return;
+    }
+    const diff = Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+    bookingForm.setValue("rental_days" as any, diff);
+  }, [adStart, adEnd, serviceType]);
+
+  // ── As Directed auto-pricing: vehicle daily rate × days + overtime ──
+  // Daily rate is derived from vehicle hourly_rate × 10 (10 hrs = 1 standard day)
+  // unless the operator has already set a base_daily_rate manually.
+  const hoursWatched   = bookingForm.watch("hours") || 0; // hours per day (max 10)
+  const overtimeHours  = Number((bookingForm.watch("overtime_hours" as any) as any) || 0);
+  const adRentalDays   = Number((bookingForm.watch("rental_days" as any) as any) || 0);
+  useEffect(() => {
+    if (serviceType !== "As Directed" || adRentalDays <= 0) return;
     const vehicleLine = orderLines.find(l => l.category === "Vehicle" && l.product_id);
     if (!vehicleLine || !vehicleLine.product_id) return;
     let cancelled = false;
     (async () => {
-      // Use OTHER airport row's hourly_rate as default chauffeuring rate;
-      // fall back to LHR if OTHER not set.
       const { data } = await supabase
         .from("vehicle_airport_pricing")
         .select("airport_code, hourly_rate")
@@ -407,13 +431,19 @@ export default function NewBooking() {
                    ?? (data ?? [])[0];
       const hourly = Number(rateRow?.hourly_rate ?? 0);
       if (hourly <= 0) return;
-      const newPrice = hourly * hoursWatched;
+      const dailyRate = hourly * 10;
+      // Always push the auto-derived daily rate so the cost-breakdown stays
+      // in sync when the vehicle / pricing row changes. Operators who want a
+      // bespoke rate should adjust the line item unit price directly.
+      bookingForm.setValue("base_daily_rate" as any, dailyRate);
+      const overtimeAmount = overtimeHours * dailyRate * 0.10;
+      const newPrice = dailyRate * adRentalDays + overtimeAmount;
       if (newPrice > 0 && newPrice !== vehicleLine.unit_price) {
         setOrderLines(prev => prev.map(l => l.key === vehicleLine.key ? { ...l, unit_price: newPrice } : l));
       }
     })();
     return () => { cancelled = true; };
-  }, [hoursWatched, orderLines.map(l => l.product_id).join("|"), serviceType]);
+  }, [adRentalDays, overtimeHours, orderLines.map(l => l.product_id).join("|"), serviceType]);
 
   const loadClientById = async (clientId: string) => {
     const { data } = await supabase
@@ -562,11 +592,36 @@ export default function NewBooking() {
     // For Hotel/Apartment, derive date_time from the check-in date so
     // calendars, dashboard sorting, and "upcoming" filters still work even
     // though the user no longer enters a separate Date & Time.
+    const isAsDirectedSubmit = values.service_type === "As Directed";
     const effectiveDateTime = isAccommodationSubmit
       ? values.check_in_date
         ? `${values.check_in_date}T12:00`
         : undefined
-      : values.date_time;
+      : isAsDirectedSubmit
+        ? (values.check_in_date || values.date_time)
+        : values.date_time;
+
+    // As Directed: if there's overtime, append a calculated extra_charges line
+    // so the cost-breakdown trigger picks it up in supplier_cost.
+    let mergedExtras = Array.isArray((values as any).extra_charges)
+      ? [...(values as any).extra_charges]
+      : [];
+    if (isAsDirectedSubmit) {
+      // Always strip any prior auto-generated overtime line so we never
+      // double-count or leak a stale charge after overtime is reset to 0.
+      mergedExtras = mergedExtras.filter(
+        (e: any) => !(e?.description || "").startsWith("Overtime: "),
+      );
+      const ot = Number((values as any).overtime_hours || 0);
+      const dr = Number((values as any).base_daily_rate || 0);
+      if (ot > 0 && dr > 0) {
+        const otAmt = Math.round(ot * dr * 0.10);
+        mergedExtras.push({
+          description: `Overtime: ${ot} hr @ £${Math.round(dr * 0.10)}/hr`,
+          amount: otAmt,
+        });
+      }
+    }
 
     // Only include fields that exist as columns in the bookings table
     const allowedPayload: Record<string, any> = {
@@ -598,9 +653,7 @@ export default function NewBooking() {
       rental_days: (values as any).rental_days,
       fuel_cost: (values as any).fuel_cost,
       driver_cost: (values as any).driver_cost,
-      extra_charges: Array.isArray((values as any).extra_charges) && (values as any).extra_charges.length > 0
-        ? (values as any).extra_charges
-        : undefined,
+      extra_charges: mergedExtras.length > 0 ? mergedExtras : undefined,
       as_directed_supplier_driver: !!(values as any).as_directed_supplier_driver,
     };
 
@@ -1230,34 +1283,12 @@ export default function NewBooking() {
                       </div>
                       <div className="flex justify-between items-center text-sm">
                         <span className="font-semibold text-foreground">Client price</span>
-                        <div className="flex items-center gap-2">
-                          {carRentalSubtotal > 0 && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="h-6 px-2 text-[11px] text-primary hover:text-primary"
-                              onClick={() => {
-                                const suggested = Math.ceil(carRentalSubtotal * 1.30 / 5) * 5;
-                                bookingForm.setValue("price", suggested);
-                              }}
-                              title="Cost + 30% margin, rounded up to nearest £5"
-                            >
-                              Suggest (+30%)
-                            </Button>
-                          )}
-                          <span className="font-bold text-primary">£{Number(clientPriceWatch).toLocaleString()}</span>
-                        </div>
+                        <span className="font-bold text-primary">£{Number(clientPriceWatch).toLocaleString()}</span>
                       </div>
                       <div className="flex justify-between text-sm pt-1.5 border-t border-border/50">
                         <span className="font-semibold text-foreground">Margin</span>
                         <span className={`font-bold ${carRentalMargin >= 0 ? "text-green-400" : "text-destructive"}`}>
                           £{carRentalMargin.toLocaleString()}
-                          {carRentalSubtotal > 0 && (
-                            <span className="ml-1 text-[10px] font-normal text-muted-foreground">
-                              ({Math.round((carRentalMargin / carRentalSubtotal) * 100)}%)
-                            </span>
-                          )}
                         </span>
                       </div>
                     </div>
@@ -1276,7 +1307,7 @@ export default function NewBooking() {
                   {/* Date / Time are shown for every transport service in the
                       order the operator asked for: Date → (Flight No.) → Time.
                       Hotel / Apartment use Check-in / Check-out instead. */}
-                  {!isHotel && !isAccommodation && (() => {
+                  {!isHotel && !isAccommodation && !isAsDirected && (() => {
                     const dt = bookingForm.watch("date_time") ?? "";
                     const dateVal = dt.slice(0, 10);
                     const timeVal = dt.slice(11, 16);
@@ -1464,34 +1495,89 @@ export default function NewBooking() {
                     </div>
                   )}
 
-                  {isAsDirected && (
+                  {isAsDirected && (() => {
+                    const baseRate = Number((bookingForm.watch("base_daily_rate" as any) as any) || 0);
+                    const hrlyOvertime = baseRate * 0.10;
+                    const overtimeAmount = overtimeHours * hrlyOvertime;
+                    const subtotal = baseRate * adRentalDays + overtimeAmount;
+                    return (
                     <div className="space-y-3 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5">
                       <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Chauffeuring Period</p>
                       <div className="grid grid-cols-2 gap-3">
                         <FormField control={bookingForm.control} name="check_in_date" render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Rental Start Date</FormLabel>
+                            <FormLabel>Start (date &amp; time)</FormLabel>
                             <FormControl><Input type="datetime-local" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
                         <FormField control={bookingForm.control} name="check_out_date" render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Rental Return Date</FormLabel>
-                            <FormControl><Input type="datetime-local" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
-                        <FormField control={bookingForm.control} name="hours" render={({ field }) => (
-                          <FormItem className="col-span-2">
-                            <FormLabel>Hours <span className="text-xs text-muted-foreground font-normal ml-1">(× vehicle hourly rate)</span></FormLabel>
-                            <FormControl><Input type="number" step="0.5" placeholder="e.g. 4" {...field} /></FormControl>
+                            <FormLabel>Return (date)</FormLabel>
+                            <FormControl>
+                              <Input
+                                type="date"
+                                value={(field.value || "").slice(0, 10)}
+                                onChange={(e) => field.onChange(e.target.value)}
+                              />
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
                       </div>
+                      <div className="grid grid-cols-3 gap-3 items-end">
+                        <FormField control={bookingForm.control} name="hours" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Hours / day <span className="text-[10px] text-muted-foreground font-normal ml-1">(max 10)</span></FormLabel>
+                            <FormControl>
+                              <Input type="number" step="1" min="1" max="10" placeholder="10"
+                                value={field.value ?? 10}
+                                onChange={(e) => field.onChange(e.target.value === "" ? 10 : Number(e.target.value))}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name={"overtime_hours" as any} render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Overtime hrs <span className="text-[10px] text-muted-foreground font-normal ml-1">(+10% / hr)</span></FormLabel>
+                            <FormControl>
+                              <Input type="number" step="0.5" min="0" placeholder="0"
+                                value={field.value ?? ""}
+                                onChange={(e) => field.onChange(e.target.value === "" ? 0 : Number(e.target.value))}
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <div className="space-y-1">
+                          <Label className="text-xs text-muted-foreground">Total days</Label>
+                          <div className="h-9 px-3 rounded-md border border-border bg-secondary/20 flex items-center font-semibold text-foreground">
+                            {adRentalDays || "—"}
+                          </div>
+                        </div>
+                      </div>
+                      {(baseRate > 0 || adRentalDays > 0) && (
+                        <div className="rounded-md bg-background/40 border border-border p-2.5 space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">{adRentalDays || 0} day{adRentalDays === 1 ? "" : "s"} × £{baseRate.toLocaleString()}/day</span>
+                            <span className="font-medium">£{(baseRate * adRentalDays).toLocaleString()}</span>
+                          </div>
+                          {overtimeHours > 0 && (
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Overtime: {overtimeHours} hr × £{Math.round(hrlyOvertime).toLocaleString()}/hr</span>
+                              <span className="font-medium">£{Math.round(overtimeAmount).toLocaleString()}</span>
+                            </div>
+                          )}
+                          <div className="flex justify-between pt-1 border-t border-border">
+                            <span className="font-semibold text-foreground">Chauffeuring subtotal</span>
+                            <span className="font-bold text-primary">£{Math.round(subtotal).toLocaleString()}</span>
+                          </div>
+                        </div>
+                      )}
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {isHotel && (
                     <div className="space-y-3 p-3 rounded-xl border border-blue-500/20 bg-blue-500/5">
@@ -1994,9 +2080,18 @@ export default function NewBooking() {
                         </FormItem>
                       )} />
 
-                      <FormField control={bookingForm.control} name="vehicle_type" render={({ field }) => (
+                      {/* Hide the standalone Vehicle field once a driver is
+                          assigned — the vehicle is implicit from the driver.
+                          Also hide for As Directed bookings where the vehicle
+                          is already chosen as a line item above. */}
+                      {!isAsDirected && (() => {
+                        const did = bookingForm.watch("driver_id");
+                        const hasDriver = !!did && did !== "unassigned";
+                        if (hasDriver) return null;
+                        return (
+                          <FormField control={bookingForm.control} name="vehicle_type" render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Vehicle <span className="text-xs text-muted-foreground font-normal">(auto-filled from driver · override if needed)</span></FormLabel>
+                          <FormLabel>Vehicle <span className="text-xs text-muted-foreground font-normal">(pick a driver to auto-fill)</span></FormLabel>
                           <FormControl>
                             <Input
                               list="fleet-vehicles-list"
@@ -2022,6 +2117,8 @@ export default function NewBooking() {
                           <FormMessage />
                         </FormItem>
                       )} />
+                        );
+                      })()}
 
                       {/* 2nd & 3rd Driver — all transport types (multi-vehicle bookings) */}
                       <div className="grid grid-cols-2 gap-3">
