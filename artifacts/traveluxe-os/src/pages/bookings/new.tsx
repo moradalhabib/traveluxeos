@@ -357,6 +357,35 @@ export default function NewBooking() {
       if (dirParam) bookingForm.setValue("direction", dirParam as any);
       toast({ title: "Return journey prefilled", description: `Reversed route from ${returnFrom}.` });
     }
+
+    // Auto return-trip prefill (from "Create return" toast on a completed
+    // Arrival booking). Fetch the source booking and reverse the route /
+    // direction so the operator only confirms date+time.
+    const returnOf = params.get("return_of");
+    if (returnOf) {
+      (async () => {
+        const { data: src } = await supabase
+          .from("bookings")
+          .select("tvl_ref, client_id, service_type, direction, pickup, dropoff, airport_code, vehicle_type, passengers, luggage")
+          .eq("id", returnOf)
+          .maybeSingle();
+        if (!src) return;
+        if (src.client_id) loadClientById(src.client_id);
+        bookingForm.setValue("service_type", (src.service_type ?? "Airport Transfer") as any);
+        const reversedDir = src.direction === "Arrival" ? "Departure" : "Arrival";
+        bookingForm.setValue("direction", reversedDir as any);
+        if (src.pickup)  bookingForm.setValue("dropoff", src.pickup);
+        if (src.dropoff) bookingForm.setValue("pickup", src.dropoff);
+        if (src.airport_code) bookingForm.setValue("airport_code" as any, src.airport_code);
+        if (src.vehicle_type) bookingForm.setValue("vehicle_type", src.vehicle_type);
+        if (src.passengers) bookingForm.setValue("passengers", src.passengers);
+        if (src.luggage) bookingForm.setValue("luggage", src.luggage);
+        toast({
+          title: "Return trip prefilled",
+          description: `Reversed route from ${src.tvl_ref ?? "source booking"} — set the pickup time.`,
+        });
+      })();
+    }
   }, []);
 
   // Auto-update price when order lines change (if total > 0)

@@ -373,8 +373,42 @@ router.put("/:id", async (req, res) => {
   const db = getDbClient(req.headers.authorization);
 
   // Capture previous payment_status before update
-  const { data: prev } = await db.from("bookings").select("payment_status, status, driver_id").eq("id", req.params.id).single();
+  const { data: prev } = await db.from("bookings").select("payment_status, status, driver_id, date_time, duration").eq("id", req.params.id).single();
   const prevPaymentStatus = prev?.payment_status;
+
+  // ── Driver-conflict pre-check (non-blocking warning) ────────────────────
+  // When the operator assigns/changes the driver, look for any other live
+  // booking for the same driver whose pickup window overlaps this one's.
+  // Operators sometimes deliberately stack short jobs, so we warn rather
+  // than block. The frontend surfaces this as a toast.
+  let driverConflict: any = null;
+  const incomingDriverId = req.body.driver_id;
+  if (incomingDriverId && incomingDriverId !== prev?.driver_id) {
+    const targetIso = req.body.date_time ?? prev?.date_time;
+    const targetDuration = Number(req.body.duration ?? prev?.duration ?? 90);
+    if (targetIso) {
+      const target = new Date(targetIso);
+      // Window = pickup ± 90min OR explicit duration, whichever is larger
+      const buffer = Math.max(targetDuration, 90) * 60_000;
+      const winStart = new Date(target.getTime() - buffer).toISOString();
+      const winEnd = new Date(target.getTime() + buffer).toISOString();
+      const { data: clashes } = await db
+        .from("bookings")
+        .select("id, tvl_ref, date_time, pickup, dropoff, status")
+        .eq("driver_id", incomingDriverId)
+        .neq("id", req.params.id)
+        .neq("status", "Cancelled")
+        .neq("status", "Completed")
+        .gte("date_time", winStart)
+        .lte("date_time", winEnd);
+      if (clashes && clashes.length > 0) {
+        driverConflict = {
+          conflicts: clashes,
+          message: `Driver already has ${clashes.length} job${clashes.length === 1 ? "" : "s"} within 90 min of this pickup.`,
+        };
+      }
+    }
+  }
 
   // Apply same whitelist as POST to avoid unknown-column errors on update
   const raw: Record<string, any> = {};
@@ -440,6 +474,7 @@ router.put("/:id", async (req, res) => {
     `Booking ${updated.tvl_ref} amended`);
 
   const enriched = await enrichBooking(updated);
+  if (driverConflict) (enriched as any).driver_conflict = driverConflict;
 
   // ── In-app notifications for amendment / status change ──────────────────
   {

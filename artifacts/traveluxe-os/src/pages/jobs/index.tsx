@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import {
   useListBookings, getListBookingsQueryKey,
   useUpdateBookingStatus, useUpdateBooking,
@@ -9,9 +9,10 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLocation, useSearch, Link } from "wouter";
 import { format, isToday, isTomorrow, startOfDay, endOfDay, addDays, isBefore, isAfter } from "date-fns";
-import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X } from "lucide-react";
+import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useQueryClient } from "@tanstack/react-query";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 
 const STATUS_COLORS: Record<string, string> = {
   'Pending':   'bg-amber-500/20 text-amber-400 border-amber-500/50',
@@ -50,6 +51,66 @@ export default function Jobs() {
     updateStatus.mutate({ id: jobId, data: { status: newStatus } }, {
       onSuccess: () => qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) }),
     });
+  };
+
+  // unused-import safety
+  void Check;
+
+  // ── Long-press → quick status menu ────────────────────────────────────────
+  // Operators on the road want to flip a job to Active/Completed without
+  // opening the booking. We bind touch + mouse hold (>500ms) to surface a
+  // bottom sheet with status shortcuts. Short taps still navigate as before.
+  const [quickMenuJob, setQuickMenuJob] = useState<any>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressFired = useRef(false);
+
+  // Clear pending long-press timer on unmount to avoid setState-after-unmount.
+  useEffect(() => {
+    return () => {
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+      }
+    };
+  }, []);
+
+  // When the quick-action sheet closes, reset the long-press latch so the
+  // *next* card tap is treated as a navigation again (not swallowed).
+  useEffect(() => {
+    if (!quickMenuJob) longPressFired.current = false;
+  }, [quickMenuJob]);
+
+  const startLongPress = (job: any) => {
+    longPressFired.current = false;
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) {
+        try { (navigator as any).vibrate?.(20); } catch { /* noop */ }
+      }
+      setQuickMenuJob(job);
+    }, 500);
+  };
+  const cancelLongPress = () => {
+    if (longPressTimer.current) clearTimeout(longPressTimer.current);
+    longPressTimer.current = null;
+  };
+  const handleCardClick = (jobId: string, e: React.MouseEvent) => {
+    if (longPressFired.current) {
+      e.preventDefault();
+      e.stopPropagation();
+      longPressFired.current = false;
+      return;
+    }
+    setLocation(`/bookings/${jobId}`);
+  };
+
+  const quickSetStatus = (status: string) => {
+    if (!quickMenuJob) return;
+    updateStatus.mutate({ id: quickMenuJob.id, data: { status } }, {
+      onSuccess: () => qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) }),
+    });
+    setQuickMenuJob(null);
   };
 
   const handlePaymentChange = (e: React.ChangeEvent<HTMLSelectElement>, jobId: string) => {
@@ -189,8 +250,16 @@ export default function Jobs() {
             {group.jobs.map((job) => (
               <Card
             key={job.id}
-            className="border-border hover:border-primary/40 hover:bg-secondary/10 transition-all bg-card overflow-hidden cursor-pointer"
-            onClick={() => setLocation(`/bookings/${job.id}`)}
+            className="border-border hover:border-primary/40 hover:bg-secondary/10 transition-all bg-card overflow-hidden cursor-pointer select-none"
+            onClick={(e) => handleCardClick(job.id, e)}
+            onTouchStart={() => startLongPress(job)}
+            onTouchEnd={cancelLongPress}
+            onTouchMove={cancelLongPress}
+            onTouchCancel={cancelLongPress}
+            onMouseDown={() => startLongPress(job)}
+            onMouseUp={cancelLongPress}
+            onMouseLeave={cancelLongPress}
+            onContextMenu={(e) => { e.preventDefault(); setQuickMenuJob(job); longPressFired.current = true; }}
           >
             <CardContent className="p-4">
               {/* Top row: ref + time + status dropdown */}
@@ -298,6 +367,23 @@ export default function Jobs() {
                   </select>
                 </div>
               </div>
+
+              {/* Notified badges — surfaced when ops has actually pinged the
+                  client / driver. Helps avoid double-messaging. */}
+              {((job as any).client_notified_at || (job as any).driver_notified_at) && (
+                <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-border/50">
+                  {(job as any).client_notified_at && (
+                    <Badge variant="outline" className="text-[9px] py-0 px-1.5 bg-green-500/10 text-green-400 border-green-500/30">
+                      <MessageCircle className="w-2.5 h-2.5 mr-0.5" /> Client notified
+                    </Badge>
+                  )}
+                  {(job as any).driver_notified_at && (
+                    <Badge variant="outline" className="text-[9px] py-0 px-1.5 bg-amber-500/10 text-amber-400 border-amber-500/30">
+                      <Car className="w-2.5 h-2.5 mr-0.5" /> Driver notified
+                    </Badge>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
             ))}
@@ -314,6 +400,39 @@ export default function Jobs() {
           </div>
         )}
       </div>
+
+      {/* Quick status menu (long-press / right-click) */}
+      <Sheet open={!!quickMenuJob} onOpenChange={(open) => !open && setQuickMenuJob(null)}>
+        <SheetContent side="bottom" className="rounded-t-2xl">
+          <SheetHeader className="text-left mb-4">
+            <SheetTitle className="text-base">
+              {quickMenuJob?.tvl_ref} · {quickMenuJob?.client_name ?? "—"}
+            </SheetTitle>
+            <p className="text-xs text-muted-foreground">Quick status update</p>
+          </SheetHeader>
+          <div className="grid grid-cols-2 gap-2">
+            {(["Pending", "Confirmed", "Active", "Completed", "Cancelled"] as const).map(s => (
+              <Button
+                key={s}
+                variant={quickMenuJob?.status === s ? "default" : "outline"}
+                className="h-12 justify-start text-sm font-semibold"
+                onClick={() => quickSetStatus(s)}
+                disabled={quickMenuJob?.status === "Cancelled" && s !== "Cancelled"}
+              >
+                {quickMenuJob?.status === s && <Check className="w-4 h-4 mr-2" />}
+                {s}
+              </Button>
+            ))}
+          </div>
+          <Button
+            variant="ghost"
+            className="w-full mt-4"
+            onClick={() => { if (quickMenuJob) setLocation(`/bookings/${quickMenuJob.id}`); setQuickMenuJob(null); }}
+          >
+            Open full booking →
+          </Button>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

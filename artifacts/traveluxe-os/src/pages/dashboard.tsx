@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, Plus, BellRing } from "lucide-react";
+import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, Plus, BellRing, Car } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -32,6 +32,7 @@ export default function Dashboard() {
   const pendingRequests: any[] = s?.pending_requests ?? [];
   const followUpsPending: number = s?.follow_ups_pending ?? 0;
   const followUpsOverdue: number = s?.follow_ups_overdue ?? 0;
+  const todaysJobs: any[] = s?.todays_jobs ?? [];
   // Suppress unused warnings — qc/toast still wired for future handlers
   void qc; void toast;
 
@@ -170,6 +171,61 @@ export default function Dashboard() {
               </div>
             )}
 
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Today's Jobs — next 5 upcoming today (server-ordered by pickup time) */}
+      {todaysJobs.length > 0 && (
+        <Card className="border-border bg-card">
+          <CardHeader className="pb-3 flex flex-row items-center justify-between">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Briefcase className="w-4 h-4 text-primary" />
+              Today's Jobs
+              <span className="text-xs font-normal text-muted-foreground ml-1">
+                ({todaysJobs.length})
+              </span>
+            </CardTitle>
+            <Link href="/jobs?time=today">
+              <span className="text-xs text-primary hover:underline cursor-pointer">View all →</span>
+            </Link>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-2">
+            {todaysJobs.map((j) => (
+              <Link key={j.id} href={`/bookings/${j.id}`}>
+                <div className="rounded-lg border border-border bg-background/40 hover:bg-secondary/20 transition-colors p-2.5 flex items-center gap-3 cursor-pointer">
+                  <div className="flex flex-col items-center justify-center w-12 flex-shrink-0">
+                    <Clock className="w-3 h-3 text-primary mb-0.5" />
+                    <span className="text-xs font-bold text-foreground">
+                      {j.date_time ? new Date(j.date_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : "—"}
+                    </span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-semibold text-foreground truncate">{j.client_name ?? "Unknown"}</span>
+                      {j.client_vip_tier && j.client_vip_tier !== "Standard" && (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/15 text-primary uppercase">{j.client_vip_tier}</span>
+                      )}
+                      <span className="text-[10px] font-mono text-muted-foreground">{j.tvl_ref}</span>
+                    </div>
+                    <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+                      {j.service_type}{j.direction ? ` · ${j.direction}` : ""} · {j.pickup ?? "—"} → {j.dropoff ?? "—"}
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                    {j.driver_name ? (
+                      <span className="text-[10px] text-foreground flex items-center gap-1">
+                        <Car className="w-3 h-3 text-muted-foreground" /> {j.driver_name}
+                      </span>
+                    ) : (
+                      <span className="text-[10px] text-destructive flex items-center gap-1">
+                        <AlertTriangle className="w-3 h-3" /> No driver
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </Link>
+            ))}
           </CardContent>
         </Card>
       )}

@@ -50,6 +50,44 @@ router.get("/summary", async (_req, res) => {
     .reduce((sum: number, b: any) => sum + (b.commission_amount || 0), 0);
   const outstandingCommissions = driverCommissionOutstanding + arrangementFeeOutstanding;
 
+  // ── Today's Jobs (next 5 upcoming today, by pickup time) ─────────────────
+  const todayEnd = new Date(todayStart);
+  todayEnd.setHours(23, 59, 59, 999);
+  const { data: todaysJobsRaw } = await supabase
+    .from("bookings")
+    .select("id, tvl_ref, service_type, direction, pickup, dropoff, date_time, status, driver_id, client_id, vehicle_type")
+    .gte("date_time", now.toISOString())
+    .lte("date_time", todayEnd.toISOString())
+    .neq("status", "Cancelled")
+    .neq("status", "Completed")
+    .order("date_time", { ascending: true })
+    .limit(5);
+  const todayJobClientIds = Array.from(new Set((todaysJobsRaw ?? []).map((b: any) => b.client_id).filter(Boolean)));
+  const todayJobDriverIds = Array.from(new Set((todaysJobsRaw ?? []).map((b: any) => b.driver_id).filter(Boolean)));
+  const [{ data: todayJobClients }, { data: todayJobDrivers }] = await Promise.all([
+    supabase.from("clients").select("id, name, vip_tier").in("id", todayJobClientIds.length ? todayJobClientIds : ["00000000-0000-0000-0000-000000000000"]),
+    supabase.from("drivers").select("id, name").in("id", todayJobDriverIds.length ? todayJobDriverIds : ["00000000-0000-0000-0000-000000000000"]),
+  ]);
+  const todayJobClientMap: Record<string, any> = {};
+  (todayJobClients ?? []).forEach((c: any) => { todayJobClientMap[c.id] = c; });
+  const todayJobDriverMap: Record<string, any> = {};
+  (todayJobDrivers ?? []).forEach((d: any) => { todayJobDriverMap[d.id] = d; });
+  const todaysJobs = (todaysJobsRaw ?? []).map((b: any) => ({
+    id: b.id,
+    tvl_ref: b.tvl_ref,
+    service_type: b.service_type,
+    direction: b.direction,
+    pickup: b.pickup,
+    dropoff: b.dropoff,
+    date_time: b.date_time,
+    status: b.status,
+    vehicle_type: b.vehicle_type,
+    client_name: todayJobClientMap[b.client_id]?.name ?? null,
+    client_vip_tier: todayJobClientMap[b.client_id]?.vip_tier ?? null,
+    driver_name: todayJobDriverMap[b.driver_id]?.name ?? null,
+    driver_id: b.driver_id,
+  }));
+
   const { data: pendingPayoutBookings } = await supabase
     .from("bookings")
     .select("driver_receives")
@@ -273,6 +311,7 @@ router.get("/summary", async (_req, res) => {
         pending_requests,
         awaiting_return,
         arrival_followups: [],
+        todays_jobs: todaysJobs,
       });
     }
 
@@ -392,6 +431,7 @@ router.get("/summary", async (_req, res) => {
     arrival_followups: arrivalFollowUps,
     follow_ups_pending: followUpsPending,
     follow_ups_overdue: followUpsOverdue,
+    todays_jobs: todaysJobs,
   });
 });
 

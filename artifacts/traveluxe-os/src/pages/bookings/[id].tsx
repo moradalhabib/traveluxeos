@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift, Map, Building2, CalendarRange, RotateCcw, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { useState, useEffect } from "react";
@@ -375,7 +376,7 @@ export default function BookingDetail() {
     updateBooking.mutate(
       { id, data: { driver_id: value } as any },
       {
-        onSuccess: () => {
+        onSuccess: (data: any) => {
           qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
           toast({
             title: value ? "Driver assigned" : "Driver unassigned",
@@ -383,6 +384,17 @@ export default function BookingDetail() {
               ? `${(drivers as any[] | undefined)?.find((d) => d.id === value)?.name ?? ""} assigned to this booking.`
               : "Driver removed from this booking.",
           });
+          // Server returns driver_conflict when this driver already has
+          // overlapping pickups. Surface but don't undo — operator decides.
+          const conflict = data?.driver_conflict;
+          if (conflict?.conflicts?.length) {
+            const refs = conflict.conflicts.slice(0, 3).map((c: any) => c.tvl_ref).join(", ");
+            toast({
+              title: "Driver schedule conflict",
+              description: `${conflict.message} Overlaps: ${refs}`,
+              variant: "destructive",
+            });
+          }
         },
         onError: (e: any) => toast({ title: "Failed to assign driver", description: e?.message ?? "Try again", variant: "destructive" }),
         onSettled: () => setAssigningDriver(false),
@@ -423,6 +435,7 @@ export default function BookingDetail() {
   const [editVehicle, setEditVehicle] = useState("");
   const [editFlight, setEditFlight] = useState("");
   const [editDirection, setEditDirection] = useState<"Arrival" | "Departure" | "">("");
+  const [editAirportCode, setEditAirportCode] = useState<string>("");
   const [editPax, setEditPax] = useState<number>(0);
   const [editLuggage, setEditLuggage] = useState<number>(0);
   const [editDuration, setEditDuration] = useState<number>(0);
@@ -451,6 +464,7 @@ export default function BookingDetail() {
     setEditVehicle(b.vehicle_type || "");
     setEditFlight(b.flight_number || "");
     setEditDirection((b.direction as any) || "");
+    setEditAirportCode(b.airport_code || "");
     setEditPax(Number(b.passengers || 0));
     setEditLuggage(Number(b.luggage || 0));
     setEditDuration(Number(b.duration || 0));
@@ -512,6 +526,9 @@ export default function BookingDetail() {
       if (svcType === "Airport Transfer") {
         payload.flight_number = editFlight ? editFlight.toUpperCase() : undefined;
         payload.direction = editDirection || undefined;
+        // Persist airport_code on amendments — without this the pricing
+        // table lookup uses the stale airport and never re-prices.
+        payload.airport_code = editAirportCode || undefined;
       }
       if (svcType === "Tour") {
         payload.tour_name = editTourName || undefined;
@@ -563,6 +580,11 @@ export default function BookingDetail() {
   };
 
   const handleUpdateStatus = (status: string) => {
+    const wasArrival =
+      (booking as any)?.service_type === "Airport Transfer" &&
+      (booking as any)?.direction === "Arrival" &&
+      (booking as any)?.status !== "Completed";
+
     updateStatus.mutate({ id, data: { status } }, {
       onSuccess: () => {
         toast({ title: `Booking marked as ${status}` });
@@ -571,6 +593,26 @@ export default function BookingDetail() {
         if ((status === "Confirmed" || status === "Completed") && !booking?.invoice) {
           generateInvoice.mutate({ data: { booking_id: id } }, {
             onSuccess: (inv) => toast({ title: `Invoice ${(inv as any).invoice_number} auto-generated` }),
+          });
+        }
+        // Auto return-journey prompt: arrival just completed and no return
+        // booking exists yet → surface a one-tap shortcut to spin one up.
+        if (
+          status === "Completed" &&
+          wasArrival &&
+          !(booking as any)?.return_booking_id
+        ) {
+          toast({
+            title: "Arrival completed — book the return?",
+            description: `${(booking as any)?.client_name ?? "Client"} may need a Departure transfer back.`,
+            action: (
+              <ToastAction
+                altText="Create return trip"
+                onClick={() => setLocation(`/bookings/new?return_of=${id}`)}
+              >
+                Create return
+              </ToastAction>
+            ) as any,
           });
         }
       }
@@ -1039,24 +1081,44 @@ export default function BookingDetail() {
                 </div>
 
                 {svc === "Airport Transfer" && (
-                  <div className="grid grid-cols-2 gap-3">
+                  <>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Direction</p>
+                        <select
+                          value={editDirection}
+                          onChange={e => setEditDirection(e.target.value as any)}
+                          className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          <option value="">—</option>
+                          <option value="Arrival">Arrival</option>
+                          <option value="Departure">Departure</option>
+                        </select>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Flight No.</p>
+                        <Input value={editFlight} onChange={e => setEditFlight(e.target.value.toUpperCase())} placeholder="BA123" />
+                      </div>
+                    </div>
                     <div>
-                      <p className="text-xs text-muted-foreground mb-1">Direction</p>
+                      <p className="text-xs text-muted-foreground mb-1">
+                        Airport <span className="text-muted-foreground/70">(re-prices vehicle if changed)</span>
+                      </p>
                       <select
-                        value={editDirection}
-                        onChange={e => setEditDirection(e.target.value as any)}
+                        value={editAirportCode}
+                        onChange={e => setEditAirportCode(e.target.value)}
                         className="w-full h-10 rounded-md border border-input bg-background px-3 text-sm"
                       >
                         <option value="">—</option>
-                        <option value="Arrival">Arrival</option>
-                        <option value="Departure">Departure</option>
+                        <option value="LHR">Heathrow (LHR)</option>
+                        <option value="LGW">Gatwick (LGW)</option>
+                        <option value="STN">Stansted (STN)</option>
+                        <option value="LTN">Luton (LTN)</option>
+                        <option value="LCY">London City (LCY)</option>
+                        <option value="OTHER">Other</option>
                       </select>
                     </div>
-                    <div>
-                      <p className="text-xs text-muted-foreground mb-1">Flight No.</p>
-                      <Input value={editFlight} onChange={e => setEditFlight(e.target.value.toUpperCase())} placeholder="BA123" />
-                    </div>
-                  </div>
+                  </>
                 )}
 
                 <div>
