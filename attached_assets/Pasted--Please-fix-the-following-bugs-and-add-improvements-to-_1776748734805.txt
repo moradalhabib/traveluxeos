@@ -1,0 +1,28 @@
+"Please fix the following bugs and add improvements to Traveluxe OS. All changes must be fully integrated across the entire platform — invoices, bookings, job sheets, WhatsApp notifications, driver assignments, commission tracking, and any other connected module. Nothing should be siloed.
+Bug 1 — Blank job page
+When I click on a job from the dashboard (example: Safaa, TVL-0044, Hotel, 13:00) it redirects to traveluxe.replit.app/jobs?time=today but the page is completely blank/black. The job detail page is not rendering at all. Fix this urgently. The job detail page must show all booking info, client details, driver assignment, service type, pickup/dropoff, flight number, and financials.
+Bug 2 — Follow-ups list not displaying
+The Follow-Ups page shows 2 pending in the banner and stats counter at the top, but the list below says 'All clear — No follow-ups match these filters.' The data exists but isn't showing. Fix so the list displays the actual pending follow-ups correctly.
+Bug 3 — Follow-ups banner not clickable
+When I click the '2 follow-ups pending' banner on the dashboard nothing happens. It should navigate directly to the Follow-Ups page and display the pending items automatically.
+Bug 4 — Supplier cost input missing
+In the New Booking form, the Supplier Product section shows 'No products yet for this supplier' for RMS Europe Cars, meaning TVL Commission calculates as £0. Add the ability to manually input the supplier cost even when no products are set up. TVL Commission must calculate automatically as: Client Price minus Supplier Cost. This must flow through to the invoice, job sheet, and commission reports automatically.
+Bug 5 — Driver not assigned alert
+Jobs with no driver assigned must show a prominent, impossible-to-miss alert on both the dashboard and the job detail page. This alert must also trigger a WhatsApp notification to the admin so no job goes out without a driver.
+Bug 6 — Vehicle prices not changing by airport
+On the Airport Transfer booking form, the vehicle list and prices must change automatically based on which airport is selected. LHR, LGW, STN, LTN, and LCY must each have their own pricing per vehicle class. These prices must flow through automatically to the invoice, job sheet, cost breakdown, and commission calculation.
+Bug 7 — 'Other' airport button not working
+On the Airport Transfer form, clicking 'OTHER' does nothing. It must open a manual text input field so a custom airport, private terminal, or non-standard location can be typed in manually. This custom location must appear correctly on the job sheet, invoice, and WhatsApp message to the driver and client.
+Global requirement for ALL fixes:
+Every single change must be fully connected across the entire platform:
+
+✅ Booking form
+✅ Invoice (auto-generated with correct prices, supplier cost, TVL commission)
+✅ Job sheet (driver sees correct pickup, dropoff, flight number, vehicle, client name board)
+✅ WhatsApp notifications (client confirmation, driver briefing, admin alerts)
+✅ Dashboard stats (follow-ups, active jobs, commission to collect)
+✅ Follow-ups module
+✅ Commission tracking and reporting
+✅ Driver assignment and alerts
+
+No feature should work in isolation. Test every fix end-to-end before republishing."

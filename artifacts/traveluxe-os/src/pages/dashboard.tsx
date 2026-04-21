@@ -241,14 +241,28 @@ export default function Dashboard() {
               : "/jobs?filter=needs-driver"
           }
         >
-          <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-4 flex items-center gap-3 cursor-pointer hover:bg-destructive/15 transition-colors">
-            <AlertTriangle className="w-5 h-5 text-destructive flex-shrink-0" />
-            <div className="flex-1">
-              <p className="font-semibold text-destructive text-sm">
-                {s.jobs_without_driver} job{s.jobs_without_driver !== 1 ? "s" : ""} need a driver assigned
+          {/* Impossible-to-miss alert — pulse animation, larger surface,
+              uppercase label. Admins also receive a WhatsApp notification
+              via the no_driver_3h / no_driver_24h scheduler jobs. */}
+          <div
+            className="relative bg-destructive/15 border-2 border-destructive rounded-xl p-5 flex items-center gap-4 cursor-pointer hover:bg-destructive/20 transition-colors shadow-lg shadow-destructive/20 animate-pulse"
+            data-testid="banner-no-driver"
+          >
+            <div className="w-12 h-12 rounded-full bg-destructive/25 flex items-center justify-center flex-shrink-0">
+              <AlertTriangle className="w-6 h-6 text-destructive" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-destructive/80">
+                Driver assignment required
+              </p>
+              <p className="text-base font-bold text-destructive mt-0.5">
+                {s.jobs_without_driver} job{s.jobs_without_driver !== 1 ? "s" : ""} without a driver
+              </p>
+              <p className="text-[11px] text-destructive/80 mt-0.5">
+                Tap to assign — admin has been notified on WhatsApp
               </p>
             </div>
-            <ChevronRight className="w-4 h-4 text-destructive" />
+            <ChevronRight className="w-5 h-5 text-destructive flex-shrink-0" />
           </div>
         </Link>
       ) : null}

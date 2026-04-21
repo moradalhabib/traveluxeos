@@ -106,6 +106,10 @@ const bookingSchema = z.object({
   supplier_id: z.string().optional(),
   supplier_product_id: z.string().optional(),
   supplier_commission: z.coerce.number().optional(),
+  // Manual override — used when the supplier has no products configured,
+  // so the operator can enter the cost directly and TVL Commission can be
+  // computed as client_price - supplier_cost.
+  supplier_cost: z.coerce.number().optional(),
   base_daily_rate: z.coerce.number().optional(),
   rental_days: z.coerce.number().optional(),
   fuel_cost: z.coerce.number().optional(),
@@ -695,6 +699,11 @@ export default function NewBooking() {
       supplier_id: (values as any).supplier_id || undefined,
       supplier_product_id: (values as any).supplier_product_id || undefined,
       supplier_commission: (values as any).supplier_commission,
+      // Manual supplier_cost override — only persist when set, otherwise
+      // the DB trigger derives it from base_daily_rate × rental_days + fuel + driver.
+      supplier_cost: (values as any).supplier_cost != null && (values as any).supplier_cost !== ""
+        ? Number((values as any).supplier_cost)
+        : undefined,
       base_daily_rate: (values as any).base_daily_rate,
       rental_days: (values as any).rental_days,
       fuel_cost: (values as any).fuel_cost,
@@ -1238,6 +1247,27 @@ export default function NewBooking() {
                       </div>
                     )}
 
+                    {/* Manual supplier-cost override.
+                        When the supplier has no products configured (or you
+                        don't want to deal with daily rate × days), enter the
+                        total here and TVL Commission will compute as
+                        client_price - supplier_cost automatically. */}
+                    <div className="rounded-md border border-amber-500/30 bg-amber-500/5 p-3 space-y-1">
+                      <Label className="text-xs uppercase tracking-wider text-amber-400">
+                        Supplier total cost — manual (£)
+                      </Label>
+                      <Input
+                        type="number" step="0.01" min="0"
+                        placeholder="e.g. 450.00"
+                        value={(bookingForm.watch("supplier_cost" as any) as any) ?? ""}
+                        onChange={e => bookingForm.setValue("supplier_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
+                        data-testid="input-supplier-cost-manual"
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        Use this when the supplier has no products set up. Leave blank to let the system compute it from rate × days + fuel + driver below.
+                      </p>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <Label>Base daily rate (£)</Label>
@@ -1444,7 +1474,12 @@ export default function NewBooking() {
                     <>
                       <FormField control={bookingForm.control} name="airport_code" render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Airport <span className="text-xs text-muted-foreground font-normal ml-1">(auto-prices the vehicle)</span></FormLabel>
+                          <FormLabel>
+                            Airport
+                            <span className="text-xs text-muted-foreground font-normal ml-1">
+                              (auto-prices the vehicle once selected)
+                            </span>
+                          </FormLabel>
                           <FormControl>
                             <div className="grid grid-cols-3 gap-2">
                               {[
@@ -1464,6 +1499,7 @@ export default function NewBooking() {
                                       ? "bg-primary text-primary-foreground border-primary"
                                       : "border-border text-foreground hover:border-primary/50"
                                   }`}
+                                  data-testid={`button-airport-${a.code}`}
                                 >
                                   <div>{a.code}</div>
                                   <div className="text-[10px] font-normal opacity-80">{a.name}</div>
@@ -1474,6 +1510,39 @@ export default function NewBooking() {
                           <FormMessage />
                         </FormItem>
                       )} />
+
+                      {/* OTHER airport → manual location input.
+                          Mirrors the typed value into pickup (Arrival) or
+                          dropoff (Departure) so the custom location flows
+                          through to the job sheet, invoice, and WhatsApp
+                          messages without any further editing. */}
+                      {bookingForm.watch("airport_code") === "OTHER" && (
+                        <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-2">
+                          <Label className="text-xs uppercase tracking-wider text-primary">
+                            Custom location
+                          </Label>
+                          <Input
+                            placeholder="e.g. Farnborough Airport · Private Terminal A"
+                            value={
+                              watchedDirection === "Departure"
+                                ? (bookingForm.watch("dropoff") ?? "")
+                                : (bookingForm.watch("pickup") ?? "")
+                            }
+                            onChange={e => {
+                              const val = e.target.value;
+                              if (watchedDirection === "Departure") {
+                                bookingForm.setValue("dropoff", val);
+                              } else {
+                                bookingForm.setValue("pickup", val);
+                              }
+                            }}
+                            data-testid="input-airport-custom"
+                          />
+                          <p className="text-[11px] text-muted-foreground">
+                            Type any private terminal, FBO, or non-standard pickup point. This appears on the job sheet, invoice, and WhatsApp briefings.
+                          </p>
+                        </div>
+                      )}
                       <FlightLookupCard
                         flightNumber={watchedFlightNumber}
                         direction={watchedDirection}

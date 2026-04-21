@@ -22,13 +22,16 @@ router.get("/", async (req, res) => {
 
   const { status, date: dateFilter, search, sort } = req.query as Record<string, string>;
 
+  // We deliberately avoid PostgREST FK-join syntax here. If a foreign-key
+  // constraint isn't named exactly the way PostgREST expects, the whole
+  // query returns an error and the operator sees an empty list while the
+  // /stats counter (which doesn't join) still shows pending counts. We
+  // fetch flat rows and hydrate booking/client/driver below.
   let q = supabase
     .from("follow_ups")
     .select(`
-      id, booking_id, client_id, driver_id, due_date, status, notes, no_response_count, completed_by, completed_at, created_at,
-      booking:booking_id(id, tvl_ref, date_time, direction, pickup, dropoff, service_type, operator_id),
-      client:client_id(id, name, whatsapp, vip_tier),
-      driver:driver_id(id, name)
+      id, booking_id, client_id, driver_id, due_date, status, notes,
+      no_response_count, completed_by, completed_at, created_at
     `);
 
   // Status filter
@@ -62,6 +65,36 @@ router.get("/", async (req, res) => {
   if (error) return res.status(400).json({ error: error.message });
 
   let results: any[] = data ?? [];
+
+  // ── Hydrate booking / client / driver in batches ────────────────────────
+  const bookingIds = [...new Set(results.map((f: any) => f.booking_id).filter(Boolean))];
+  const clientIds  = [...new Set(results.map((f: any) => f.client_id).filter(Boolean))];
+  const driverIds  = [...new Set(results.map((f: any) => f.driver_id).filter(Boolean))];
+
+  const [bookingsRes, clientsRes, driversRes] = await Promise.all([
+    bookingIds.length > 0
+      ? supabase.from("bookings")
+          .select("id, tvl_ref, date_time, direction, pickup, dropoff, service_type, operator_id")
+          .in("id", bookingIds)
+      : Promise.resolve({ data: [] as any[] }),
+    clientIds.length > 0
+      ? supabase.from("clients").select("id, name, whatsapp, vip_tier").in("id", clientIds)
+      : Promise.resolve({ data: [] as any[] }),
+    driverIds.length > 0
+      ? supabase.from("drivers").select("id, name").in("id", driverIds)
+      : Promise.resolve({ data: [] as any[] }),
+  ]);
+
+  const bookingMap = Object.fromEntries((bookingsRes.data ?? []).map((b: any) => [b.id, b]));
+  const clientMap  = Object.fromEntries((clientsRes.data  ?? []).map((c: any) => [c.id, c]));
+  const driverMap  = Object.fromEntries((driversRes.data  ?? []).map((d: any) => [d.id, d]));
+
+  results = results.map((f: any) => ({
+    ...f,
+    booking: bookingMap[f.booking_id] ?? null,
+    client:  clientMap[f.client_id]   ?? null,
+    driver:  f.driver_id ? (driverMap[f.driver_id] ?? null) : null,
+  }));
 
   // Client-side search (join columns require post-filter)
   if (search) {
