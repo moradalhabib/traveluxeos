@@ -60,7 +60,8 @@ const SERVICE_ICONS: Record<string, string> = {
 
 export default function Finance() {
   const { user } = useAuth();
-  const isSuperAdmin = user?.role === "super_admin";
+  // Admin and Super Admin see all amounts. Profit tab still super_admin-only further down.
+  const isSuperAdmin = user?.role === "super_admin" || user?.role === "admin";
   const [tab, setTab] = useState("overview");
   const [period, setPeriod] = useState<Period>("month");
   const [customFrom, setCustomFrom] = useState("");

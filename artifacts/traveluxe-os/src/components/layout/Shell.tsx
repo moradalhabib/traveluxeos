@@ -17,7 +17,7 @@ import { useFollowUpBadge } from "@/hooks/use-follow-up-badge";
 
 // Roles:
 //   super_admin → everything (incl. Profit tab)
-//   admin       → everything EXCEPT Admin Panel, Finance, Commissions  → blockAdmin
+//   admin       → everything (Commissions, Finance and Admin Panel now open per operational matrix)
 //   operator    → everything EXCEPT user-mgmt section + Profit tab
 //   viewer      → READ-ONLY on Clients, Bookings, Jobs only
 //   residence_manager → kept (apartments only)
@@ -36,11 +36,11 @@ const OPERATOR_SIDEBAR = [
   { href: "/flights",      label: "Flights",      icon: PlaneTakeoff },
   { href: "/drivers",      label: "Drivers",      icon: Car },
   { href: "/suppliers",    label: "Suppliers",    icon: Building2 },
-  { href: "/commissions",  label: "Commissions",  icon: Calculator, blockAdmin: true },
+  { href: "/commissions",  label: "Commissions",  icon: Calculator },
   { href: "/messages",     label: "Messages",     icon: MessageSquare },
-  { href: "/finance",      label: "Finance",      icon: LineChart, blockAdmin: true },
+  { href: "/finance",      label: "Finance",      icon: LineChart },
   { href: "/marketing",    label: "Marketing",    icon: Megaphone },
-  { href: "/admin",        label: "Admin",        icon: Settings, blockAdmin: true },
+  { href: "/admin",        label: "Admin",        icon: Settings },
 ];
 
 const OPERATOR_MORE = [
@@ -51,11 +51,11 @@ const OPERATOR_MORE = [
   { href: "/flights",      label: "Flights",      icon: PlaneTakeoff },
   { href: "/drivers",      label: "Drivers",      icon: Car },
   { href: "/suppliers",    label: "Suppliers",    icon: Building2 },
-  { href: "/commissions",  label: "Commissions",  icon: Calculator, blockAdmin: true },
+  { href: "/commissions",  label: "Commissions",  icon: Calculator },
   { href: "/messages",     label: "Messages",     icon: MessageSquare },
-  { href: "/finance",      label: "Finance",      icon: LineChart, blockAdmin: true },
+  { href: "/finance",      label: "Finance",      icon: LineChart },
   { href: "/marketing",    label: "Marketing",    icon: Megaphone },
-  { href: "/admin",        label: "Admin",        icon: Settings, blockAdmin: true },
+  { href: "/admin",        label: "Admin",        icon: Settings },
 ];
 
 // Residence Manager: only Apartment bookings + Clients (view)

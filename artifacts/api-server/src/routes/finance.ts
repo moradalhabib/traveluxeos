@@ -3,11 +3,11 @@ import { supabase, getUserFromToken } from "../lib/supabase";
 
 const router = Router();
 
-// Guard: Finance is open to super_admin + operator. Admin/viewer/RM blocked.
+// Guard: Finance is open to super_admin + admin + operator. /profit stays super_admin-only via requireSuperAdmin.
 // Profit endpoint has an EXTRA super_admin-only check below.
 router.use(async (req, res, next) => {
   const user = await getUserFromToken(req.headers.authorization);
-  if (!user || !["super_admin", "operator"].includes(user.role)) {
+  if (!user || !["super_admin", "admin", "operator"].includes(user.role)) {
     return res.status(403).json({ error: "Finance access denied." });
   }
   (req as any).authedUser = user;

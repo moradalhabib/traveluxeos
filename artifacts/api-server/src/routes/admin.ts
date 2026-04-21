@@ -12,8 +12,8 @@ const router = Router();
 async function requireAdmin(authHeader: string | undefined) {
   const user = await getUserFromToken(authHeader);
   if (!user) return { ok: false as const, status: 401, msg: "Unauthorized" };
-  // Admin Panel access is restricted to super_admin + operator (admin role is BLOCKED).
-  if (!["super_admin", "operator"].includes(user.role)) {
+  // Admin Panel access is open to super_admin + admin + operator.
+  if (!["super_admin", "admin", "operator"].includes(user.role)) {
     return { ok: false as const, status: 403, msg: "Admin Panel access denied" };
   }
   return { ok: true as const, user };

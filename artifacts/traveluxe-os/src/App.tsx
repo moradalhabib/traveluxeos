@@ -114,9 +114,9 @@ function Router() {
       <ProtectedRoute path="/drivers" component={Drivers} blockResidenceManager={true} />
       <ProtectedRoute path="/drivers/new" component={NewDriver} blockResidenceManager={true} />
       <ProtectedRoute path="/drivers/:id" component={DriverDetail} blockResidenceManager={true} />
-      <ProtectedRoute path="/commissions" component={Commissions} allowedRoles={["super_admin", "operator"]} />
+      <ProtectedRoute path="/commissions" component={Commissions} allowedRoles={["super_admin", "admin", "operator"]} />
       <ProtectedRoute path="/messages" component={Messages} blockResidenceManager={true} />
-      <ProtectedRoute path="/finance" component={Finance} allowedRoles={["super_admin", "operator"]} />
+      <ProtectedRoute path="/finance" component={Finance} allowedRoles={["super_admin", "admin", "operator"]} />
       <ProtectedRoute path="/invoices" component={Invoices} blockResidenceManager={true} />
       <ProtectedRoute path="/invoices/:id" component={InvoiceDetail} blockResidenceManager={true} />
       <ProtectedRoute path="/search" component={Search} blockResidenceManager={true} />

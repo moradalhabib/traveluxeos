@@ -122,7 +122,9 @@ export default function Commissions() {
   const payout = useCreatePayout();
   const { toast } = useToast();
   const { user } = useAuth();
-  const isSuperAdmin = user?.role === "super_admin";
+  // Admin and Super Admin both see actual money figures and can settle.
+  // Operator sees masked placeholders.
+  const isSuperAdmin = user?.role === "super_admin" || user?.role === "admin";
 
   const [dialogDriver, setDialogDriver] = useState<Driver | null>(null);
   const [dialogMode, setDialogMode] = useState<DialogMode>("owed_to_tvl");

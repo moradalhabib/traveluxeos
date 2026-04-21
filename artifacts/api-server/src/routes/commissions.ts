@@ -13,10 +13,10 @@ function ageInDays(iso: string | null | undefined): number {
   return Math.floor((Date.now() - t) / dayMs);
 }
 
-// Guard: Commissions is restricted to super_admin + operator. Admin/viewer/RM blocked.
+// Guard: Commissions is open to super_admin + admin + operator.
 router.use(async (req, res, next) => {
   const user = await getUserFromToken(req.headers.authorization);
-  if (!user || !["super_admin", "operator"].includes(user.role)) {
+  if (!user || !["super_admin", "admin", "operator"].includes(user.role)) {
     return res.status(403).json({ error: "Commissions access denied." });
   }
   return next();
