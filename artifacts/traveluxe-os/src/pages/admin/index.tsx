@@ -10,8 +10,12 @@ import { format } from "date-fns";
 import {
   Upload, Download, FileText, Users, ShieldCheck,
   CheckCircle2, XCircle, AlertTriangle, Loader2, Database, RefreshCw, Car, Plug, Copy, Check,
-  Plus, Pencil, Trash2, GripVertical, ChevronDown, ChevronUp, LayoutDashboard
+  Plus, Pencil, Trash2, GripVertical, ChevronDown, ChevronUp, LayoutDashboard,
+  UserPlus, Lock, Mail, Activity
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Link } from "wouter";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
@@ -639,6 +643,193 @@ function ExportTab() {
 }
 
 // ─── Users tab ────────────────────────────────────────────────────────────────
+
+const PERMISSION_MATRIX: { capability: string; super_admin: boolean; admin: boolean; operator: boolean }[] = [
+  { capability: "View bookings, requests, jobs", super_admin: true, admin: true,  operator: true  },
+  { capability: "Create / edit bookings",        super_admin: true, admin: true,  operator: true  },
+  { capability: "View finance & commissions",    super_admin: true, admin: true,  operator: false },
+  { capability: "Manage products & pricing",     super_admin: true, admin: true,  operator: false },
+  { capability: "Edit fleet (drivers / vehicles)", super_admin: true, admin: true,  operator: false },
+  { capability: "View audit log",                super_admin: true, admin: true,  operator: false },
+  { capability: "Invite new members",            super_admin: true, admin: true,  operator: false },
+  { capability: "Change member roles",           super_admin: true, admin: false, operator: false },
+  { capability: "Suspend / reactivate members",  super_admin: true, admin: true,  operator: false },
+  { capability: "Remove members",                super_admin: true, admin: false, operator: false },
+];
+
+const ROLE_META = {
+  super_admin: { label: "Super Admin", border: "border-amber-500", text: "text-amber-500", bg: "bg-amber-500/10" },
+  admin:       { label: "Admin",       border: "border-primary",   text: "text-primary",   bg: "bg-primary/10"   },
+  operator:    { label: "Operator",    border: "border-border",    text: "text-muted-foreground", bg: "bg-secondary" },
+} as const;
+
+function roleMeta(role?: string) {
+  return (ROLE_META as any)[role ?? ""] ?? ROLE_META.operator;
+}
+
+function PermissionsGrid() {
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <div className="px-4 py-3 border-b border-border bg-secondary/30">
+        <p className="font-semibold text-sm text-foreground">Role permissions</p>
+        <p className="text-xs text-muted-foreground">Reference of what each role can do inside Traveluxe OS.</p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="text-muted-foreground">
+            <tr className="border-b border-border">
+              <th className="text-left font-medium py-2 px-4">Capability</th>
+              <th className="text-center font-medium py-2 px-3 w-24"><span className="text-amber-500">Super Admin</span></th>
+              <th className="text-center font-medium py-2 px-3 w-20"><span className="text-primary">Admin</span></th>
+              <th className="text-center font-medium py-2 px-3 w-20">Operator</th>
+            </tr>
+          </thead>
+          <tbody>
+            {PERMISSION_MATRIX.map((row) => (
+              <tr key={row.capability} className="border-b border-border last:border-0">
+                <td className="py-2 px-4 text-foreground">{row.capability}</td>
+                {(["super_admin", "admin", "operator"] as const).map((r) => (
+                  <td key={r} className="text-center py-2 px-3">
+                    {row[r]
+                      ? <CheckCircle2 className="w-4 h-4 text-green-500 inline" />
+                      : <XCircle className="w-4 h-4 text-muted-foreground/40 inline" />}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function RecentActivityPanel() {
+  // Pull only user-management actions for the activity sidebar.
+  const { data: log, isLoading } = useListAuditLog(
+    { action: "invite_user,change_user_role,deactivate_user,remove_user" } as any,
+    { query: { queryKey: [...getListAuditLogQueryKey({}), "user-mgmt"] } }
+  );
+  const items = (log ?? []).slice(0, 8);
+  return (
+    <div className="rounded-xl border border-border bg-card">
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Activity className="w-4 h-4 text-muted-foreground" />
+          <p className="font-semibold text-sm text-foreground">Recent member activity</p>
+        </div>
+        <Link href="/admin?tab=audit" className="text-xs text-primary hover:underline">View full log →</Link>
+      </div>
+      <div className="divide-y divide-border">
+        {isLoading ? (
+          [...Array(3)].map((_, i) => <div key={i} className="p-3"><Skeleton className="h-8" /></div>)
+        ) : items.length === 0 ? (
+          <p className="text-xs text-muted-foreground p-4 text-center">No member activity yet.</p>
+        ) : (
+          items.map((entry: any) => (
+            <div key={entry.id} className="px-4 py-2.5 text-xs">
+              <p className="text-foreground">{entry.detail}</p>
+              <p className="text-muted-foreground mt-0.5">
+                {entry.created_at ? format(new Date(entry.created_at), "MMM d, HH:mm") : ""}
+              </p>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function InviteMemberDialog({
+  open, onOpenChange, isSuperAdmin, onInvited,
+}: { open: boolean; onOpenChange: (o: boolean) => void; isSuperAdmin: boolean; onInvited: () => void }) {
+  const { toast } = useToast();
+  const [name, setName]   = useState("");
+  const [email, setEmail] = useState("");
+  const [role, setRole]   = useState<"admin" | "operator" | "super_admin">("operator");
+  const [submitting, setSubmitting] = useState(false);
+
+  const reset = () => { setName(""); setEmail(""); setRole("operator"); };
+
+  const submit = async () => {
+    if (!name.trim() || !email.trim()) {
+      toast({ title: "Name and email are required", variant: "destructive" });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, "");
+      const res = await fetch(`${baseUrl}/api/users/invite`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ name: name.trim(), email: email.trim(), role }),
+      });
+      const result = await res.json();
+      if (!res.ok) {
+        toast({ title: "Could not send invite", description: result?.error ?? "Unknown error", variant: "destructive" });
+      } else {
+        toast({
+          title: "Invite sent",
+          description: `${email} will receive an email to set their password. They appear here as Suspended until they activate.`,
+        });
+        reset();
+        onOpenChange(false);
+        onInvited();
+      }
+    } catch (e: any) {
+      toast({ title: "Could not send invite", description: e?.message ?? "Network error", variant: "destructive" });
+    }
+    setSubmitting(false);
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => { if (!submitting) { onOpenChange(o); if (!o) reset(); } }}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Invite new member</DialogTitle>
+          <DialogDescription className="text-xs">
+            They'll receive an email with a link to set their password. Their account starts as Suspended; activate it once they accept.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 py-2">
+          <div>
+            <Label htmlFor="invite-name" className="text-xs">Full name</Label>
+            <Input id="invite-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Jane Doe" className="mt-1" disabled={submitting} />
+          </div>
+          <div>
+            <Label htmlFor="invite-email" className="text-xs">Email address</Label>
+            <Input id="invite-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="jane@traveluxelondon.com" className="mt-1" disabled={submitting} />
+          </div>
+          <div>
+            <Label className="text-xs">Role</Label>
+            <Select value={role} onValueChange={(v) => setRole(v as any)} disabled={submitting}>
+              <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="operator">Operator — daily ops, no finance</SelectItem>
+                <SelectItem value="admin">Admin — full ops, finance, fleet</SelectItem>
+                {isSuperAdmin && (
+                  <SelectItem value="super_admin">Super Admin — everything, incl. roles</SelectItem>
+                )}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={submitting}>Cancel</Button>
+          <Button onClick={submit} disabled={submitting}>
+            {submitting ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Mail className="w-4 h-4 mr-2" />}
+            Send invite
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function UsersTab({ currentUserId, isSuperAdmin }: { currentUserId?: string; isSuperAdmin: boolean }) {
   const { toast } = useToast();
   const { data: users, isLoading, refetch } = useListUsers(
@@ -646,6 +837,9 @@ function UsersTab({ currentUserId, isSuperAdmin }: { currentUserId?: string; isS
   );
   const [toggling, setToggling] = useState<string | null>(null);
   const [changingRole, setChangingRole] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [confirmRemove, setConfirmRemove] = useState<{ id: string; email: string } | null>(null);
 
   const changeRole = async (userId: string, newRole: string) => {
     if (userId === currentUserId) {
@@ -655,24 +849,24 @@ function UsersTab({ currentUserId, isSuperAdmin }: { currentUserId?: string; isS
     setChangingRole(userId);
     try {
       const { data: { session } } = await supabase.auth.getSession();
-      const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, '');
+      const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, "");
       const res = await fetch(`${baseUrl}/api/users/${userId}/role`, {
-        method: 'PUT',
+        method: "PUT",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify({ role: newRole }),
       });
       const result = await res.json();
       if (!res.ok) {
-        toast({ title: 'Failed to change role', description: result?.error ?? 'Unknown error', variant: 'destructive' });
+        toast({ title: "Failed to change role", description: result?.error ?? "Unknown error", variant: "destructive" });
       } else {
-        toast({ title: 'Role updated', description: `Now ${newRole.replace('_', ' ')}` });
+        toast({ title: "Role updated", description: `Now ${newRole.replace("_", " ")}` });
         refetch();
       }
     } catch (e: any) {
-      toast({ title: 'Failed to change role', description: e?.message ?? 'Unknown error', variant: 'destructive' });
+      toast({ title: "Failed to change role", description: e?.message ?? "Unknown error", variant: "destructive" });
     }
     setChangingRole(null);
   };
@@ -696,58 +890,73 @@ function UsersTab({ currentUserId, isSuperAdmin }: { currentUserId?: string; isS
     setToggling(null);
   };
 
-  const roleColor = (role: string) => {
-    if (role === "super_admin") return "border-amber-500 text-amber-500";
-    if (role === "admin") return "border-primary text-primary";
-    return "border-border text-muted-foreground";
+  const removeMember = async (userId: string) => {
+    setRemoving(userId);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, "");
+      const res = await fetch(`${baseUrl}/api/users/${userId}`, {
+        method: "DELETE",
+        headers: {
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Could not remove member", description: result?.error ?? "Unknown error", variant: "destructive" });
+      } else {
+        toast({ title: "Member removed", description: "Their auth identity is revoked. Historical bookings & audit entries are preserved." });
+        refetch();
+      }
+    } catch (e: any) {
+      toast({ title: "Could not remove member", description: e?.message ?? "Network error", variant: "destructive" });
+    }
+    setRemoving(null);
+    setConfirmRemove(null);
   };
 
-  const roleLabel = (role: string) => {
-    if (role === "super_admin") return "Super Admin";
-    if (role === "admin") return "Admin";
-    return "Operator";
-  };
+  // Filter out soft-deleted "[removed]" users from the visible list — they only
+  // remain in the DB to keep historical FKs intact.
+  const visibleUsers = (users ?? []).filter((u: any) => u.name !== "[removed]");
 
   return (
     <div className="space-y-5">
-      <div>
-        <h2 className="font-semibold text-foreground mb-1">Access Control</h2>
-        <p className="text-sm text-muted-foreground">
-          Activate or suspend operator accounts instantly. Suspended users are blocked at the database level — they cannot access any data even with a valid session.
-        </p>
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h2 className="font-semibold text-foreground mb-1">Team & Access Control</h2>
+          <p className="text-sm text-muted-foreground">
+            Invite new members, manage roles, and suspend accounts. All changes take effect immediately and are written to the audit log.
+          </p>
+        </div>
+        <Button onClick={() => setInviteOpen(true)} className="flex-shrink-0" data-testid="button-invite-member">
+          <UserPlus className="w-4 h-4 mr-2" /> Invite member
+        </Button>
       </div>
 
-      <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-2 text-sm">
-        <p className="font-semibold text-foreground">How to add a new member</p>
-        <ol className="text-muted-foreground space-y-1 list-decimal list-inside text-xs">
-          <li>Go to your <strong className="text-foreground">Supabase Dashboard</strong> → Authentication → Users</li>
-          <li>Click <strong className="text-foreground">Invite User</strong> and enter their email</li>
-          <li>They receive an invite link to set their password</li>
-          <li>Their account appears here — set their role via SQL if needed</li>
-          <li>Activate their account using the toggle below</li>
-        </ol>
-        <p className="text-xs text-muted-foreground mt-2">
-          To set a role: <code className="bg-secondary px-1 rounded text-foreground">UPDATE public.users SET role = 'admin' WHERE email = '...';</code>
-        </p>
-      </div>
+      <PermissionsGrid />
 
       <div className="space-y-3">
         {isLoading ? (
           [...Array(3)].map((_, i) => <Skeleton key={i} className="h-20" />)
-        ) : !users?.length ? (
-          <div className="text-center py-8 text-muted-foreground border border-dashed rounded-xl text-sm">No users found</div>
+        ) : !visibleUsers.length ? (
+          <div className="text-center py-8 text-muted-foreground border border-dashed rounded-xl text-sm">No members yet — invite someone to get started.</div>
         ) : (
-          users.map((u) => {
+          visibleUsers.map((u: any) => {
             const isCurrentUser = u.id === currentUserId;
+            const isLockedSuperAdmin = u.role === "super_admin";
+            const meta = roleMeta(u.role);
             return (
               <div
                 key={u.id}
                 className={`flex items-center gap-4 p-4 rounded-xl border transition-all ${
-                  !u.active ? "border-destructive/30 bg-destructive/5" : "border-border bg-card"
+                  !u.active ? "border-destructive/30 bg-destructive/5"
+                  : isLockedSuperAdmin ? "border-amber-500/30 bg-amber-500/5"
+                  : "border-border bg-card"
                 }`}
+                data-testid={`user-card-${u.id}`}
               >
-                <div className="w-10 h-10 rounded-full bg-secondary flex items-center justify-center text-foreground font-bold uppercase flex-shrink-0">
-                  {u.name?.charAt(0) || "?"}
+                <div className={`w-10 h-10 rounded-full ${meta.bg} flex items-center justify-center font-bold uppercase flex-shrink-0 ${meta.text}`}>
+                  {isLockedSuperAdmin ? <Lock className="w-4 h-4" /> : (u.name?.charAt(0) || "?")}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
@@ -756,13 +965,13 @@ function UsersTab({ currentUserId, isSuperAdmin }: { currentUserId?: string; isS
                   </div>
                   <div className="text-xs text-muted-foreground">{u.email}</div>
                   <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    {isSuperAdmin && !isCurrentUser ? (
+                    {isSuperAdmin && !isCurrentUser && !isLockedSuperAdmin ? (
                       <Select
                         value={u.role}
                         onValueChange={(v) => changeRole(u.id, v)}
                         disabled={changingRole === u.id}
                       >
-                        <SelectTrigger className={`h-6 px-2 py-0 text-[10px] w-[120px] ${roleColor(u.role)}`}>
+                        <SelectTrigger className={`h-6 px-2 py-0 text-[10px] w-[120px] ${meta.border} ${meta.text}`}>
                           {changingRole === u.id ? (
                             <Loader2 className="w-3 h-3 animate-spin" />
                           ) : (
@@ -776,8 +985,8 @@ function UsersTab({ currentUserId, isSuperAdmin }: { currentUserId?: string; isS
                         </SelectContent>
                       </Select>
                     ) : (
-                      <Badge variant="outline" className={`${roleColor(u.role)} text-[10px]`}>
-                        {roleLabel(u.role)}
+                      <Badge variant="outline" className={`${meta.border} ${meta.text} text-[10px]`}>
+                        {meta.label}{isLockedSuperAdmin && !isCurrentUser ? " · locked" : ""}
                       </Badge>
                     )}
                     <Badge
@@ -788,27 +997,76 @@ function UsersTab({ currentUserId, isSuperAdmin }: { currentUserId?: string; isS
                     </Badge>
                   </div>
                 </div>
-                <Button
-                  size="sm"
-                  variant={u.active ? "destructive" : "outline"}
-                  disabled={isCurrentUser || toggling === u.id}
-                  onClick={() => toggleActive(u.id, u.active ?? true)}
-                  className={`text-xs flex-shrink-0 ${!u.active ? "border-green-500/30 text-green-500 hover:bg-green-500/10" : ""}`}
-                >
-                  {toggling === u.id ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                  ) : u.active ? "Suspend" : "Activate"}
-                </Button>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <Button
+                    size="sm"
+                    variant={u.active ? "outline" : "outline"}
+                    disabled={isCurrentUser || toggling === u.id || isLockedSuperAdmin}
+                    onClick={() => toggleActive(u.id, u.active ?? true)}
+                    className={`text-xs ${u.active ? "border-destructive/30 text-destructive hover:bg-destructive/10" : "border-green-500/30 text-green-500 hover:bg-green-500/10"}`}
+                    data-testid={`button-toggle-${u.id}`}
+                    title={isLockedSuperAdmin ? "Super Admin accounts cannot be suspended — demote them first" : ""}
+                  >
+                    {toggling === u.id ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : u.active ? "Suspend" : "Activate"}
+                  </Button>
+                  {isSuperAdmin && !isCurrentUser && !isLockedSuperAdmin && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={removing === u.id}
+                      onClick={() => setConfirmRemove({ id: u.id, email: u.email })}
+                      className="text-xs text-destructive hover:bg-destructive/10"
+                      data-testid={`button-remove-${u.id}`}
+                      title="Remove member permanently"
+                    >
+                      {removing === u.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                    </Button>
+                  )}
+                </div>
               </div>
             );
           })
         )}
       </div>
 
-      <div className="rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-xs text-muted-foreground space-y-1">
-        <p className="font-semibold text-destructive">Security Note</p>
-        <p>Suspending an account takes effect immediately. The user is blocked at the database level — their existing session cannot access any data. They are also automatically signed out within 5 minutes.</p>
+      <RecentActivityPanel />
+
+      <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-xs text-muted-foreground space-y-1">
+        <p className="font-semibold text-amber-500 flex items-center gap-2"><Lock className="w-3.5 h-3.5" /> Why Super Admin is locked</p>
+        <p>Super Admin accounts cannot be suspended or removed directly to prevent locking the organisation out of its own data. To remove a Super Admin, demote them to Admin first using the role selector, then suspend or remove them.</p>
       </div>
+
+      <InviteMemberDialog
+        open={inviteOpen}
+        onOpenChange={setInviteOpen}
+        isSuperAdmin={isSuperAdmin}
+        onInvited={refetch}
+      />
+
+      <Dialog open={!!confirmRemove} onOpenChange={(o) => !o && setConfirmRemove(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Remove this member?</DialogTitle>
+            <DialogDescription className="text-xs space-y-2">
+              <p><strong className="text-foreground">{confirmRemove?.email}</strong> will lose access immediately and their sign-in will be revoked.</p>
+              <p>Their historical bookings, requests and audit-log entries are preserved for accounting integrity. The email address is freed so you can re-invite them later if needed.</p>
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmRemove(null)} disabled={!!removing}>Cancel</Button>
+            <Button
+              variant="destructive"
+              onClick={() => confirmRemove && removeMember(confirmRemove.id)}
+              disabled={!!removing}
+            >
+              {removing ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trash2 className="w-4 h-4 mr-2" />}
+              Remove member
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

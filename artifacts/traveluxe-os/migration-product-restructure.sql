@@ -62,22 +62,23 @@ CREATE POLICY "vap_read"  ON public.vehicle_airport_pricing
   FOR SELECT TO authenticated USING (true);
 
 -- Only admin / super_admin can WRITE pricing.
--- (Assumes a `profiles` table with a `role` column — same pattern other
---  admin-protected tables use in this DB.)
+-- (Uses the `public.users` table where `id` matches `auth.uid()`.)
 CREATE POLICY "vap_write" ON public.vehicle_airport_pricing
   FOR ALL TO authenticated
   USING (
     EXISTS (
-      SELECT 1 FROM public.profiles p
-       WHERE p.id = auth.uid()
-         AND p.role IN ('admin','super_admin')
+      SELECT 1 FROM public.users u
+       WHERE u.id = auth.uid()
+         AND u.role IN ('admin','super_admin')
+         AND u.active = true
     )
   )
   WITH CHECK (
     EXISTS (
-      SELECT 1 FROM public.profiles p
-       WHERE p.id = auth.uid()
-         AND p.role IN ('admin','super_admin')
+      SELECT 1 FROM public.users u
+       WHERE u.id = auth.uid()
+         AND u.role IN ('admin','super_admin')
+         AND u.active = true
     )
   );
 

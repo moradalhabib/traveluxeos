@@ -78,9 +78,20 @@ pnpm workspace monorepo with TypeScript throughout.
 - **Admin → Products tab** (scrollable): full CRUD for super_admin; operators can view. Category tabs: Vehicle, Meet & Greet, Tour, Add-on, Accommodation
 - Run `migration-products.sql` in Supabase SQL editor to set up tables + seed data
 
+## User Management (in-app, no Supabase dashboard needed)
+- **Invite Member** — POST /api/users/invite (admin/super_admin). Sends Supabase invite email + creates `public.users` row with `active=false`.
+- **Change Role** — PUT /api/users/:id/role (super_admin only, can't demote last super_admin).
+- **Suspend / Reactivate** — direct supabase client toggle of `users.active`. `useAuth` boots inactive sessions.
+- **Remove Member** — DELETE /api/users/:id (super_admin only). Revokes auth identity via service role + soft-deletes `public.users` row (`active=false`, `name="[removed]"`, email rewritten to `removed+xxxxxxxx@traveluxe.local`). Historical FKs preserved.
+- **Super Admin lock** — UI hides Suspend/Remove buttons on super_admin rows; backend refuses to demote/remove the last active super_admin.
+- **Authz hardening** — every privileged users route checks `actor.active === true` before role check, so suspending an admin instantly revokes their management privileges.
+- **Permissions grid** + **Recent activity panel** rendered in Admin → Users tab.
+
 ## Supabase Setup
 Run `artifacts/traveluxe-os/supabase-schema.sql` in the Supabase SQL editor to create all tables, RLS policies, triggers, and indexes.
 Then run `artifacts/traveluxe-os/migration-service-types.sql` and `artifacts/traveluxe-os/migration-products.sql` for the Services and Products modules.
+
+For invite emails to deliver, configure SMTP in Supabase Dashboard → Auth → SMTP (or rely on Supabase's built-in email for low volume).
 
 Auto-features in schema:
 - TVL-XXXX booking reference auto-generated via PostgreSQL sequence

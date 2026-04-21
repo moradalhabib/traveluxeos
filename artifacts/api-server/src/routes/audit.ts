@@ -4,7 +4,7 @@ import { supabase } from "../lib/supabase";
 const router = Router();
 
 router.get("/", async (req, res) => {
-  const { operator_id, action_type, date_from, date_to } = req.query;
+  const { operator_id, action_type, action, date_from, date_to } = req.query;
 
   let query = supabase
     .from("audit_log")
@@ -13,7 +13,16 @@ router.get("/", async (req, res) => {
     .limit(500);
 
   if (operator_id) query = query.eq("operator_id", String(operator_id));
-  if (action_type) query = query.eq("action", String(action_type));
+
+  // Accept either `action_type` (legacy) or `action` (new). Both support
+  // comma-separated lists which we translate into an `IN (...)` filter.
+  const rawActions = String(action ?? action_type ?? "").trim();
+  if (rawActions) {
+    const list = rawActions.split(",").map((s) => s.trim()).filter(Boolean);
+    if (list.length === 1) query = query.eq("action", list[0]);
+    else if (list.length > 1) query = query.in("action", list);
+  }
+
   if (date_from) query = query.gte("created_at", String(date_from));
   if (date_to) query = query.lte("created_at", String(date_to));
 
