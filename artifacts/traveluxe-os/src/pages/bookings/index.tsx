@@ -3,7 +3,7 @@ import { useListBookings, getListBookingsQueryKey } from "@workspace/api-client-
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Briefcase, CalendarRange, Home, X } from "lucide-react";
+import { Plus, Briefcase, CalendarRange, Home, X, StickyNote } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link, useSearch } from "wouter";
 import { format, startOfDay, isBefore } from "date-fns";
@@ -175,6 +175,20 @@ export default function Bookings() {
                     {booking.service_type && (
                       <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-secondary/40 text-foreground border-border">
                         {booking.service_type}{booking.direction ? ` · ${booking.direction}` : ""}
+                      </Badge>
+                    )}
+                    {/* Notes / special-requests indicator — gives operators
+                        a heads-up that the booking has free-text instructions
+                        worth opening the job sheet for. */}
+                    {(booking.notes || booking.special_requests) && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] py-0 px-1.5 bg-amber-500/10 text-amber-300 border-amber-500/40 gap-1"
+                        title={booking.special_requests || booking.notes}
+                        data-testid={`badge-notes-${booking.id}`}
+                      >
+                        <StickyNote className="w-2.5 h-2.5" />
+                        Notes
                       </Badge>
                     )}
                   </div>

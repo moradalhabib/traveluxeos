@@ -201,6 +201,8 @@ const BOOKING_COLUMNS = new Set([
   "base_daily_rate","rental_days","fuel_cost","driver_cost","extra_charges",
   "as_directed_supplier_driver",
   "client_notified_at","driver_notified_at",
+  // Payment-tracking (April 2026 migration B)
+  "payment_date","paid_amount","payment_notes",
 ]);
 
 router.post("/", async (req, res) => {
