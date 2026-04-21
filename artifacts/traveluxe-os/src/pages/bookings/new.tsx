@@ -101,6 +101,18 @@ const bookingSchema = z.object({
   weeks_agreed: z.coerce.number().optional(),
   property_agent: z.string().optional(),
   payment_notes: z.string().optional(),
+  // Build 4 — Supplier link + Car Rental / As Directed cost breakdown
+  supplier_id: z.string().optional(),
+  supplier_commission: z.coerce.number().optional(),
+  base_daily_rate: z.coerce.number().optional(),
+  rental_days: z.coerce.number().optional(),
+  fuel_cost: z.coerce.number().optional(),
+  driver_cost: z.coerce.number().optional(),
+  extra_charges: z.array(z.object({
+    description: z.string().optional().default(""),
+    amount: z.coerce.number().optional().default(0),
+  })).optional(),
+  as_directed_supplier_driver: z.boolean().optional().default(false),
 });
 
 export default function NewBooking() {
@@ -222,7 +234,8 @@ export default function NewBooking() {
   const isCarRental = serviceType === "Car Rental";
   const needsCommission = isHotel || isAccommodation;
   // Service types that benefit from a third-party Supplier link
-  const needsSupplier = isCarRental || isAccommodation || isHotel || isTourType;
+  const needsSupplier = isCarRental || isAsDirected || isAccommodation || isHotel || isTourType;
+  const needsCostBreakdown = isCarRental || isAsDirected;
 
   // ─── Car Rental cost breakdown (live) ────────────────────────────────────
   const baseDailyRate = bookingForm.watch("base_daily_rate" as any) || 0;
@@ -578,6 +591,17 @@ export default function NewBooking() {
       driver_id: values.driver_id,
       notes: values.notes,
       duration: values.duration,
+      // Build 4 — supplier + cost breakdown (Car Rental / As Directed)
+      supplier_id: (values as any).supplier_id || undefined,
+      supplier_commission: (values as any).supplier_commission,
+      base_daily_rate: (values as any).base_daily_rate,
+      rental_days: (values as any).rental_days,
+      fuel_cost: (values as any).fuel_cost,
+      driver_cost: (values as any).driver_cost,
+      extra_charges: Array.isArray((values as any).extra_charges) && (values as any).extra_charges.length > 0
+        ? (values as any).extra_charges
+        : undefined,
+      as_directed_supplier_driver: !!(values as any).as_directed_supplier_driver,
     };
 
     // Fold service-specific details into notes so data is preserved
@@ -1040,15 +1064,55 @@ export default function NewBooking() {
                 </CardContent>
               </Card>
 
-              {/* ─── Car Rental Cost Breakdown ─────────────────────────────
-                  Lets the operator capture true cost so we can compute the
-                  real margin. All fields persist to the booking row. */}
-              {isCarRental && (
+              {/* ─── Cost Breakdown — Car Rental & As Directed ─────────────
+                  Captures true cost (car from supplier + driver) so we can
+                  compute real margin. The "supplier provides driver" toggle
+                  decides whether driver_cost rolls into the supplier KPI. */}
+              {needsCostBreakdown && (
                 <Card className="border-primary/20">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">Cost Breakdown</CardTitle>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Track what you pay the supplier and the driver, separately from what you charge the client.
+                    </p>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                    {/* Driver source toggle — only meaningful when a supplier is set */}
+                    {(bookingForm.watch("supplier_id" as any) || "") !== "" && (
+                      <div className="rounded-md border border-border bg-secondary/20 p-3 space-y-2">
+                        <Label className="text-xs uppercase tracking-wider text-muted-foreground">Driver source</Label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => bookingForm.setValue("as_directed_supplier_driver" as any, false)}
+                            className={`px-3 py-2 rounded-md text-sm font-medium border transition-colors ${
+                              !bookingForm.watch("as_directed_supplier_driver" as any)
+                                ? "bg-primary/10 border-primary/50 text-primary"
+                                : "bg-background border-border text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            Our driver
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => bookingForm.setValue("as_directed_supplier_driver" as any, true)}
+                            className={`px-3 py-2 rounded-md text-sm font-medium border transition-colors ${
+                              bookingForm.watch("as_directed_supplier_driver" as any)
+                                ? "bg-primary/10 border-primary/50 text-primary"
+                                : "bg-background border-border text-muted-foreground hover:text-foreground"
+                            }`}
+                          >
+                            Supplier's driver
+                          </button>
+                        </div>
+                        <p className="text-[11px] text-muted-foreground">
+                          {bookingForm.watch("as_directed_supplier_driver" as any)
+                            ? "Driver cost will be billed to the supplier and counted in their KPI."
+                            : "Driver cost goes to your assigned TVL driver. Supplier KPI shows car-only cost."}
+                        </p>
+                      </div>
+                    )}
+
                     <div className="grid grid-cols-2 gap-3">
                       <div className="space-y-1">
                         <Label>Base daily rate (£)</Label>
@@ -1164,14 +1228,36 @@ export default function NewBooking() {
                         <span className="font-semibold text-foreground">Cost subtotal</span>
                         <span className="font-bold text-foreground">£{carRentalSubtotal.toLocaleString()}</span>
                       </div>
-                      <div className="flex justify-between text-sm">
+                      <div className="flex justify-between items-center text-sm">
                         <span className="font-semibold text-foreground">Client price</span>
-                        <span className="font-bold text-primary">£{Number(clientPriceWatch).toLocaleString()}</span>
+                        <div className="flex items-center gap-2">
+                          {carRentalSubtotal > 0 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 px-2 text-[11px] text-primary hover:text-primary"
+                              onClick={() => {
+                                const suggested = Math.ceil(carRentalSubtotal * 1.30 / 5) * 5;
+                                bookingForm.setValue("price", suggested);
+                              }}
+                              title="Cost + 30% margin, rounded up to nearest £5"
+                            >
+                              Suggest (+30%)
+                            </Button>
+                          )}
+                          <span className="font-bold text-primary">£{Number(clientPriceWatch).toLocaleString()}</span>
+                        </div>
                       </div>
                       <div className="flex justify-between text-sm pt-1.5 border-t border-border/50">
                         <span className="font-semibold text-foreground">Margin</span>
                         <span className={`font-bold ${carRentalMargin >= 0 ? "text-green-400" : "text-destructive"}`}>
                           £{carRentalMargin.toLocaleString()}
+                          {carRentalSubtotal > 0 && (
+                            <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                              ({Math.round((carRentalMargin / carRentalSubtotal) * 100)}%)
+                            </span>
+                          )}
                         </span>
                       </div>
                     </div>
@@ -1866,8 +1952,15 @@ export default function NewBooking() {
                     )} />
                   </div>
 
-                  {/* Driver & Vehicle — transport only, not for accommodation */}
-                  {!isAccommodation && !isHotel && (
+                  {/* Driver & Vehicle — transport only, not for accommodation.
+                      Hidden when the supplier provides the driver too — in that
+                      case there is no TVL driver to assign. */}
+                  {!isAccommodation && !isHotel && bookingForm.watch("as_directed_supplier_driver" as any) && (
+                    <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-primary">
+                      Supplier is providing the driver — no TVL driver assignment needed.
+                    </div>
+                  )}
+                  {!isAccommodation && !isHotel && !bookingForm.watch("as_directed_supplier_driver" as any) && (
                     <>
                       <FormField control={bookingForm.control} name="driver_id" render={({ field }) => (
                         <FormItem>

@@ -31,7 +31,10 @@ function whatsappLink(num?: string) {
 
 function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => void }) {
   const isCarRental = booking.service_type === "Car Rental";
+  const isAsDirected = booking.service_type === "As Directed";
+  const showCosts = isCarRental || isAsDirected;
   const supplierId  = booking.supplier_id;
+  const supplierProvidedDriver = !!booking.as_directed_supplier_driver;
   const [supplier, setSupplier] = useState<any>(null);
   const [editOpen, setEditOpen] = useState(false);
   const [draft, setDraft] = useState<any>({});
@@ -61,7 +64,10 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
   const driverCost    = Number(booking.driver_cost || 0);
   const extras        = Array.isArray(booking.extra_charges) ? booking.extra_charges : [];
   const extrasTotal   = extras.reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
-  const subtotal      = (baseDailyRate * rentalDays) + fuelCost + driverCost + extrasTotal;
+  const carCost       = (baseDailyRate * rentalDays) + fuelCost + extrasTotal;
+  const subtotal      = carCost + driverCost; // total TVL cost (car + driver), regardless of who pays driver
+  const supplierBill  = supplierProvidedDriver ? subtotal : carCost;
+  const ourDriverPay  = supplierProvidedDriver ? 0 : driverCost;
   const margin        = Number(booking.price || 0) - subtotal;
 
   const openEdit = () => {
@@ -71,6 +77,7 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
       fuel_cost:       booking.fuel_cost ?? "",
       driver_cost:     booking.driver_cost ?? "",
       extra_charges:   extras.length ? [...extras] : [],
+      as_directed_supplier_driver: supplierProvidedDriver,
     });
     setEditOpen(true);
   };
@@ -85,6 +92,7 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
         fuel_cost:       draft.fuel_cost === "" ? null : Number(draft.fuel_cost),
         driver_cost:     draft.driver_cost === "" ? null : Number(draft.driver_cost),
         extra_charges:   draft.extra_charges,
+        as_directed_supplier_driver: !!draft.as_directed_supplier_driver,
       };
       const res = await fetch(`/api/bookings/${booking.id}`, {
         method: "PUT",
@@ -115,9 +123,9 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
       <CardHeader className="pb-2 flex-row items-center justify-between">
         <CardTitle className="text-base flex items-center gap-2">
           <Building2 className="w-4 h-4 text-primary" />
-          {isCarRental ? "Supplier & Cost" : "Supplier"}
+          {showCosts ? "Supplier & Cost" : "Supplier"}
         </CardTitle>
-        {isCarRental && (
+        {showCosts && (
           <Button size="sm" variant="ghost" onClick={openEdit} className="h-7 px-2 text-xs">
             <Pencil className="w-3 h-3 mr-1" /> Edit
           </Button>
@@ -160,12 +168,20 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
               )}
             </div>
           </div>
-        ) : isCarRental ? (
+        ) : showCosts ? (
           <p className="text-xs text-muted-foreground italic">No supplier linked. Pick one when editing the booking.</p>
         ) : null}
 
-        {isCarRental && (
+        {showCosts && (
           <div className="space-y-1.5 text-sm">
+            {supplierId && (
+              <div className="flex items-center justify-between text-xs px-2 py-1 rounded bg-secondary/30 mb-2">
+                <span className="text-muted-foreground">Driver source</span>
+                <span className={`font-semibold ${supplierProvidedDriver ? "text-primary" : "text-foreground"}`}>
+                  {supplierProvidedDriver ? "Supplier's driver" : "Our driver"}
+                </span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-muted-foreground">Base × Days ({baseDailyRate} × {rentalDays})</span>
               <span className="font-medium">£{(baseDailyRate * rentalDays).toLocaleString()}</span>
@@ -175,7 +191,9 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
               <span className="font-medium">£{fuelCost.toLocaleString()}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-muted-foreground">Driver</span>
+              <span className="text-muted-foreground">
+                Driver{supplierProvidedDriver ? " (paid to supplier)" : " (paid to TVL driver)"}
+              </span>
               <span className="font-medium">£{driverCost.toLocaleString()}</span>
             </div>
             {extras.length > 0 && (
@@ -186,6 +204,18 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
                     <span>£{Number(x.amount || 0).toLocaleString()}</span>
                   </div>
                 ))}
+              </div>
+            )}
+            {supplierId && (
+              <div className="flex justify-between pt-2 border-t border-border text-xs">
+                <span className="text-muted-foreground">→ to supplier</span>
+                <span className="font-medium">£{supplierBill.toLocaleString()}</span>
+              </div>
+            )}
+            {ourDriverPay > 0 && (
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">→ to TVL driver</span>
+                <span className="font-medium">£{ourDriverPay.toLocaleString()}</span>
               </div>
             )}
             <div className="flex justify-between pt-2 border-t border-border">
@@ -213,6 +243,32 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
             <DialogTitle>Edit Cost Breakdown</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
+            {supplierId && (
+              <div className="rounded-md border border-border bg-secondary/20 p-3 space-y-2">
+                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Driver source</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button type="button"
+                    onClick={() => setDraft({ ...draft, as_directed_supplier_driver: false })}
+                    className={`px-3 py-2 rounded-md text-sm font-medium border transition-colors ${
+                      !draft.as_directed_supplier_driver
+                        ? "bg-primary/10 border-primary/50 text-primary"
+                        : "bg-background border-border text-muted-foreground hover:text-foreground"
+                    }`}>Our driver</button>
+                  <button type="button"
+                    onClick={() => setDraft({ ...draft, as_directed_supplier_driver: true })}
+                    className={`px-3 py-2 rounded-md text-sm font-medium border transition-colors ${
+                      draft.as_directed_supplier_driver
+                        ? "bg-primary/10 border-primary/50 text-primary"
+                        : "bg-background border-border text-muted-foreground hover:text-foreground"
+                    }`}>Supplier's driver</button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  {draft.as_directed_supplier_driver
+                    ? "Driver cost rolls into the supplier KPI."
+                    : "Driver cost is paid to your TVL driver."}
+                </p>
+              </div>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Base daily rate (£)</Label>
@@ -1459,7 +1515,7 @@ export default function BookingDetail() {
           margin for Car Rental bookings. Extras remain editable even after
           the booking is completed (operators frequently add tolls / damage
           charges later). */}
-      {!isResidenceManager && ((booking as any).supplier_id || svc === "Car Rental") && (
+      {!isResidenceManager && ((booking as any).supplier_id || svc === "Car Rental" || svc === "As Directed") && (
         <SupplierCostCard
           booking={booking}
           onSaved={() => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) })}

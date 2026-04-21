@@ -189,8 +189,9 @@ const BOOKING_COLUMNS = new Set([
   "airport_code","hours","supplier_cost","client_price",
   "vehicle_product_id","tour_product_id","meet_greet_product_id",
   // Build 4: supplier link + car-rental cost breakdown + notification timestamps
-  "supplier_id",
+  "supplier_id","supplier_commission",
   "base_daily_rate","rental_days","fuel_cost","driver_cost","extra_charges",
+  "as_directed_supplier_driver",
   "client_notified_at","driver_notified_at",
 ]);
 
