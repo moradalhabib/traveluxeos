@@ -189,7 +189,7 @@ const BOOKING_COLUMNS = new Set([
   "airport_code","hours","supplier_cost","client_price",
   "vehicle_product_id","tour_product_id","meet_greet_product_id",
   // Build 4: supplier link + car-rental cost breakdown + notification timestamps
-  "supplier_id","supplier_commission",
+  "supplier_id","supplier_product_id","supplier_commission",
   "base_daily_rate","rental_days","fuel_cost","driver_cost","extra_charges",
   "as_directed_supplier_driver",
   "client_notified_at","driver_notified_at",
@@ -224,6 +224,31 @@ router.post("/", async (req, res) => {
   if (!body.price && body.price !== 0) body.price = 0;
   if (!body.status) body.status = "Confirmed";
   if (!body.payment_status) body.payment_status = "Unpaid";
+
+  // Supplier-product integrity:
+  //  - Only meaningful for Car Rental / As Directed; clear otherwise.
+  //  - Must belong to the chosen supplier — reject mismatches.
+  if (body.supplier_product_id) {
+    const svc = body.service_type;
+    const usesSupplierProduct = svc === "Car Rental" || svc === "As Directed";
+    if (!usesSupplierProduct) {
+      body.supplier_product_id = null;
+    } else {
+      const { data: prod } = await db
+        .from("supplier_products")
+        .select("id, supplier_id")
+        .eq("id", body.supplier_product_id)
+        .maybeSingle();
+      if (!prod) {
+        return res.status(400).json({ error: "Supplier product not found." });
+      }
+      if (!body.supplier_id || prod.supplier_id !== body.supplier_id) {
+        return res.status(400).json({
+          error: "Selected product does not belong to the chosen supplier.",
+        });
+      }
+    }
+  }
 
   const { data, error } = await db
     .from("bookings")
@@ -363,6 +388,33 @@ router.put("/:id", async (req, res) => {
     }
   }
   const body: Record<string, any> = { ...raw, is_amended: true };
+
+  // Supplier-product integrity (same rules as POST). Use the effective
+  // supplier_id (incoming change OR previously-saved value).
+  if (body.supplier_product_id) {
+    const svc = body.service_type ?? (prev as any)?.service_type;
+    const usesSupplierProduct = svc === "Car Rental" || svc === "As Directed";
+    if (!usesSupplierProduct) {
+      body.supplier_product_id = null;
+    } else {
+      const effectiveSupplierId =
+        body.supplier_id ??
+        (await db.from("bookings").select("supplier_id").eq("id", req.params.id).single()).data?.supplier_id;
+      const { data: prod } = await db
+        .from("supplier_products")
+        .select("id, supplier_id")
+        .eq("id", body.supplier_product_id)
+        .maybeSingle();
+      if (!prod) {
+        return res.status(400).json({ error: "Supplier product not found." });
+      }
+      if (!effectiveSupplierId || prod.supplier_id !== effectiveSupplierId) {
+        return res.status(400).json({
+          error: "Selected product does not belong to the chosen supplier.",
+        });
+      }
+    }
+  }
 
   const { data, error } = await db
     .from("bookings")

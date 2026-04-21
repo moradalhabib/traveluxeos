@@ -46,7 +46,7 @@ router.get("/", async (req, res) => {
   return res.json(suppliers);
 });
 
-// ─── GET /suppliers/:id — single supplier with recent bookings ─────────────
+// ─── GET /suppliers/:id — single supplier with recent bookings + products ──
 router.get("/:id", async (req, res) => {
   const { id } = req.params;
   const { data: supplier, error } = await supabase
@@ -57,12 +57,21 @@ router.get("/:id", async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   if (!supplier) return res.status(404).json({ error: "Supplier not found" });
 
-  const { data: bookings } = await supabase
-    .from("bookings")
-    .select("id, tvl_ref, service_type, status, date_time, price, supplier_cost, supplier_commission, client_name")
-    .eq("supplier_id", id)
-    .order("date_time", { ascending: false })
-    .limit(50);
+  const [{ data: bookings }, { data: products }] = await Promise.all([
+    supabase
+      .from("bookings")
+      .select("id, tvl_ref, service_type, status, date_time, price, supplier_cost, supplier_commission, client_name")
+      .eq("supplier_id", id)
+      .order("date_time", { ascending: false })
+      .limit(50),
+    supabase
+      .from("supplier_products")
+      .select("*")
+      .eq("supplier_id", id)
+      .order("is_active", { ascending: false })
+      .order("kind", { ascending: true })
+      .order("name", { ascending: true }),
+  ]);
 
   const total_revenue = (bookings ?? []).reduce(
     (sum: number, b: any) => sum + Number(b.price ?? 0),
@@ -80,12 +89,105 @@ router.get("/:id", async (req, res) => {
   return res.json({
     ...supplier,
     bookings: bookings ?? [],
+    products: products ?? [],
     total_bookings: bookings?.length ?? 0,
     total_revenue,
     total_supplier_cost,
     total_commission,
     total_margin: total_revenue - total_supplier_cost,
   });
+});
+
+// ─── Supplier products (cars / drivers / other) ────────────────────────────
+const PRODUCT_COLUMNS = new Set([
+  "name", "kind", "daily_rate", "hourly_rate", "plate", "notes", "is_active",
+]);
+
+function pickProduct(body: any): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(body)) {
+    if (!PRODUCT_COLUMNS.has(k)) continue;
+    if (v === "" || v === undefined) { out[k] = null; continue; }
+    if (k === "daily_rate" || k === "hourly_rate") {
+      const n = Number(v);
+      out[k] = Number.isFinite(n) ? n : null;
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+}
+
+// GET /suppliers/:id/products — list active+inactive for a supplier
+router.get("/:id/products", async (req, res) => {
+  const { id } = req.params;
+  const { data, error } = await supabase
+    .from("supplier_products")
+    .select("*")
+    .eq("supplier_id", id)
+    .order("is_active", { ascending: false })
+    .order("kind", { ascending: true })
+    .order("name", { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  return res.json(data ?? []);
+});
+
+// POST /suppliers/:id/products — create
+router.post("/:id/products", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const { id } = req.params;
+
+  const payload = pickProduct(req.body);
+  if (!payload.name) return res.status(400).json({ error: "Product name is required" });
+  if (!payload.kind) payload.kind = "Car";
+
+  const { data, error } = await supabase
+    .from("supplier_products")
+    .insert({ ...payload, supplier_id: id })
+    .select()
+    .single();
+  if (error) return res.status(400).json({ error: error.message });
+  await auditLog("create_supplier_product", "supplier_product", data.id, user.id,
+    `Added ${data.kind} "${data.name}" to supplier ${id}`);
+  return res.json(data);
+});
+
+// PATCH /suppliers/:id/products/:pid — update
+router.patch("/:id/products/:pid", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const { id, pid } = req.params;
+
+  const updates = pickProduct(req.body);
+  const { data, error } = await supabase
+    .from("supplier_products")
+    .update(updates)
+    .eq("id", pid)
+    .eq("supplier_id", id)
+    .select()
+    .single();
+  if (error) return res.status(400).json({ error: error.message });
+  await auditLog("update_supplier_product", "supplier_product", pid, user.id,
+    `Updated ${data.kind} "${data.name}"`);
+  return res.json(data);
+});
+
+// DELETE /suppliers/:id/products/:pid — hard delete (cascades to bookings via SET NULL)
+router.delete("/:id/products/:pid", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  const { id, pid } = req.params;
+
+  const { error } = await supabase
+    .from("supplier_products")
+    .delete()
+    .eq("id", pid)
+    .eq("supplier_id", id);
+  if (error) return res.status(400).json({ error: error.message });
+  await auditLog("delete_supplier_product", "supplier_product", pid, user.id,
+    `Removed product ${pid} from supplier ${id}`);
+  return res.json({ ok: true });
 });
 
 // ─── POST /suppliers ────────────────────────────────────────────────────────

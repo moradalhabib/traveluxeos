@@ -17,6 +17,7 @@ import { supabase } from "@/lib/supabase";
 import { format } from "date-fns";
 import { Label } from "@/components/ui/label";
 import ProductPicker, { type OrderLine } from "@/components/booking/ProductPicker";
+import { SupplierProductPicker } from "@/components/SupplierProductPicker";
 import { FlightLookupCard } from "@/components/booking/FlightLookupCard";
 
 type Phase = "lookup" | "found" | "register" | "booking";
@@ -103,6 +104,7 @@ const bookingSchema = z.object({
   payment_notes: z.string().optional(),
   // Build 4 — Supplier link + Car Rental / As Directed cost breakdown
   supplier_id: z.string().optional(),
+  supplier_product_id: z.string().optional(),
   supplier_commission: z.coerce.number().optional(),
   base_daily_rate: z.coerce.number().optional(),
   rental_days: z.coerce.number().optional(),
@@ -284,7 +286,21 @@ export default function NewBooking() {
       bookingForm.setValue("passengers", undefined as any);
       bookingForm.setValue("luggage", undefined as any);
     }
+    // Supplier-product is only meaningful for Car Rental / As Directed.
+    // Switching service type away from those flows must clear any stale
+    // product link so it isn't silently posted on save.
+    if (!isCarRental && !isAsDirected) {
+      bookingForm.setValue("supplier_product_id" as any, "");
+    }
   }, [serviceType]);
+
+  // Clear the chosen product whenever the supplier changes, so we never
+  // submit a product belonging to a different supplier (server validates
+  // this too, but this prevents the request from ever being made).
+  const supplierIdWatch = bookingForm.watch("supplier_id" as any);
+  useEffect(() => {
+    bookingForm.setValue("supplier_product_id" as any, "");
+  }, [supplierIdWatch]);
 
   // Auto-calculate nights when check-in/check-out change
   useEffect(() => {
@@ -648,6 +664,7 @@ export default function NewBooking() {
       duration: values.duration,
       // Build 4 — supplier + cost breakdown (Car Rental / As Directed)
       supplier_id: (values as any).supplier_id || undefined,
+      supplier_product_id: (values as any).supplier_product_id || undefined,
       supplier_commission: (values as any).supplier_commission,
       base_daily_rate: (values as any).base_daily_rate,
       rental_days: (values as any).rental_days,
@@ -1113,6 +1130,32 @@ export default function NewBooking() {
                         </FormItem>
                       );
                     }} />
+                  )}
+
+                  {/* Supplier Product picker — shown for Car Rental & As Directed
+                      once a supplier is selected. Lets the operator pick the
+                      exact car (or driver) the supplier is providing, so the
+                      supplier KPI rolls up to the right product. */}
+                  {needsCostBreakdown && (bookingForm.watch("supplier_id" as any) || "") !== "" && (
+                    <SupplierProductPicker
+                      supplierId={String(bookingForm.watch("supplier_id" as any) || "")}
+                      value={String(bookingForm.watch("supplier_product_id" as any) || "")}
+                      onChange={(productId, product) => {
+                        bookingForm.setValue("supplier_product_id" as any, productId || "");
+                        if (product) {
+                          // Auto-fill base_daily_rate so the Cost Breakdown
+                          // reflects what we pay this supplier for this car.
+                          if (product.daily_rate != null) {
+                            bookingForm.setValue("base_daily_rate" as any, Number(product.daily_rate));
+                          }
+                          // Mirror the product name into vehicle_type so the
+                          // Job Sheet still shows a human-readable vehicle.
+                          if (product.kind === "Car" && product.name) {
+                            bookingForm.setValue("vehicle_type", product.name);
+                          }
+                        }
+                      }}
+                    />
                   )}
                 </CardContent>
               </Card>
@@ -2084,7 +2127,11 @@ export default function NewBooking() {
                           assigned — the vehicle is implicit from the driver.
                           Also hide for As Directed bookings where the vehicle
                           is already chosen as a line item above. */}
-                      {!isAsDirected && (() => {
+                      {/* Hide the standalone Vehicle field for Car Rental
+                          and As Directed — those flows use the Supplier
+                          Product picker (specific car from supplier) instead
+                          of a free-text vehicle. */}
+                      {!isAsDirected && !isCarRental && (() => {
                         const did = bookingForm.watch("driver_id");
                         const hasDriver = !!did && did !== "unassigned";
                         if (hasDriver) return null;

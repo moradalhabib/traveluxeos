@@ -10,7 +10,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
   ArrowLeft, Building2, Phone, Mail, MessageCircle, Save, Trash2,
-  MapPin, Globe, Star, Briefcase,
+  MapPin, Globe, Star, Briefcase, Package, Plus, Pencil, Check, X,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -290,6 +290,13 @@ export default function SupplierDetail() {
         </CardContent>
       </Card>
 
+      {/* Products (cars / drivers / other services) */}
+      <SupplierProductsSection
+        supplierId={id!}
+        products={supplier.products ?? []}
+        onChange={(next) => setSupplier({ ...supplier, products: next })}
+      />
+
       {/* Recent bookings */}
       <Card className="bg-card border-border">
         <CardContent className="p-6 space-y-3">
@@ -337,5 +344,270 @@ export default function SupplierDetail() {
         </Button>
       </div>
     </div>
+  );
+}
+
+// ─── Products section (inline) ───────────────────────────────────────────
+type Product = {
+  id: string;
+  name: string;
+  kind: "Car" | "Driver" | "Other";
+  daily_rate: number | null;
+  hourly_rate: number | null;
+  plate: string | null;
+  notes: string | null;
+  is_active: boolean;
+};
+
+function emptyDraft(): Partial<Product> {
+  return { name: "", kind: "Car", daily_rate: null, hourly_rate: null, plate: "", notes: "", is_active: true };
+}
+
+function SupplierProductsSection({
+  supplierId,
+  products,
+  onChange,
+}: {
+  supplierId: string;
+  products: Product[];
+  onChange: (next: Product[]) => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [draft, setDraft] = useState<Partial<Product>>(emptyDraft());
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<Partial<Product>>({});
+  const [busy, setBusy] = useState(false);
+
+  const startEdit = (p: Product) => {
+    setEditingId(p.id);
+    setEditDraft({ ...p });
+  };
+
+  const handleAdd = async () => {
+    if (!draft.name?.trim()) {
+      toast.error("Name is required");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await authedFetch(`/api/suppliers/${supplierId}/products`, {
+        method: "POST",
+        body: JSON.stringify(draft),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? "Failed to add");
+      }
+      const created = await res.json();
+      onChange([created, ...products]);
+      setDraft(emptyDraft());
+      setAdding(false);
+      toast.success("Product added");
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed to add");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingId) return;
+    if (!editDraft.name?.trim()) {
+      toast.error("Name is required");
+      return;
+    }
+    setBusy(true);
+    try {
+      const res = await authedFetch(`/api/suppliers/${supplierId}/products/${editingId}`, {
+        method: "PATCH",
+        body: JSON.stringify(editDraft),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error ?? "Failed to save");
+      }
+      const updated = await res.json();
+      onChange(products.map(p => (p.id === editingId ? updated : p)));
+      setEditingId(null);
+      setEditDraft({});
+      toast.success("Product updated");
+    } catch (e: any) {
+      toast.error(e.message ?? "Failed to save");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`Remove "${name}" from this supplier?`)) return;
+    setBusy(true);
+    try {
+      const res = await authedFetch(`/api/suppliers/${supplierId}/products/${id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed");
+      onChange(products.filter(p => p.id !== id));
+      toast.success("Removed");
+    } catch {
+      toast.error("Failed to remove");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="bg-card border-border">
+      <CardContent className="p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
+            <Package className="w-4 h-4" /> Products ({products.length})
+          </h3>
+          {!adding && (
+            <Button size="sm" onClick={() => setAdding(true)}>
+              <Plus className="w-4 h-4 mr-1.5" /> Add product
+            </Button>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Cars, drivers and any other items this supplier provides. These appear in the supplier-product picker on Car Rental and As Directed bookings.
+        </p>
+
+        {adding && (
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div>
+                <Label className="text-xs">Name</Label>
+                <Input value={draft.name ?? ""} onChange={e => setDraft({ ...draft, name: e.target.value })} placeholder="e.g. Range Rover Vogue" />
+              </div>
+              <div>
+                <Label className="text-xs">Kind</Label>
+                <select
+                  value={draft.kind ?? "Car"}
+                  onChange={e => setDraft({ ...draft, kind: e.target.value as any })}
+                  className="w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
+                >
+                  <option value="Car">Car</option>
+                  <option value="Driver">Driver</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div>
+                <Label className="text-xs">Daily rate £</Label>
+                <Input type="number" step="0.01" min="0" value={draft.daily_rate ?? ""} onChange={e => setDraft({ ...draft, daily_rate: e.target.value === "" ? null : Number(e.target.value) })} />
+              </div>
+              <div>
+                <Label className="text-xs">Hourly rate £</Label>
+                <Input type="number" step="0.01" min="0" value={draft.hourly_rate ?? ""} onChange={e => setDraft({ ...draft, hourly_rate: e.target.value === "" ? null : Number(e.target.value) })} />
+              </div>
+              <div className="sm:col-span-2">
+                <Label className="text-xs">Plate / ref (optional)</Label>
+                <Input value={draft.plate ?? ""} onChange={e => setDraft({ ...draft, plate: e.target.value })} />
+              </div>
+              <div className="sm:col-span-2">
+                <Label className="text-xs">Notes (optional)</Label>
+                <Input value={draft.notes ?? ""} onChange={e => setDraft({ ...draft, notes: e.target.value })} />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-1">
+              <Button variant="ghost" size="sm" onClick={() => { setAdding(false); setDraft(emptyDraft()); }}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleAdd} disabled={busy}>
+                <Check className="w-4 h-4 mr-1.5" /> Save
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {products.length === 0 && !adding && (
+          <p className="text-sm text-muted-foreground py-4 text-center">No products yet.</p>
+        )}
+
+        <div className="space-y-2">
+          {products.map((p) => (
+            <div key={p.id} className={`rounded-lg border p-3 ${p.is_active ? "border-border bg-secondary/10" : "border-border/40 bg-secondary/5 opacity-60"}`}>
+              {editingId === p.id ? (
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div>
+                      <Label className="text-xs">Name</Label>
+                      <Input value={editDraft.name ?? ""} onChange={e => setEditDraft({ ...editDraft, name: e.target.value })} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Kind</Label>
+                      <select
+                        value={editDraft.kind ?? "Car"}
+                        onChange={e => setEditDraft({ ...editDraft, kind: e.target.value as any })}
+                        className="w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
+                      >
+                        <option value="Car">Car</option>
+                        <option value="Driver">Driver</option>
+                        <option value="Other">Other</option>
+                      </select>
+                    </div>
+                    <div>
+                      <Label className="text-xs">Daily £</Label>
+                      <Input type="number" step="0.01" min="0" value={editDraft.daily_rate ?? ""} onChange={e => setEditDraft({ ...editDraft, daily_rate: e.target.value === "" ? null : Number(e.target.value) })} />
+                    </div>
+                    <div>
+                      <Label className="text-xs">Hourly £</Label>
+                      <Input type="number" step="0.01" min="0" value={editDraft.hourly_rate ?? ""} onChange={e => setEditDraft({ ...editDraft, hourly_rate: e.target.value === "" ? null : Number(e.target.value) })} />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <Label className="text-xs">Plate</Label>
+                      <Input value={editDraft.plate ?? ""} onChange={e => setEditDraft({ ...editDraft, plate: e.target.value })} />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <Label className="text-xs">Notes</Label>
+                      <Input value={editDraft.notes ?? ""} onChange={e => setEditDraft({ ...editDraft, notes: e.target.value })} />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between pt-1">
+                    <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      <input
+                        type="checkbox"
+                        checked={!!editDraft.is_active}
+                        onChange={e => setEditDraft({ ...editDraft, is_active: e.target.checked })}
+                      />
+                      Active
+                    </label>
+                    <div className="flex gap-2">
+                      <Button variant="ghost" size="sm" onClick={() => { setEditingId(null); setEditDraft({}); }}>
+                        <X className="w-4 h-4 mr-1" /> Cancel
+                      </Button>
+                      <Button size="sm" onClick={handleSaveEdit} disabled={busy}>
+                        <Check className="w-4 h-4 mr-1" /> Save
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="outline" className="text-[10px] py-0 px-1.5">{p.kind}</Badge>
+                      <span className="font-semibold text-foreground">{p.name}</span>
+                      {p.plate && <span className="text-xs text-muted-foreground font-mono">{p.plate}</span>}
+                      {!p.is_active && <Badge variant="outline" className="text-[10px] py-0 px-1.5 border-amber-500/40 text-amber-400">Inactive</Badge>}
+                    </div>
+                    <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-3">
+                      {p.daily_rate != null && <span>£{Number(p.daily_rate).toLocaleString()}/day</span>}
+                      {p.hourly_rate != null && <span>£{Number(p.hourly_rate).toLocaleString()}/hr</span>}
+                      {p.notes && <span className="truncate">{p.notes}</span>}
+                    </div>
+                  </div>
+                  <div className="flex gap-1 flex-shrink-0">
+                    <Button variant="ghost" size="sm" onClick={() => startEdit(p)} className="h-8 w-8 p-0">
+                      <Pencil className="w-4 h-4" />
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => handleDelete(p.id, p.name)} className="h-8 w-8 p-0 text-destructive hover:text-destructive">
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
   );
 }

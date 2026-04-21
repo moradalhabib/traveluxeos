@@ -32,6 +32,7 @@ export default function Jobs() {
   const [timeFilter, setTimeFilter] = useState("all");
   const search = useSearch();
   const statusFilter = new URLSearchParams(search).get("status") ?? "";
+  const customFilter = new URLSearchParams(search).get("filter") ?? "";
   const qc = useQueryClient();
 
   const { data: bookings, isLoading } = useListBookings(
@@ -65,6 +66,13 @@ export default function Jobs() {
     const now = new Date();
     return bookings.filter(b => {
       if (b.status === 'Cancelled') return false;
+      if (customFilter === 'needs-driver') {
+        // Mirror the dashboard's "needs driver" KPI exactly:
+        // only Pending/Confirmed bookings without a driver count as urgent.
+        if (b.driver_id) return false;
+        if (b.status !== 'Pending' && b.status !== 'Confirmed') return false;
+        return true;
+      }
       if (statusFilter && b.status !== statusFilter) return false;
       if (statusFilter) return true;
       if (!b.date_time) return timeFilter === 'all';
@@ -80,7 +88,7 @@ export default function Jobs() {
         default: return !isBefore(d, startOfDay(now));
       }
     });
-  }, [bookings, timeFilter, statusFilter]);
+  }, [bookings, timeFilter, statusFilter, customFilter]);
 
   const urgentJobs = filteredBookings.filter(b => !b.driver_id && b.status !== 'Completed');
   const activeJobs = bookings?.filter(b => b.status !== 'Cancelled') || [];

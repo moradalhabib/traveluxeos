@@ -174,9 +174,17 @@ export default function Dashboard() {
         </Card>
       )}
 
-      {/* Urgent: jobs without driver */}
+      {/* Urgent: jobs without driver. If there's exactly one, deep-link
+          straight into that booking's profile. Otherwise jump to the Jobs
+          board pre-filtered to "needs driver". */}
       {s?.jobs_without_driver ? (
-        <Link href="/jobs">
+        <Link
+          href={
+            s.jobs_without_driver === 1 && s.jobs_without_driver_first_id
+              ? `/bookings/${s.jobs_without_driver_first_id}`
+              : "/jobs?filter=needs-driver"
+          }
+        >
           <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-4 flex items-center gap-3 cursor-pointer hover:bg-destructive/15 transition-colors">
             <AlertTriangle className="w-5 h-5 text-destructive flex-shrink-0" />
             <div className="flex-1">
