@@ -1,0 +1,74 @@
+"Perfect — all 7 fixes confirmed. Now run the full QA in focused passes exactly as you suggested. Start immediately with the passes in this order:
+Pass 1 — Full End-to-End Client Journey (Step 19)
+
+Create a new client
+Create an airport transfer booking at LHR with flight number, Mercedes E Class, meet & greet
+Assign a driver
+Confirm WhatsApp message to client is correct and professional
+Confirm WhatsApp briefing to driver is correct and complete with all job details
+Mark job as complete
+Confirm follow-up is created automatically
+Mark follow-up as Return Booked
+Confirm commission is tracked correctly in Intel
+Confirm invoice is correct, complete, and professional
+
+Pass 2 — Bookings & All Service Types (Step 2)
+Create a complete test booking for every single service type:
+
+Airport Transfer Arrival LHR
+Airport Transfer Departure LGW
+Airport Transfer OTHER with manual location input
+Car Rental multi-day with manual supplier cost — confirm TVL commission calculates correctly
+Hotel Transfer
+Tour Package
+Any other service types in the system
+For each one confirm booking saves, invoice generates, job sheet is correct, WhatsApp fires correctly, and it appears on the dashboard and jobs board.
+
+Pass 3 — Financial Integrity (Steps 10 & 14)
+
+Confirm Intel shows correct total revenue, commission, and supplier costs
+Create a booking with specific client price and supplier cost — confirm TVL commission is exactly client price minus supplier cost across booking, invoice, job sheet, and Intel
+Create multiple bookings and confirm dashboard commission to collect adds up correctly
+Cancel a booking and confirm all figures update correctly everywhere
+Confirm paid vs unpaid status affects commission to collect correctly
+Confirm clear way to mark commission as collected exists and works
+
+Pass 4 — Invoices & WhatsApp Templates (Steps 11 & 12)
+
+Check invoices for every service type — confirm they are professional, accurate, and complete
+Confirm client price, supplier cost, and TVL commission all show correctly on every invoice
+Confirm invoice numbering is sequential and never duplicated
+Check every WhatsApp template — client confirmation, driver briefing, admin alert
+Confirm all templates are professional and appropriate for a luxury concierge business serving high net worth Gulf clients
+Confirm all templates contain all necessary information with no missing fields
+
+Pass 5 — Clients, Drivers, Suppliers, Services (Steps 6, 7, 8, 9)
+
+Test full CRUD on clients — add, edit, view history, search
+Test full CRUD on drivers — add, edit, assign, conflict warning
+Test full CRUD on suppliers — add, edit, pricing, manual cost input
+Test full CRUD on services — add, edit, confirm price changes flow through to bookings
+Confirm everything links correctly across the platform
+
+Pass 6 — Edge Cases, Performance & Security (Steps 15, 16, 17, 18)
+
+Test all edge cases — missing fields, duplicate bookings, past dates, incomplete forms
+Test all tablet responsiveness — every page, every form, every modal
+Test speed — every page under 3 seconds
+Test security — confirm role based access is correct
+Confirm no console errors on any page
+
+Pass 7 — Search, Follow-Ups Deep Test, Dashboard (Steps 1, 5, 13)
+
+Deep test all follow-up filters and date ranges
+Test all search functionality — client, booking ref, job
+Full dashboard check — all stats, all banners, all alerts, all navigation
+
+After each pass give me a full report of:
+
+What passed
+What failed and what you fixed
+What needs my input or decision
+Health score for that section out of 10
+
+Do not wait between passes — run them back to back and report after each one. Start Pass 1 now."Sonnet 4.6Adaptive

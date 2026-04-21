@@ -787,6 +787,14 @@ export default function BookingDetail() {
     ];
     if (driverStaffNo) lines.push(`Assigned to: *${driverStaffNo}*`);
 
+    // Client identity — needed by the driver for meet & greet, on-route
+    // contact and any last-minute changes. Add immediately after the header
+    // so it's the first thing visible after the ref/service block.
+    if (booking.client_name) lines.push(`Client: ${booking.client_name}`);
+    if ((booking as any).client_whatsapp) {
+      lines.push(`Client phone: ${(booking as any).client_whatsapp}`);
+    }
+
     if (svc === "Airport Transfer") {
       lines.push(`Date: ${dateStr}`, `Time: ${timeStr}`);
       if ((booking as any).direction) lines.push(`Direction: ${(booking as any).direction}`);

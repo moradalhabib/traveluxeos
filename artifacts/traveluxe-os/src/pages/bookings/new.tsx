@@ -251,7 +251,21 @@ export default function NewBooking() {
   const driverCost    = bookingForm.watch("driver_cost" as any) || 0;
   const extraCharges  = (bookingForm.watch("extra_charges" as any) as any[]) || [];
   const extrasTotal   = extraCharges.reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
-  const carRentalSubtotal = (Number(baseDailyRate) * Number(rentalDays)) + Number(fuelCost) + Number(driverCost) + extrasTotal;
+  const carRentalDerivedSubtotal = (Number(baseDailyRate) * Number(rentalDays)) + Number(fuelCost) + Number(driverCost) + extrasTotal;
+  // Manual supplier_cost override: when the operator types a value into the
+  // amber-bordered "Supplier total cost — manual" input at the top of the
+  // Cost Breakdown card, that figure is the source of truth for margin —
+  // not the auto-derived base×days+fuel+driver+extras formula. Without this,
+  // the displayed Margin silently disagreed with what we'd persist.
+  const supplierCostManualWatch = bookingForm.watch("supplier_cost" as any);
+  const hasManualSupplierCost =
+    supplierCostManualWatch != null &&
+    supplierCostManualWatch !== "" &&
+    !Number.isNaN(Number(supplierCostManualWatch)) &&
+    Number(supplierCostManualWatch) > 0;
+  const carRentalSubtotal = hasManualSupplierCost
+    ? Number(supplierCostManualWatch)
+    : carRentalDerivedSubtotal;
   const clientPriceWatch = bookingForm.watch("price") || 0;
   const carRentalMargin = Number(clientPriceWatch) - carRentalSubtotal;
 
