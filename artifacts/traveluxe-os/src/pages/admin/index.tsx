@@ -2116,12 +2116,19 @@ export default function Admin() {
             <Badge variant="outline" className="border-amber-500/30 text-amber-500 text-xs mt-1">Super Admin</Badge>
           )}
         </div>
-        <Link href="/">
-          <Button variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10">
-            <LayoutDashboard className="w-4 h-4 mr-2" />
-            Dashboard
-          </Button>
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link href="/admin/airport-pricing">
+            <Button variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10" data-testid="link-airport-pricing">
+              Airport Pricing
+            </Button>
+          </Link>
+          <Link href="/">
+            <Button variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10">
+              <LayoutDashboard className="w-4 h-4 mr-2" />
+              Dashboard
+            </Button>
+          </Link>
+        </div>
       </div>
 
       <Tabs defaultValue="products" className="w-full">

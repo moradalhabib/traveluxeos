@@ -18,6 +18,7 @@ import { format } from "date-fns";
 import { Label } from "@/components/ui/label";
 import ProductPicker, { type OrderLine } from "@/components/booking/ProductPicker";
 import { SupplierProductPicker } from "@/components/SupplierProductPicker";
+import { AirportTransferProductPicker, type TransferExtra } from "@/components/booking/AirportTransferProductPicker";
 import { NATIONALITIES, nationalityFlag } from "@/lib/nationalities";
 import { Switch } from "@/components/ui/switch";
 import { FlightLookupCard } from "@/components/booking/FlightLookupCard";
@@ -126,6 +127,14 @@ const bookingSchema = z.object({
   })).optional(),
   as_directed_supplier_driver: z.boolean().optional().default(false),
   overtime_hours: z.coerce.number().optional().default(0),
+  // Airport Transfer pricing matrix
+  vehicle_product_id: z.string().optional(),
+  meet_greet_product_id: z.string().optional(),
+  transfer_extras: z.array(z.object({
+    id: z.string(),
+    name: z.string(),
+    price: z.coerce.number(),
+  })).optional().default([]),
 });
 
 export default function NewBooking() {
@@ -807,6 +816,14 @@ export default function NewBooking() {
       driver_cost: (values as any).driver_cost,
       extra_charges: mergedExtras.length > 0 ? mergedExtras : undefined,
       as_directed_supplier_driver: !!(values as any).as_directed_supplier_driver,
+      // Airport Transfer matrix selections
+      ...(values.service_type === "Airport Transfer" ? {
+        vehicle_product_id: (values as any).vehicle_product_id || null,
+        meet_greet_product_id: (values as any).meet_greet_product_id || null,
+        transfer_extras: Array.isArray((values as any).transfer_extras)
+          ? (values as any).transfer_extras
+          : [],
+      } : {}),
     };
 
     // Fold service-specific details into notes so data is preserved
@@ -1744,6 +1761,28 @@ export default function NewBooking() {
                           <FormMessage />
                         </FormItem>
                       )} />
+
+                      {/* Airport × Vehicle pricing matrix + Additional Services.
+                          Renders only for Airport Transfer once an airport is
+                          selected. Picking a vehicle and toggling extras
+                          auto-fills the Client Price below — operator can
+                          still override manually. */}
+                      <AirportTransferProductPicker
+                        airportCode={bookingForm.watch("airport_code") as string | undefined}
+                        vehicleProductId={(bookingForm.watch("vehicle_product_id" as any) as string) ?? ""}
+                        transferExtras={(bookingForm.watch("transfer_extras" as any) as TransferExtra[]) ?? []}
+                        onChange={({ vehicleProductId, vehicleName, transferExtras, totalPrice }) => {
+                          bookingForm.setValue("vehicle_product_id" as any, vehicleProductId, { shouldDirty: true });
+                          if (vehicleName) bookingForm.setValue("vehicle_type", vehicleName, { shouldDirty: true });
+                          // Mirror the first selected Meet & Greet into the
+                          // legacy single-tier column so existing reports /
+                          // job sheet labels keep working.
+                          const firstMg = transferExtras.find(e => /meet.?&?\s*greet/i.test(e.name));
+                          bookingForm.setValue("meet_greet_product_id" as any, firstMg?.id ?? "", { shouldDirty: true });
+                          bookingForm.setValue("transfer_extras" as any, transferExtras, { shouldDirty: true });
+                          bookingForm.setValue("price", totalPrice, { shouldDirty: true });
+                        }}
+                      />
                     </>
                   )}
 

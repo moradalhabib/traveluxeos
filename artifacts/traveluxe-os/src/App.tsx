@@ -39,6 +39,7 @@ import Invoices from "@/pages/invoices/index";
 import InvoiceDetail from "@/pages/invoices/[id]";
 import Search from "@/pages/search/index";
 import Admin from "@/pages/admin/index";
+import AirportPricingAdmin from "@/pages/admin/airport-pricing";
 import Services from "@/pages/services/index";
 import Analytics from "@/pages/analytics/index";
 import Marketing from "@/pages/marketing/index";
@@ -125,6 +126,7 @@ function Router() {
       <ProtectedRoute path="/services" component={Services} blockResidenceManager={true} />
       <ProtectedRoute path="/analytics" component={Analytics} blockResidenceManager={true} />
       <ProtectedRoute path="/admin" component={Admin} allowedRoles={["super_admin", "admin", "operator"]} />
+      <ProtectedRoute path="/admin/airport-pricing" component={AirportPricingAdmin} allowedRoles={["super_admin", "admin"]} />
       <ProtectedRoute path="/marketing" component={Marketing} blockResidenceManager={true} />
       <ProtectedRoute path="/follow-ups" component={FollowUps} blockResidenceManager={true} />
       <ProtectedRoute path="/suppliers" component={Suppliers} blockResidenceManager={true} />

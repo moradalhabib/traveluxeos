@@ -425,6 +425,10 @@ const BOOKING_COLUMNS = new Set([
   // Product-restructure additions (April 2026)
   "airport_code","hours","supplier_cost","client_price",
   "vehicle_product_id","tour_product_id","meet_greet_product_id",
+  // Airport Transfer extras snapshot: array of {id,name,price}.
+  // Stored as JSONB so price totals stay historically accurate even if
+  // the products catalogue is edited after the booking is saved.
+  "transfer_extras",
   // Build 4: supplier link + car-rental cost breakdown + notification timestamps
   "supplier_id","supplier_product_id","supplier_commission",
   "base_daily_rate","rental_days","fuel_cost","driver_cost","extra_charges",
