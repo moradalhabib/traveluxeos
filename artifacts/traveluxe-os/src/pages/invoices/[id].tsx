@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
 import { ArrowLeft, Download, Printer, Receipt, Mail, Phone, CheckCircle2, Send, AlertTriangle } from "lucide-react";
 import { format } from "date-fns";
+import { fmtLondon } from "@/lib/datetime";
 import { useRef, useState, useEffect } from "react";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
@@ -179,7 +180,7 @@ export default function InvoiceDetail() {
 
   const buildPdfHtml = (inv: any, bk: any, lines: any[], client: any) => {
     const dateStr = inv.generated_at ? format(new Date(inv.generated_at), "dd MMMM yyyy") : format(new Date(), "dd MMMM yyyy");
-    const serviceDate = bk.date_time ? format(new Date(bk.date_time), "dd MMM yyyy HH:mm") : "—";
+    const serviceDate = bk.date_time ? fmtLondon(bk.date_time, "dd MMM yyyy HH:mm") : "—";
     const hasLines = lines.length > 0;
     const buildFallbackDesc = (bk: any): string => {
       const st = bk.service_type ?? "";
@@ -515,7 +516,7 @@ export default function InvoiceDetail() {
               <p className="text-sm text-muted-foreground mt-1">{booking?.service_type}</p>
               {booking?.date_time && (
                 <p className="text-sm text-muted-foreground mt-1">
-                  📅 {format(new Date(booking.date_time), "dd MMM yyyy, HH:mm")}
+                  📅 {fmtLondon(booking.date_time, "dd MMM yyyy, HH:mm")}
                 </p>
               )}
 

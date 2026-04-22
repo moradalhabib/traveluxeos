@@ -15,6 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, Check, UserPlus, AlertTriangle, ArrowLeft, Phone, Pencil, X } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { format } from "date-fns";
+import { isoToLondonInput, londonInputToIso } from "@/lib/datetime";
 import { Label } from "@/components/ui/label";
 import ProductPicker, { type OrderLine } from "@/components/booking/ProductPicker";
 import { SupplierProductPicker } from "@/components/SupplierProductPicker";
@@ -392,7 +393,7 @@ export default function NewBooking() {
       const notes = params.get("notes");
       const price = params.get("price");
       if (svc) bookingForm.setValue("service_type", svc as any);
-      if (dt)  bookingForm.setValue("date_time", dt.slice(0, 16));
+      if (dt)  bookingForm.setValue("date_time", isoToLondonInput(dt));
       if (notes) bookingForm.setValue("notes", notes);
       if (price) bookingForm.setValue("price", Number(price));
       toast({ title: "Prefilled from request", description: "Edit and save to convert." });
@@ -791,7 +792,9 @@ export default function NewBooking() {
       airport_code: values.airport_code ?? null,
       hours: values.hours ?? null,
       ...transportSafe,
-      date_time: effectiveDateTime,
+      // Convert London-local form string → UTC ISO so Postgres stores
+      // the correct absolute moment regardless of admin / server timezone.
+      date_time: effectiveDateTime ? londonInputToIso(effectiveDateTime) : undefined,
       special_requests: values.extras
         ? `${values.special_requests ? values.special_requests + "\n" : ""}Extras: ${values.extras}`
         : values.special_requests,
@@ -2317,36 +2320,95 @@ export default function NewBooking() {
                       {(() => {
                         const isAT = serviceType === "Airport Transfer";
 
-                        // ── Airport Transfer: MANUAL TVL commission ──────────
-                        // Zone-based pricing means a derived margin is
-                        // misleading. Operator types the driver's commission
-                        // to TVL directly; it's persisted to tvl_commission
-                        // and read by Commissions / driver profiles / finance
-                        // / settlement statements unchanged.
+                        // ── Airport Transfer: MANUAL split commission ────────
+                        // Two independent commissions, both manual:
+                        //   1. Driver commission → tvl_commission column
+                        //      (what driver owes TVL on cash; feeds the
+                        //       Commissions page, driver profiles, settlement
+                        //       statements, finance reports)
+                        //   2. Supplier commission → supplier_commission column
+                        //      (TVL markup on third-party services like
+                        //       Heathrow Meet & Greet agents — supplier
+                        //       charges X, we charge client X+commission)
+                        // Supplier dropdown writes supplier_id so finance can
+                        // group payouts per third-party supplier.
                         if (isAT) {
-                          const tc = Number(bookingForm.watch("tvl_commission")) || 0;
-                          const positive = tc >= 0;
+                          const dc = Number(bookingForm.watch("tvl_commission")) || 0;
+                          const sc = Number(bookingForm.watch("supplier_commission" as any)) || 0;
+                          const totalProfit = dc + sc;
+                          const positive = totalProfit >= 0;
+                          const supplierIdAt = String(bookingForm.watch("supplier_id" as any) ?? "");
                           return (
-                            <div className="p-3 rounded-md border border-border bg-muted/30 space-y-2">
-                              <div className="flex items-center justify-between">
-                                <div>
-                                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">TVL Commission (manual)</Label>
-                                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                                    Driver settlement to TVL · feeds Commissions, driver profile &amp; finance
-                                  </p>
-                                </div>
-                                <div className={`text-2xl font-bold ${positive ? "text-green-400" : "text-destructive"}`} data-testid="text-tvl-margin">
-                                  £{tc.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            <div className="space-y-3">
+                              {/* Driver commission */}
+                              <div className="p-3 rounded-md border border-border bg-muted/30 space-y-2">
+                                <div className="flex items-center justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">Driver Commission (manual)</Label>
+                                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                                      What the driver owes TVL · feeds Commissions, driver profile &amp; settlement statements
+                                    </p>
+                                  </div>
+                                  <Input
+                                    type="number" step="0.01"
+                                    placeholder="£0"
+                                    value={(bookingForm.watch("tvl_commission") as any) ?? ""}
+                                    onChange={e => bookingForm.setValue("tvl_commission", e.target.value === "" ? 0 : Number(e.target.value), { shouldDirty: true })}
+                                    className="font-semibold w-32 text-right"
+                                    data-testid="input-driver-commission-manual"
+                                  />
                                 </div>
                               </div>
-                              <Input
-                                type="number" step="0.01"
-                                placeholder="Enter TVL commission (£)"
-                                value={(bookingForm.watch("tvl_commission") as any) ?? ""}
-                                onChange={e => bookingForm.setValue("tvl_commission", e.target.value === "" ? 0 : Number(e.target.value), { shouldDirty: true })}
-                                className="font-semibold"
-                                data-testid="input-tvl-commission-manual"
-                              />
+
+                              {/* Third-party supplier (e.g. Heathrow Meet & Greet) */}
+                              <div className="p-3 rounded-md border border-border bg-muted/30 space-y-3">
+                                <div>
+                                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Third-party Supplier <span className="normal-case text-[10px] text-muted-foreground/80">(optional — e.g. Heathrow Meet &amp; Greet agents)</span></Label>
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                                    Track the supplier you used + your markup commission. Feeds finance reports per supplier.
+                                  </p>
+                                </div>
+                                <div className="grid grid-cols-2 gap-3">
+                                  <div className="space-y-1">
+                                    <Label className="text-[11px] text-muted-foreground">Supplier</Label>
+                                    <Select
+                                      value={supplierIdAt || "none"}
+                                      onValueChange={(v) => bookingForm.setValue("supplier_id" as any, v === "none" ? "" : v, { shouldDirty: true })}
+                                    >
+                                      <SelectTrigger data-testid="select-at-supplier"><SelectValue placeholder="Select supplier…" /></SelectTrigger>
+                                      <SelectContent className="max-h-[55vh] overflow-y-auto">
+                                        <SelectItem value="none">— None —</SelectItem>
+                                        {supplierList.map((s: any) => (
+                                          <SelectItem key={s.id} value={s.id}>
+                                            {s.name}{s.city ? ` · ${s.city}` : ""}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                  <div className="space-y-1">
+                                    <Label className="text-[11px] text-muted-foreground">Supplier Commission (£)</Label>
+                                    <Input
+                                      type="number" step="0.01" min="0"
+                                      placeholder="TVL markup, e.g. 50"
+                                      value={(bookingForm.watch("supplier_commission" as any) as any) ?? ""}
+                                      onChange={e => bookingForm.setValue("supplier_commission" as any, e.target.value === "" ? undefined : Number(e.target.value), { shouldDirty: true })}
+                                      data-testid="input-supplier-commission-manual"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Total TVL profit (driver + supplier commission) */}
+                              <div className="flex items-center justify-between p-3 rounded-md border border-primary/30 bg-primary/5">
+                                <div>
+                                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Total TVL Profit (auto)</Label>
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">Driver Commission + Supplier Commission</p>
+                                </div>
+                                <div className={`text-2xl font-bold ${positive ? "text-green-400" : "text-destructive"}`} data-testid="text-tvl-margin">
+                                  £{totalProfit.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                </div>
+                              </div>
                             </div>
                           );
                         }

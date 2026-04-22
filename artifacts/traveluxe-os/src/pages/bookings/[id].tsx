@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift, Map, Building2, CalendarRange, RotateCcw, ExternalLink, AlertTriangle, CheckCircle2, History } from "lucide-react";
 import { format } from "date-fns";
+import { fmtLondon, isoToLondonInput, londonInputToIso } from "@/lib/datetime";
 import { nationalityFlag } from "@/lib/nationalities";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
@@ -746,7 +747,7 @@ export default function BookingDetail() {
     setEditHotelBookingRef(b.hotel_booking_ref || "");
     setEditNumGuests(Number(b.num_guests || 0));
     // Transport — datetime-local needs YYYY-MM-DDTHH:mm
-    setEditDateTime(b.date_time ? String(b.date_time).slice(0, 16) : "");
+    setEditDateTime(b.date_time ? isoToLondonInput(b.date_time) : "");
     setEditPickup(b.pickup || "");
     setEditDropoff(b.dropoff || b.destination || "");
     setEditVehicle(b.vehicle_type || "");
@@ -794,7 +795,7 @@ export default function BookingDetail() {
       if (isHotel) payload.num_nights = editNights || undefined;
       else payload.nights = editNights || undefined;
       // Keep date_time aligned with check-in for sorting
-      payload.date_time = editCheckIn ? `${editCheckIn}T12:00:00` : undefined;
+      payload.date_time = editCheckIn ? londonInputToIso(`${editCheckIn}T12:00`) : undefined;
       // Hotel-specific details
       if (isHotel) {
         payload.hotel_name = editHotelName || undefined;
@@ -804,7 +805,7 @@ export default function BookingDetail() {
       }
     } else {
       // Transport / Tour / As Directed.
-      payload.date_time = editDateTime || undefined;
+      payload.date_time = editDateTime ? londonInputToIso(editDateTime) : undefined;
       payload.pickup = editPickup || undefined;
       payload.dropoff = editDropoff || undefined;
       payload.vehicle_type = editVehicle || undefined;
@@ -965,13 +966,13 @@ export default function BookingDetail() {
     (booking.service_type === "Hotel" || booking.service_type === "Apartment")
       ? ((booking as any).check_in_date || booking.date_time)
       : booking.date_time;
-  const dateStr = headerDateSrc ? format(new Date(headerDateSrc), "EEEE d MMMM yyyy") : "TBC";
+  const dateStr = headerDateSrc ? fmtLondon(headerDateSrc, "EEEE d MMMM yyyy") : "TBC";
   const timeStr =
     (booking.service_type === "Hotel" || booking.service_type === "Apartment")
       ? ((booking as any).check_out_date
-          ? `→ ${format(new Date((booking as any).check_out_date), "d MMM yyyy")}`
+          ? `→ ${fmtLondon((booking as any).check_out_date, "d MMM yyyy")}`
           : "")
-      : (booking.date_time ? format(new Date(booking.date_time), "HH:mm") : "TBC");
+      : (booking.date_time ? fmtLondon(booking.date_time, "HH:mm") : "TBC");
   const extras = (booking as any).extras;
 
   // Service-type-specific message templates.
@@ -2402,7 +2403,7 @@ export default function BookingDetail() {
                   <div key={c.id} className="text-xs">
                     <span className="font-mono font-semibold">{c.tvl_ref}</span>
                     {c.client_name ? <span className="text-muted-foreground"> · {c.client_name}</span> : null}
-                    {c.date_time ? <span className="text-muted-foreground"> · {format(new Date(c.date_time), "PPp")}</span> : null}
+                    {c.date_time ? <span className="text-muted-foreground"> · {fmtLondon(c.date_time, "d MMM yyyy, HH:mm")}</span> : null}
                   </div>
                 ))}
               </div>

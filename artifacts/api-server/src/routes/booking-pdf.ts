@@ -31,6 +31,7 @@ function fmtDate(s?: string | null): string {
   if (!s) return "—";
   return new Date(s).toLocaleDateString("en-GB", {
     weekday: "long", day: "numeric", month: "long", year: "numeric",
+    timeZone: "Europe/London",
   });
 }
 
