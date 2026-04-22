@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { supabase, auditLog, getUserFromToken, getDbClient } from "../lib/supabase";
+import { supabase, auditLog, getUserFromToken, getDbClient, getServiceRoleClient } from "../lib/supabase";
 import { logActivity } from "../lib/activity";
 import { sendEmail } from "../services/email";
 import { notifyDriverAssigned, notifyDriverDeclined } from "../services/scheduler";
@@ -29,8 +29,16 @@ const router = Router();
 
 type EmailKind = "booking_confirmation" | "payment_receipt" | "invoice_resend" | "manual_invoice";
 
+function emailLogClient() {
+  // booking_email_log writes are trusted server-side audit rows. RLS on the
+  // table is staff-only, so per-request JWTs from non-staff callers (e.g.
+  // /send-test-email invoked while signed in as a regular user) would be
+  // blocked. Use the service-role client so audit always lands.
+  return getServiceRoleClient() ?? supabase;
+}
+
 async function hasAlreadySent(bookingId: string, kind: EmailKind): Promise<boolean> {
-  const { data, error } = await supabase
+  const { data, error } = await emailLogClient()
     .from("booking_email_log")
     .select("id")
     .eq("booking_id", bookingId)
@@ -56,7 +64,7 @@ async function recordEmailLog(row: {
   triggered_by?: string | null;
   trigger_source?: "auto" | "manual";
 }) {
-  const { error } = await supabase.from("booking_email_log").insert({
+  const { error } = await emailLogClient().from("booking_email_log").insert({
     booking_id: row.booking_id,
     kind: row.kind,
     status: row.status,
