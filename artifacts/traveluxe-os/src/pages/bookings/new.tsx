@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
@@ -576,6 +576,21 @@ export default function NewBooking() {
     })();
     return () => { cancelled = true; };
   }, [adRentalDays, overtimeHours, orderLines.map(l => l.product_id).join("|"), serviceType]);
+
+  // ── As Directed: auto-fill Supplier Cost = base_daily_rate × rental_days ──
+  // When the operator picks a supplier product (which sets base_daily_rate)
+  // and the rental period is known, the Supplier Cost field in Financials
+  // should reflect the full duration cost (e.g. £130/day × 8 days = £1,040),
+  // not just one day. Operator can still override manually after; this only
+  // re-syncs when the underlying daily rate or duration changes.
+  useEffect(() => {
+    if (serviceType !== "As Directed") return;
+    const baseRate = Number((bookingForm.watch("base_daily_rate" as any) as any) || 0);
+    if (baseRate <= 0 || adRentalDays <= 0) return;
+    const total = Math.round(baseRate * adRentalDays * 100) / 100;
+    bookingForm.setValue("supplier_cost" as any, total, { shouldDirty: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceType, adRentalDays, bookingForm.watch("base_daily_rate" as any)]);
 
   const loadClientById = async (clientId: string) => {
     const { data } = await supabase
@@ -2425,6 +2440,33 @@ export default function NewBooking() {
                         const fc = Number(bookingForm.watch("fuel_cost" as any)) || 0;
                         const margin = cp - sc - dr - fc;
                         const positive = margin >= 0;
+
+                        // For As Directed, also show per-day breakdown so the
+                        // operator can see daily commission alongside the full
+                        // duration commission (e.g. 8-day rental).
+                        if (isAsDirected && adRentalDays > 0) {
+                          const perDay = margin / adRentalDays;
+                          const perDayPositive = perDay >= 0;
+                          return (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                              <div className="p-3 rounded-md border border-border bg-muted/30">
+                                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Daily Commission</Label>
+                                <p className="text-[10px] text-muted-foreground mt-0.5">Per day · {adRentalDays} day{adRentalDays === 1 ? "" : "s"} total</p>
+                                <div className={`text-2xl font-bold mt-1 ${perDayPositive ? "text-green-400" : "text-destructive"}`} data-testid="text-tvl-margin-daily">
+                                  £{perDay.toLocaleString(undefined, { maximumFractionDigits: 2 })}<span className="text-xs font-normal text-muted-foreground">/day</span>
+                                </div>
+                              </div>
+                              <div className="p-3 rounded-md border border-primary/30 bg-primary/5">
+                                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Total TVL Margin ({adRentalDays} {adRentalDays === 1 ? "day" : "days"})</Label>
+                                <p className="text-[10px] text-muted-foreground mt-0.5">Client Price − Supplier Cost − Driver Rate − Fuel Cost</p>
+                                <div className={`text-2xl font-bold mt-1 ${positive ? "text-green-400" : "text-destructive"}`} data-testid="text-tvl-margin">
+                                  £{margin.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        }
+
                         return (
                           <div className="flex items-center justify-between p-3 rounded-md border border-border bg-muted/30">
                             <div>
@@ -2663,15 +2705,47 @@ export default function NewBooking() {
                             }}
                             defaultValue={field.value}
                           >
-                            <FormControl><SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger></FormControl>
-                            <SelectContent className="max-h-[55vh] overflow-y-auto">
+                            <FormControl><SelectTrigger data-testid="select-assign-driver"><SelectValue placeholder="Unassigned" /></SelectTrigger></FormControl>
+                            <SelectContent
+                              className="max-h-[55vh] overflow-y-auto"
+                              position="popper"
+                              side="bottom"
+                              sideOffset={4}
+                              avoidCollisions={false}
+                            >
                               <SelectItem value="unassigned">Unassigned</SelectItem>
-                              {drivers?.map((driver: any) => (
-                                <SelectItem key={driver.id} value={driver.id}>
-                                  {driver.staff_no ? `${driver.staff_no} · ` : ""}{driver.name} · {driver.vehicle_model || driver.vehicle_type}
-                                  {driver.plate ? ` (${driver.plate})` : ""}
-                                </SelectItem>
-                              ))}
+                              {(() => {
+                                const list = drivers ?? [];
+                                const owners = list.filter((d: any) => d.own_vehicle !== false);
+                                const hired = list.filter((d: any) => d.own_vehicle === false);
+                                const renderItem = (driver: any) => (
+                                  <SelectItem key={driver.id} value={driver.id}>
+                                    {driver.staff_no ? `${driver.staff_no} · ` : ""}{driver.name}
+                                    {driver.vehicle_model || driver.vehicle_type ? ` · ${driver.vehicle_model || driver.vehicle_type}` : ""}
+                                    {driver.plate ? ` (${driver.plate})` : ""}
+                                  </SelectItem>
+                                );
+                                return (
+                                  <>
+                                    {owners.length > 0 && (
+                                      <SelectGroup>
+                                        <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground/80 px-2 py-1">
+                                          Owns vehicle
+                                        </SelectLabel>
+                                        {owners.map(renderItem)}
+                                      </SelectGroup>
+                                    )}
+                                    {hired.length > 0 && (
+                                      <SelectGroup>
+                                        <SelectLabel className="text-[10px] uppercase tracking-wider text-muted-foreground/80 px-2 py-1 mt-1 border-t border-border">
+                                          No own vehicle (uses TVL fleet)
+                                        </SelectLabel>
+                                        {hired.map(renderItem)}
+                                      </SelectGroup>
+                                    )}
+                                  </>
+                                );
+                              })()}
                             </SelectContent>
                           </Select>
                           <FormMessage />
