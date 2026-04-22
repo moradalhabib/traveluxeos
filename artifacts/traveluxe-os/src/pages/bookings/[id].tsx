@@ -2295,7 +2295,7 @@ export default function BookingDetail() {
       {booking.notes && (
         <Card className="border-border bg-card">
           <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Internal Notes</CardTitle></CardHeader>
-          <CardContent><p className="text-sm">{booking.notes}</p></CardContent>
+          <CardContent><p className="text-sm whitespace-pre-wrap break-words">{booking.notes}</p></CardContent>
         </Card>
       )}
 

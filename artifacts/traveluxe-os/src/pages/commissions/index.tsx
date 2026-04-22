@@ -372,7 +372,8 @@ export default function Commissions() {
             data-testid="tab-history"
             className="text-[11px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-2"
           >
-            Settlement History
+            <span className="sm:hidden">History</span>
+            <span className="hidden sm:inline">Settlement History</span>
           </TabsTrigger>
         </TabsList>
 

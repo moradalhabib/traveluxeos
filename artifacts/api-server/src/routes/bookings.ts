@@ -135,6 +135,19 @@ async function sendBookingEmail(args: SendBookingEmailArgs): Promise<{ sent: boo
     console.info(`${tag} ✓ sent successfully`);
   } else {
     console.error(`${tag} ✗ FAILED: ${result.reason}`);
+    // Fix 5 — surface email-send failures in the bell so admins/operators
+    // notice instead of silently letting confirmations/receipts disappear.
+    // Dedupe per booking+kind so a retry storm doesn't spam the inbox.
+    notifyByRoles(ADMIN_ROLES, {
+      type: "invoice_email_failed",
+      title: "Email Failed to Send",
+      message: `${args.kind === "payment_receipt" ? "Receipt" : "Confirmation"} for ${args.tvlRef ?? args.bookingId.slice(0, 8)} failed: ${(result.reason ?? "Unknown error").slice(0, 80)}`,
+      link: `/bookings/${args.bookingId}`,
+      entityType: "booking",
+      entityId: args.bookingId,
+      severity: "warning",
+      dedupeKey: `invoice_email_failed:${args.bookingId}:${args.kind}`,
+    }).catch(() => {});
   }
   return result;
 }
