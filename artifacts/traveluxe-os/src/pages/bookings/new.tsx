@@ -2277,38 +2277,52 @@ export default function NewBooking() {
                             data-testid="input-supplier-cost"
                           />
                         </div>
-                        <div className="space-y-2">
-                          <Label>Driver Rate (£)</Label>
-                          <Input
-                            type="number" step="0.01" min="0"
-                            value={(bookingForm.watch("driver_cost" as any) as any) ?? ""}
-                            onChange={e => bookingForm.setValue("driver_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
-                            data-testid="input-driver-rate"
-                          />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Fuel Cost (£)</Label>
-                          <Input
-                            type="number" step="0.01" min="0"
-                            value={(bookingForm.watch("fuel_cost" as any) as any) ?? ""}
-                            onChange={e => bookingForm.setValue("fuel_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
-                            data-testid="input-fuel-cost"
-                          />
-                        </div>
+                        {/* Driver Rate / Fuel Cost — hidden for Airport Transfer.
+                            AT pricing is fixed-price-per-zone (vehicle + extras
+                            + meet & greet auto-summed into Client Price by the
+                            picker). Supplier Cost stays for third-party luxury
+                            vehicles (e.g. Rolls Royce Cullinan). */}
+                        {serviceType !== "Airport Transfer" && (
+                          <>
+                            <div className="space-y-2">
+                              <Label>Driver Rate (£)</Label>
+                              <Input
+                                type="number" step="0.01" min="0"
+                                value={(bookingForm.watch("driver_cost" as any) as any) ?? ""}
+                                onChange={e => bookingForm.setValue("driver_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
+                                data-testid="input-driver-rate"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Fuel Cost (£)</Label>
+                              <Input
+                                type="number" step="0.01" min="0"
+                                value={(bookingForm.watch("fuel_cost" as any) as any) ?? ""}
+                                onChange={e => bookingForm.setValue("fuel_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
+                                data-testid="input-fuel-cost"
+                              />
+                            </div>
+                          </>
+                        )}
                       </div>
 
                       {(() => {
+                        const isAT = serviceType === "Airport Transfer";
                         const cp = Number(bookingForm.watch("price")) || 0;
                         const sc = Number(bookingForm.watch("supplier_cost" as any)) || 0;
-                        const dr = Number(bookingForm.watch("driver_cost" as any)) || 0;
-                        const fc = Number(bookingForm.watch("fuel_cost" as any)) || 0;
+                        const dr = isAT ? 0 : Number(bookingForm.watch("driver_cost" as any)) || 0;
+                        const fc = isAT ? 0 : Number(bookingForm.watch("fuel_cost" as any)) || 0;
                         const margin = cp - sc - dr - fc;
                         const positive = margin >= 0;
                         return (
                           <div className="flex items-center justify-between p-3 rounded-md border border-border bg-muted/30">
                             <div>
                               <Label className="text-xs uppercase tracking-wider text-muted-foreground">TVL Margin (auto)</Label>
-                              <p className="text-[10px] text-muted-foreground mt-0.5">Client Price − Supplier Cost − Driver Rate − Fuel Cost</p>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">
+                                {isAT
+                                  ? "Client Price − Supplier Cost"
+                                  : "Client Price − Supplier Cost − Driver Rate − Fuel Cost"}
+                              </p>
                             </div>
                             <div className={`text-2xl font-bold ${positive ? "text-green-400" : "text-destructive"}`} data-testid="text-tvl-margin">
                               £{margin.toLocaleString(undefined, { maximumFractionDigits: 2 })}
