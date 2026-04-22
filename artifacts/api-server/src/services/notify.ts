@@ -1,4 +1,15 @@
-import { supabase } from "../lib/supabase";
+import { supabase, getServiceRoleClient } from "../lib/supabase";
+
+// Notifications are server-generated side effects (booking saved, driver
+// assigned, etc.) that need to be inserted into OTHER users' inboxes.
+// The default `supabase` proxy is bound to the caller's JWT and is therefore
+// RLS-restricted — it cannot insert rows for another user, nor read the
+// `notification_prefs` of other users. We must use the service-role client
+// here. If the key isn't configured we fall back to the JWT client and the
+// insert will simply fail with an RLS error (logged, non-fatal).
+function notifClient() {
+  return getServiceRoleClient() ?? supabase;
+}
 
 export type NotifSeverity = "info" | "success" | "warning" | "urgent";
 export type NotifType =
@@ -63,7 +74,7 @@ async function filterByPrefs(userIds: string[], type: NotifType): Promise<string
   if (col == null || ALWAYS_ON.includes(type)) return userIds;
   if (userIds.length === 0) return [];
 
-  const { data } = await supabase
+  const { data } = await notifClient()
     .from("notification_prefs")
     .select(`user_id, ${col}`)
     .in("user_id", userIds);
@@ -86,7 +97,7 @@ export async function notifyUser(userId: string, opts: NotifyOpts): Promise<void
 
 /** Insert one notification per user across the given roles (active users only). */
 export async function notifyByRoles(roles: string[], opts: NotifyOpts): Promise<void> {
-  const { data: users } = await supabase
+  const { data: users } = await notifClient()
     .from("users")
     .select("id")
     .in("role", roles)
@@ -116,13 +127,14 @@ async function insertRows(userIds: string[], opts: NotifyOpts): Promise<void> {
 
   // ON CONFLICT for the unique (user_id, dedupe_key) index. Supabase JS:
   // use upsert with onConflict so duplicates are silently skipped.
+  const client = notifClient();
   if (opts.dedupeKey) {
-    const { error } = await supabase
+    const { error } = await client
       .from("notifications")
       .upsert(rows, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true });
     if (error) console.error("[notify] upsert error:", error.message);
   } else {
-    const { error } = await supabase.from("notifications").insert(rows);
+    const { error } = await client.from("notifications").insert(rows);
     if (error) console.error("[notify] insert error:", error.message);
   }
 }
