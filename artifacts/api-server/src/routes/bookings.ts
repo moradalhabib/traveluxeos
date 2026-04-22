@@ -689,7 +689,7 @@ router.get("/:id", async (req, res) => {
   const db = getDbClient(req.headers.authorization);
   const { data: booking, error } = await db
     .from("bookings")
-    .select("*, clients(name, vip_tier, whatsapp), drivers(name, staff_no, vehicle_type, vehicle_model, vehicle_year, whatsapp), users!bookings_operator_id_fkey(name)")
+    .select("*, clients(name, vip_tier, email, whatsapp, nationality), drivers(name, staff_no, vehicle_type, vehicle_model, vehicle_year, whatsapp), users!bookings_operator_id_fkey(name)")
     .eq("id", req.params.id)
     .single();
 
@@ -732,6 +732,7 @@ router.get("/:id", async (req, res) => {
     ...booking,
     client_name: booking.clients?.name ?? null,
     client_vip_tier: booking.clients?.vip_tier ?? null,
+    client_email: booking.clients?.email ?? null,
     client_whatsapp: booking.clients?.whatsapp ?? null,
     client_nationality: booking.clients?.nationality ?? null,
     driver_name: booking.drivers?.name ?? null,
