@@ -54,6 +54,7 @@ const bookingSchema = z.object({
   passengers: z.coerce.number().optional(),
   luggage: z.coerce.number().optional(),
   vehicle_type: z.string().optional(),
+  vehicle_preference: z.string().optional(),
   nameboard: z.string().optional(),
   special_requests: z.string().optional(),
   extras: z.string().optional(),
@@ -707,6 +708,7 @@ export default function NewBooking() {
       passengers: isAccommodationSubmit ? undefined : values.passengers,
       luggage: isAccommodationSubmit ? undefined : values.luggage,
       vehicle_type: isAccommodationSubmit ? undefined : values.vehicle_type,
+      vehicle_preference: isAccommodationSubmit ? undefined : (values.vehicle_preference || null),
       nameboard: isAccommodationSubmit ? undefined : values.nameboard,
     };
 
@@ -2146,6 +2148,25 @@ export default function NewBooking() {
                         <FormLabel>Extras <span className="text-xs text-muted-foreground font-normal">(child seat, flowers, champagne, etc.)</span></FormLabel>
                         <FormControl>
                           <Input placeholder="e.g. Child seat, bouquet of flowers" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )} />
+                  )}
+
+                  {/* Vehicle Preference — transport only. Free-text client
+                      preference (e.g. "Range Rover", "V-Class", "Rolls Royce")
+                      shown to dispatcher + driver. Independent of the
+                      structured vehicle_type / supplier product. */}
+                  {!isAccommodation && !isHotel && (
+                    <FormField control={bookingForm.control} name="vehicle_preference" render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>
+                          Vehicle Preference
+                          <span className="text-xs text-muted-foreground font-normal ml-1">(optional — client request)</span>
+                        </FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g. Range Rover, V-Class, Rolls Royce" {...field} data-testid="input-vehicle-preference" />
                         </FormControl>
                         <FormMessage />
                       </FormItem>

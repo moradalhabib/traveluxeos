@@ -353,7 +353,7 @@ router.get("/", async (req, res) => {
 const BOOKING_COLUMNS = new Set([
   "client_id","service_type","direction","pickup","dropoff",
   "destination","flight_number","date_time","passengers","luggage",
-  "vehicle_type","nameboard","special_requests","additional_charges",
+  "vehicle_type","vehicle_preference","nameboard","special_requests","additional_charges",
   "price","tvl_commission","commission_type","payment_status",
   "payment_method","commission_status","payout_status","status",
   "operator_id","driver_id","return_booking_id","is_amended","notes",

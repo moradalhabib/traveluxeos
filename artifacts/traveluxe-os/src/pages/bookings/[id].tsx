@@ -1751,6 +1751,12 @@ export default function BookingDetail() {
                   <p className="font-medium">{booking.vehicle_type}</p>
                 </div>
               )}
+              {(booking as any).vehicle_preference && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Car className="w-3 h-3" /> Client Preference</p>
+                  <p className="font-medium text-amber-300" data-testid="text-vehicle-preference">{(booking as any).vehicle_preference}</p>
+                </div>
+              )}
               <div>
                 <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Users className="w-3 h-3" /> Pax / Luggage</p>
                 <p className="font-medium">{booking.passengers || 0} pax · {booking.luggage || 0} bags</p>
