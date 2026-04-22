@@ -12,7 +12,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Link } from "wouter";
 import { format } from "date-fns";
-import { FileText, Plus, Receipt, Search, X } from "lucide-react";
+import { AlertTriangle, FileText, Plus, Receipt, Search, X } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 
 export default function Invoices() {
@@ -21,6 +21,10 @@ export default function Invoices() {
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
   const [sourceFilter, setSourceFilter] = useState<"new" | "imported" | "all">("new");
+  // When true, show only invoices that are unpaid (Generated/Sent/Overdue)
+  // for bookings completed > 48h ago — these are the operator's overdue items.
+  // Toggled by tapping the amber banner; cleared by the X button.
+  const [overdueOnly, setOverdueOnly] = useState(false);
   const { toast } = useToast();
 
   const { data: invoices, isLoading, refetch } = useListInvoices(
@@ -80,9 +84,31 @@ export default function Invoices() {
   const newCount = (invoices ?? []).filter(inv => !isImported(inv.invoice_number)).length;
   const importedCount = (invoices ?? []).filter(inv => isImported(inv.invoice_number)).length;
 
+  // Predicate: invoice is unpaid AND linked booking was Completed >48h ago.
+  // We deliberately compute this on the client from existing list data so no
+  // new endpoint or background job is required — and crucially, no email is
+  // ever sent. This drives both the banner count and the overdue filter.
+  const cutoff48h = useMemo(() => Date.now() - 48 * 60 * 60 * 1000, []);
+  const isOverdueUnpaid = (inv: any) => {
+    if (!["Generated", "Sent", "Overdue"].includes(inv.status)) return false;
+    const bk = bookingMap[inv.booking_id];
+    if (!bk || bk.status !== "Completed") return false;
+    const completedAt = bk.completed_at ? new Date(bk.completed_at).getTime() : NaN;
+    if (!Number.isFinite(completedAt)) return false;
+    return completedAt < cutoff48h;
+  };
+
+  const overdueUnpaid = useMemo(
+    () => (invoices ?? []).filter(isOverdueUnpaid),
+    [invoices, bookingMap, cutoff48h]
+  );
+
   // Filter invoices
   const filteredInvoices = useMemo(() => {
     let list = invoices ?? [];
+    if (overdueOnly) {
+      list = list.filter(isOverdueUnpaid);
+    }
     if (sourceFilter === "new") list = list.filter(inv => !isImported(inv.invoice_number));
     else if (sourceFilter === "imported") list = list.filter(inv => isImported(inv.invoice_number));
     if (statusFilter !== "all") {
@@ -101,7 +127,7 @@ export default function Invoices() {
       });
     }
     return list;
-  }, [invoices, searchQuery, statusFilter, sourceFilter, bookingMap]);
+  }, [invoices, searchQuery, statusFilter, sourceFilter, bookingMap, overdueOnly, cutoff48h]);
 
   const statuses = ["Generated", "Sent", "Paid", "Overdue"];
 
@@ -122,6 +148,44 @@ export default function Invoices() {
           Generate Invoice
         </Button>
       </div>
+
+      {/* Overdue-unpaid in-app reminder.
+          REPLACES the operator email reminder by surfacing 48h+ unpaid
+          invoices in-app only. Tap the banner to filter; tap the X to clear. */}
+      {overdueUnpaid.length > 0 && (
+        <button
+          type="button"
+          onClick={() => setOverdueOnly(v => !v)}
+          className={`w-full flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
+            overdueOnly
+              ? "border-amber-500/60 bg-amber-500/15"
+              : "border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/15"
+          }`}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+            <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
+            <div className="min-w-0">
+              <div className="text-sm font-semibold text-amber-300">
+                {overdueUnpaid.length} unpaid invoice{overdueUnpaid.length === 1 ? "" : "s"} overdue (48h+)
+              </div>
+              <div className="text-xs text-amber-200/70">
+                {overdueOnly ? "Showing overdue only — tap to clear filter" : "Tap to filter to overdue invoices only"}
+              </div>
+            </div>
+          </div>
+          {overdueOnly && (
+            <span
+              role="button"
+              tabIndex={0}
+              onClick={(e) => { e.stopPropagation(); setOverdueOnly(false); }}
+              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); setOverdueOnly(false); } }}
+              className="inline-flex items-center gap-1 text-xs font-medium text-amber-300 hover:text-amber-200 px-2 py-1 rounded cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" /> Clear
+            </span>
+          )}
+        </button>
+      )}
 
       {/* Source tabs — keep imported Odoo invoices out of the way */}
       <div className="flex gap-1 bg-card border border-border rounded-lg p-1 w-fit">

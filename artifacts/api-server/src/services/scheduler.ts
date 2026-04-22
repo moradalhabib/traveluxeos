@@ -844,122 +844,11 @@ async function maybeRunBackup() {
   }
 }
 
-// ─── Unpaid-invoice reminder to the operator (moradlondon1) ─────────────────
-// Hourly scan: find Generated/Sent/Overdue invoices whose linked booking is
-// Completed and was completed more than 48h ago, and ping the operator once
-// per 24h per invoice. Audit log keys it so we don't spam.
-async function getOperatorEmail(): Promise<string | null> {
-  // Prefer the username 'moradlondon1' explicitly; fall back to any active
-  // super_admin if the username doesn't exist (defensive: usernames may not
-  // be a column on every deployment).
-  try {
-    const { data: byUsername } = await supabase
-      .from("users")
-      .select("email, active")
-      .eq("username", "moradlondon1")
-      .eq("active", true)
-      .maybeSingle();
-    if ((byUsername as any)?.email) return (byUsername as any).email;
-  } catch { /* username column may not exist — fall through */ }
-  // Try the configured operator email override first.
-  try {
-    const { data: setting } = await supabase
-      .from("app_settings")
-      .select("value")
-      .eq("key", "operator_email")
-      .maybeSingle();
-    const v = (setting as any)?.value;
-    if (v && typeof v === "string" && v.includes("@")) return v;
-  } catch { /* table or row may not exist */ }
-  // Fallback: any active operator, else any active super_admin/admin.
-  const { data } = await supabase
-    .from("users")
-    .select("email, role, active")
-    .in("role", ["operator", "super_admin", "admin"])
-    .eq("active", true);
-  const order = { operator: 0, super_admin: 1, admin: 2 } as Record<string, number>;
-  const sorted = (data ?? []).slice().sort((a: any, b: any) => (order[a.role] ?? 9) - (order[b.role] ?? 9));
-  return sorted[0]?.email ?? null;
-}
-
-let lastUnpaidScanHour = -1;
-async function maybeRunUnpaidInvoiceReminder() {
-  // Only once per hour to keep the per-minute tick cheap.
-  const hour = new Date().getUTCHours() * 100 + Math.floor(new Date().getUTCMinutes() / 60);
-  if (hour === lastUnpaidScanHour) return;
-  lastUnpaidScanHour = hour;
-
-  const op = await getOperatorEmail();
-  if (!op) {
-    console.warn("[Scheduler] unpaid-invoice reminder skipped: no operator email");
-    return;
-  }
-
-  const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-  const { data: candidates, error } = await supabase
-    .from("invoices")
-    .select("id, invoice_number, client_name, total_amount, status, booking_id, bookings!inner(tvl_ref, status, completed_at, date_time)")
-    .in("status", ["Generated", "Sent", "Overdue"])
-    .eq("bookings.status", "Completed")
-    .lte("bookings.completed_at", cutoff)
-    .limit(100);
-
-  if (error) {
-    console.error("[Scheduler] unpaid-invoice query error:", error.message);
-    return;
-  }
-  if (!candidates || candidates.length === 0) return;
-
-  const ids = candidates.map((i: any) => i.id);
-  const since24h = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { data: recent } = await supabase
-    .from("audit_log")
-    .select("entity_id, created_at")
-    .eq("entity_type", "invoice")
-    .eq("action", "unpaid_reminder_sent")
-    .in("entity_id", ids)
-    .gte("created_at", since24h);
-  const recentlySent = new Set((recent ?? []).map((r: any) => r.entity_id));
-
-  for (const inv of candidates as any[]) {
-    if (recentlySent.has(inv.id)) continue;
-    const tvl = inv.bookings?.tvl_ref ?? "—";
-    const amt = `£${Number(inv.total_amount ?? 0).toLocaleString("en-GB")}`;
-    const html = `
-      <div style="font-family:Arial,sans-serif;max-width:560px;margin:auto;padding:24px;color:#111">
-        <h2 style="margin:0 0 12px;color:#b45309">Unpaid Invoice — ${inv.invoice_number}</h2>
-        <p>This invoice has been outstanding for over 48 hours since the booking was completed.</p>
-        <table style="width:100%;border-collapse:collapse;margin-top:12px">
-          <tr><td style="padding:6px 0;color:#666">Invoice</td><td><b>${inv.invoice_number}</b></td></tr>
-          <tr><td style="padding:6px 0;color:#666">Booking</td><td>${tvl}</td></tr>
-          <tr><td style="padding:6px 0;color:#666">Client</td><td>${inv.client_name ?? "—"}</td></tr>
-          <tr><td style="padding:6px 0;color:#666">Amount</td><td><b>${amt}</b></td></tr>
-          <tr><td style="padding:6px 0;color:#666">Status</td><td>${inv.status}</td></tr>
-        </table>
-        <p style="margin-top:20px;font-size:12px;color:#888">Traveluxe OS · operator reminder · once per 24h per invoice</p>
-      </div>`;
-    try {
-      // sendEmail returns {sent:true} on success and {sent:false, reason}
-      // on failure (it does NOT throw). We MUST only audit-log the reminder
-      // when sending actually succeeded, otherwise a transient SMTP failure
-      // would suppress retries for 24h.
-      const r = await sendEmail({
-        to: op,
-        subject: `Unpaid Invoice ${inv.invoice_number} (${tvl}) — ${amt}`,
-        html,
-      });
-      if (r.sent) {
-        await auditLog("unpaid_reminder_sent", "invoice", inv.id, null,
-          `Unpaid 48h reminder sent to operator ${op} for ${inv.invoice_number}`);
-        console.info(`[Scheduler] Unpaid reminder sent: ${inv.invoice_number} → ${op}`);
-      } else {
-        console.error(`[Scheduler] Unpaid reminder send failed for ${inv.invoice_number}:`, r.reason ?? "unknown");
-      }
-    } catch (e: any) {
-      console.error(`[Scheduler] Unpaid reminder error for ${inv.invoice_number}:`, e?.message);
-    }
-  }
-}
+// ─── Unpaid-invoice reminder ─────────────────────────────────────────────────
+// REMOVED: Operator email reminders for unpaid invoices have been deliberately
+// removed. Per product policy, operator alerts for overdue unpaid invoices are
+// surfaced as in-app banners on the Invoices screen only — never via email.
+// Do not re-introduce email here.
 
 export function startScheduler() {
   if (started) return;
@@ -975,7 +864,6 @@ export function startScheduler() {
       await maybeRunBriefing();
       await maybeRunOverdueCommissionAlert();
       await maybeRunBackup();
-      await maybeRunUnpaidInvoiceReminder();
     } catch (e: any) {
       console.error("[Scheduler] tick error:", e?.message);
     }
