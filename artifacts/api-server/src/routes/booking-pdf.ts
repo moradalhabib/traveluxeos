@@ -4,14 +4,16 @@ import { supabase } from "../lib/supabase";
 
 const router: IRouter = Router();
 
-// Brand palette — keep in sync with the Traveluxe OS dark + gold theme.
-const COLOR_BG       = "#0b0b0b";
-const COLOR_PANEL    = "#141414";
+// Customer-facing PDF palette — light/print-friendly so receipts and
+// confirmations render correctly in every mail client (Mac Mail, Outlook,
+// Gmail). The OS itself is dark; the printable document is not.
+const COLOR_BG       = "#ffffff";
+const COLOR_PANEL    = "#f6f3ec";
 const COLOR_GOLD     = "#c9a961";
 const COLOR_GOLD_DIM = "#8a7340";
-const COLOR_TEXT     = "#f5f5f5";
-const COLOR_MUTED    = "#9a9a9a";
-const COLOR_LINE     = "#2a2a2a";
+const COLOR_TEXT     = "#1a1a1a";
+const COLOR_MUTED    = "#6b6b6b";
+const COLOR_LINE     = "#e2dccd";
 
 function fmtMoney(n: number | null | undefined): string {
   const v = Number(n ?? 0);
