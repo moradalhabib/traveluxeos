@@ -1,0 +1,27 @@
+hree fixes needed + migration codes
+Fix 1 — Follow-Ups "due today" banner still not clickable
+The "1 due today" amber banner on the Follow-Ups screen is still not responding to taps. This was Task 8 from the previous session and was marked complete but is not working in production. Fix it properly:
+
+Tapping the banner must instantly filter the list to only items due today
+The X button on the banner should clear the filter and return to full list
+Tapping the banner again should also clear the filter
+Do not change anything else on the Follow-Ups screen
+
+Fix 2 — Confirm email automation is actually working
+The email automation was marked complete but the client confirmed no emails were received. Do the following:
+
+Manually trigger a test email to moradalhabib@gmail.com for booking TVL-0073 and confirm delivery with logs — do not send to the client email on file
+Check both triggers are firing correctly in production — Booking Confirmed sends confirmation email, Booking Completed + Paid sends invoice PDF
+Check the email status badge on the invoice screen is correctly reflecting real state pulled from booking_email_log — not showing "Not Sent" due to the migration table not existing
+If the booking_email_log table does not exist in Supabase yet, the badge will always show "Not Sent" — flag this clearly
+Confirm the manual "📧 Send Invoice" button on the invoice detail screen is working and actually sends
+Report back with confirmation that the test email landed, including any logs
+
+Fix 3 — Provide all migration SQL
+List and provide the complete content of every migration SQL file that needs to be run in Supabase for all changes made across this entire session. Copy-paste ready. Include:
+
+migration-booking-email-log.sql and any other migration files created
+The exact SQL content of each one, not just the filename
+Clearly label each one so I know what it does and what order to run them in
+
+Do not skip any migration. If a feature is broken because a migration hasn't been run, I need to know about it here.Sonnet 4.6Adaptive

@@ -1241,6 +1241,57 @@ router.post("/:id/send-invoice-email", async (req, res) => {
   return res.json({ ok: true, kind, sent_to: enriched.client_email });
 });
 
+// POST /api/bookings/:id/send-test-email
+// Operator-only diagnostic. Sends the same booking email (confirmation or
+// receipt, picked by payment_status) to an OVERRIDE address — never to the
+// client on file — and force=true so de-dup doesn't suppress it. Result and
+// log row prove the SMTP path works end-to-end.
+router.post("/:id/send-test-email", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user) return res.status(401).json({ error: "Unauthorised" });
+  // Restrict to admin tier — anyone else could spam arbitrary inboxes.
+  if (!["super_admin", "admin", "operator"].includes((user as any).role)) {
+    return res.status(403).json({ error: "Admin / operator only" });
+  }
+  const to = String(req.body?.to ?? "").trim();
+  if (!to.includes("@")) return res.status(400).json({ error: "Provide a valid 'to' email in the body." });
+
+  const { data: booking, error } = await supabase
+    .from("bookings")
+    .select("*")
+    .eq("id", req.params.id)
+    .single();
+  if (error || !booking) return res.status(404).json({ error: "Booking not found" });
+
+  const enriched = await enrichBooking(booking);
+  // Deliberately swap the recipient to the test address.
+  const overrideBooking = { ...enriched, client_email: to };
+  const kind: EmailKind = booking.payment_status === "Paid" ? "payment_receipt" : "booking_confirmation";
+
+  const result =
+    kind === "payment_receipt"
+      ? await sendPaymentReceiptEmail(overrideBooking, {
+          triggeredBy: user.id,
+          triggerSource: "manual",
+          force: true,
+        })
+      : await sendConfirmationEmail(overrideBooking, null, {
+          triggeredBy: user.id,
+          triggerSource: "manual",
+          force: true,
+        });
+
+  if (!result.sent) {
+    return res.status(502).json({
+      ok: false,
+      kind,
+      sent_to: to,
+      reason: result.reason ?? "Email send failed",
+    });
+  }
+  return res.json({ ok: true, kind, sent_to: to });
+});
+
 // POST /api/bookings/:id/resend-email
 // Retry the most-recent failed attempt (any kind). If the last attempt was
 // 'sent' or 'skipped_no_email', this is a no-op with an explanatory error.

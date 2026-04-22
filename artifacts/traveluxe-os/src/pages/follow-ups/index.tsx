@@ -81,16 +81,14 @@ export default function FollowUps() {
   const [doneReason, setDoneReason] = useState(DONE_REASONS[0]);
   const [doneNotes, setDoneNotes] = useState("");
   const [snoozeOpen, setSnoozeOpen] = useState<Record<string, boolean>>({});
-  const [bannerDismissed, setBannerDismissed] = useState(() => {
-    try {
-      return localStorage.getItem("tvl_followup_banner_" + new Date().toDateString()) === "1";
-    } catch { return false; }
-  });
 
-  const dismissBanner = () => {
-    setBannerDismissed(true);
-    try { localStorage.setItem("tvl_followup_banner_" + new Date().toDateString(), "1"); } catch {}
-  };
+  // The amber "X overdue · Y due today" banner is informational and is driven
+  // by the API stats payload — there is no localStorage dismissal anymore.
+  // Tapping the banner toggles the date filter; the inline ✕ Clear control
+  // resets the date filter to "all". This matches the Invoices banner pattern
+  // and removes the previous bug where dismissing the banner persisted across
+  // visits and prevented the operator from ever using the filter again.
+  const filterActive = dateFilter === "today" || dateFilter === "overdue";
 
   // ── Fetch ─────────────────────────────────────────────────────────────────
   const fetchData = useCallback(async () => {
@@ -286,28 +284,51 @@ export default function FollowUps() {
         </Button>
       </div>
 
-      {/* Daily digest banner — tap to filter to overdue + due-today */}
-      {!bannerDismissed && stats && stats.pending > 0 && (
-        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 flex items-center justify-between gap-3">
-          <button
-            type="button"
-            onClick={() => setDateFilter(dateFilter === "today" || dateFilter === "overdue" ? "all" : "today")}
-            className="flex items-center gap-2.5 flex-1 text-left hover:opacity-90"
-          >
+      {/* Daily digest banner — tap to filter, ✕ to clear.
+          Single-button architecture so the entire amber strip is one tap
+          target; the inline Clear pill stops propagation so it doesn't
+          re-toggle the filter. The banner appears whenever there is at
+          least one pending follow-up — there is no dismissal. */}
+      {stats && stats.pending > 0 && (
+        <button
+          type="button"
+          onClick={() => setDateFilter(filterActive ? "all" : "today")}
+          className={`w-full rounded-xl border px-3.5 py-3 flex items-center justify-between gap-3 text-left transition-colors ${
+            filterActive
+              ? "border-amber-500/60 bg-amber-500/15"
+              : "border-amber-500/30 bg-amber-500/10 hover:bg-amber-500/15"
+          }`}
+        >
+          <div className="flex items-center gap-2.5 min-w-0">
             <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
             <span className="text-sm text-amber-300 font-medium">
               {stats.overdue > 0 ? `${stats.overdue} overdue` : ""}{stats.overdue > 0 && todayPending > 0 ? " · " : ""}
               {todayPending > 0 ? `${todayPending} due today` : ""}
               {stats.overdue === 0 && todayPending === 0 ? `${stats.pending} pending follow-up${stats.pending !== 1 ? "s" : ""}` : ""}
             </span>
-            <span className="text-[11px] font-normal text-amber-300/70 ml-auto pr-1">
-              {dateFilter === "today" || dateFilter === "overdue" ? "Tap to clear filter" : "Tap to filter"}
+          </div>
+          <span className="flex items-center gap-2 flex-shrink-0">
+            <span className="text-[11px] font-normal text-amber-300/70 hidden sm:inline">
+              {filterActive ? "Filtered" : "Tap to filter"}
             </span>
-          </button>
-          <button onClick={dismissBanner} className="text-muted-foreground hover:text-foreground transition-colors">
-            <X className="w-4 h-4" />
-          </button>
-        </div>
+            {filterActive && (
+              <span
+                role="button"
+                tabIndex={0}
+                onClick={(e) => { e.stopPropagation(); setDateFilter("all"); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.stopPropagation();
+                    setDateFilter("all");
+                  }
+                }}
+                className="inline-flex items-center gap-1 text-xs font-medium text-amber-300 hover:text-amber-200 px-2 py-1 rounded cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5" /> Clear
+              </span>
+            )}
+          </span>
+        </button>
       )}
 
       {/* Stats strip */}
