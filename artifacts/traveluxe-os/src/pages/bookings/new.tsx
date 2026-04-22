@@ -577,20 +577,36 @@ export default function NewBooking() {
     return () => { cancelled = true; };
   }, [adRentalDays, overtimeHours, orderLines.map(l => l.product_id).join("|"), serviceType]);
 
-  // ── As Directed: auto-fill Supplier Cost = base_daily_rate × rental_days ──
-  // When the operator picks a supplier product (which sets base_daily_rate)
-  // and the rental period is known, the Supplier Cost field in Financials
-  // should reflect the full duration cost (e.g. £130/day × 8 days = £1,040),
-  // not just one day. Operator can still override manually after; this only
-  // re-syncs when the underlying daily rate or duration changes.
+  // ── As Directed: per-day Financials → totals ──
+  // For As Directed, the operator enters PER-DAY values for client price,
+  // supplier cost, driver rate, and fuel cost. We auto-multiply by rental
+  // days to populate the underlying total fields the rest of the system
+  // (invoices, reports, dashboards) reads. Supplier per-day auto-fills from
+  // the picked supplier product's daily rate.
+  const adPricePerDay    = Number((bookingForm.watch("price_per_day" as any) as any) || 0);
+  const adSupplierPerDay = Number((bookingForm.watch("supplier_cost_per_day" as any) as any) || 0);
+  const adDriverPerDay   = Number((bookingForm.watch("driver_cost_per_day" as any) as any) || 0);
+  const adFuelPerDay     = Number((bookingForm.watch("fuel_cost_per_day" as any) as any) || 0);
+
+  // Auto-fill supplier per-day from supplier product's daily rate
   useEffect(() => {
     if (serviceType !== "As Directed") return;
     const baseRate = Number((bookingForm.watch("base_daily_rate" as any) as any) || 0);
-    if (baseRate <= 0 || adRentalDays <= 0) return;
-    const total = Math.round(baseRate * adRentalDays * 100) / 100;
-    bookingForm.setValue("supplier_cost" as any, total, { shouldDirty: true });
+    if (baseRate > 0) {
+      bookingForm.setValue("supplier_cost_per_day" as any, baseRate, { shouldDirty: true });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [serviceType, adRentalDays, bookingForm.watch("base_daily_rate" as any)]);
+  }, [serviceType, bookingForm.watch("base_daily_rate" as any)]);
+
+  // Mirror per-day × days → total fields the backend stores
+  useEffect(() => {
+    if (serviceType !== "As Directed" || adRentalDays <= 0) return;
+    const r2 = (n: number) => Math.round(n * 100) / 100;
+    bookingForm.setValue("price"         as any, r2(adPricePerDay    * adRentalDays), { shouldDirty: true });
+    bookingForm.setValue("supplier_cost" as any, r2(adSupplierPerDay * adRentalDays), { shouldDirty: true });
+    bookingForm.setValue("driver_cost"   as any, r2(adDriverPerDay   * adRentalDays), { shouldDirty: true });
+    bookingForm.setValue("fuel_cost"     as any, r2(adFuelPerDay     * adRentalDays), { shouldDirty: true });
+  }, [serviceType, adRentalDays, adPricePerDay, adSupplierPerDay, adDriverPerDay, adFuelPerDay]);
 
   const loadClientById = async (clientId: string) => {
     const { data } = await supabase
@@ -2281,61 +2297,149 @@ export default function NewBooking() {
                           auto-calculated and synced into tvl_commission on
                           every render via the effect below — DB schema
                           unchanged, booking detail / invoice screens untouched. */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <FormField control={bookingForm.control} name="price" render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Client Price (£)</FormLabel>
-                            <FormControl>
+                      {isAsDirected ? (
+                        // ── As Directed: per-day inputs + breakdown ──
+                        // Operator enters daily rates; the underlying total
+                        // fields (price, supplier_cost, driver_cost, fuel_cost)
+                        // auto-fill via × rental_days (see useEffect above).
+                        // The client invoice shows the total only — breakdown
+                        // is internal admin reference.
+                        <>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-2">
+                              <Label>Client Price (£/day)</Label>
                               <Input
-                                type="number"
-                                step="0.01"
-                                placeholder=""
-                                value={field.value ?? ""}
-                                onChange={e => field.onChange(e.target.value === "" ? undefined : Number(e.target.value))}
+                                type="number" step="0.01" min="0"
+                                placeholder="e.g. 400"
+                                value={(bookingForm.watch("price_per_day" as any) as any) ?? ""}
+                                onChange={e => bookingForm.setValue("price_per_day" as any, e.target.value === "" ? undefined : Number(e.target.value), { shouldDirty: true })}
                                 className="text-lg font-bold"
-                                data-testid="input-client-price"
+                                data-testid="input-client-price-per-day"
                               />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
-                        <div className="space-y-2">
-                          <Label>Supplier Cost (£)</Label>
-                          <Input
-                            type="number" step="0.01" min="0"
-                            value={(bookingForm.watch("supplier_cost" as any) as any) ?? ""}
-                            onChange={e => bookingForm.setValue("supplier_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
-                            data-testid="input-supplier-cost"
-                          />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Supplier Cost (£/day) <span className="text-xs text-muted-foreground font-normal">auto-filled from supplier product</span></Label>
+                              <Input
+                                type="number" step="0.01" min="0"
+                                placeholder="e.g. 150"
+                                value={(bookingForm.watch("supplier_cost_per_day" as any) as any) ?? ""}
+                                onChange={e => bookingForm.setValue("supplier_cost_per_day" as any, e.target.value === "" ? undefined : Number(e.target.value), { shouldDirty: true })}
+                                data-testid="input-supplier-cost-per-day"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Driver Rate (£/day)</Label>
+                              <Input
+                                type="number" step="0.01" min="0"
+                                placeholder="e.g. 130"
+                                value={(bookingForm.watch("driver_cost_per_day" as any) as any) ?? ""}
+                                onChange={e => bookingForm.setValue("driver_cost_per_day" as any, e.target.value === "" ? undefined : Number(e.target.value), { shouldDirty: true })}
+                                data-testid="input-driver-rate-per-day"
+                              />
+                            </div>
+                            <div className="space-y-2">
+                              <Label>Fuel Cost (£/day)</Label>
+                              <Input
+                                type="number" step="0.01" min="0"
+                                placeholder="e.g. 30"
+                                value={(bookingForm.watch("fuel_cost_per_day" as any) as any) ?? ""}
+                                onChange={e => bookingForm.setValue("fuel_cost_per_day" as any, e.target.value === "" ? undefined : Number(e.target.value), { shouldDirty: true })}
+                                data-testid="input-fuel-rate-per-day"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Full-duration breakdown — admin reference only.
+                              Client invoice shows the total amount, not this
+                              line-by-line breakdown. */}
+                          {adRentalDays > 0 && (adPricePerDay || adSupplierPerDay || adDriverPerDay || adFuelPerDay) ? (
+                            <div className="rounded-md border border-border bg-secondary/20 p-3 space-y-2">
+                              <div className="flex items-center justify-between mb-1">
+                                <Label className="text-xs uppercase tracking-wider text-muted-foreground">Full Duration Breakdown</Label>
+                                <span className="text-[10px] text-muted-foreground italic">Admin only — client sees total</span>
+                              </div>
+                              <div className="space-y-1 text-sm">
+                                <div className="flex justify-between text-foreground">
+                                  <span>Client Price · £{adPricePerDay.toLocaleString()}/day × {adRentalDays} days</span>
+                                  <span className="font-semibold">£{(adPricePerDay * adRentalDays).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                                </div>
+                                <div className="flex justify-between text-muted-foreground">
+                                  <span>Supplier Cost · £{adSupplierPerDay.toLocaleString()}/day × {adRentalDays} days</span>
+                                  <span>− £{(adSupplierPerDay * adRentalDays).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                                </div>
+                                <div className="flex justify-between text-muted-foreground">
+                                  <span>Driver Rate · £{adDriverPerDay.toLocaleString()}/day × {adRentalDays} days</span>
+                                  <span>− £{(adDriverPerDay * adRentalDays).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                                </div>
+                                <div className="flex justify-between text-muted-foreground">
+                                  <span>Fuel Cost · £{adFuelPerDay.toLocaleString()}/day × {adRentalDays} days</span>
+                                  <span>− £{(adFuelPerDay * adRentalDays).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                                </div>
+                                <div className="flex justify-between pt-2 mt-1 border-t border-border font-bold text-foreground">
+                                  <span>Total Client Invoice ({adRentalDays} {adRentalDays === 1 ? "day" : "days"})</span>
+                                  <span className="text-primary text-base">£{(adPricePerDay * adRentalDays).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                                </div>
+                              </div>
+                            </div>
+                          ) : null}
+                        </>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-3">
+                          <FormField control={bookingForm.control} name="price" render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Client Price (£)</FormLabel>
+                              <FormControl>
+                                <Input
+                                  type="number"
+                                  step="0.01"
+                                  placeholder=""
+                                  value={field.value ?? ""}
+                                  onChange={e => field.onChange(e.target.value === "" ? undefined : Number(e.target.value))}
+                                  className="text-lg font-bold"
+                                  data-testid="input-client-price"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
+                          <div className="space-y-2">
+                            <Label>Supplier Cost (£)</Label>
+                            <Input
+                              type="number" step="0.01" min="0"
+                              value={(bookingForm.watch("supplier_cost" as any) as any) ?? ""}
+                              onChange={e => bookingForm.setValue("supplier_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
+                              data-testid="input-supplier-cost"
+                            />
+                          </div>
+                          {/* Driver Rate / Fuel Cost — hidden for Airport Transfer.
+                              AT pricing is fixed-price-per-zone (vehicle + extras
+                              + meet & greet auto-summed into Client Price by the
+                              picker). Supplier Cost stays for third-party luxury
+                              vehicles (e.g. Rolls Royce Cullinan). */}
+                          {serviceType !== "Airport Transfer" && (
+                            <>
+                              <div className="space-y-2">
+                                <Label>Driver Rate (£)</Label>
+                                <Input
+                                  type="number" step="0.01" min="0"
+                                  value={(bookingForm.watch("driver_cost" as any) as any) ?? ""}
+                                  onChange={e => bookingForm.setValue("driver_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
+                                  data-testid="input-driver-rate"
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label>Fuel Cost (£)</Label>
+                                <Input
+                                  type="number" step="0.01" min="0"
+                                  value={(bookingForm.watch("fuel_cost" as any) as any) ?? ""}
+                                  onChange={e => bookingForm.setValue("fuel_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
+                                  data-testid="input-fuel-cost"
+                                />
+                              </div>
+                            </>
+                          )}
                         </div>
-                        {/* Driver Rate / Fuel Cost — hidden for Airport Transfer.
-                            AT pricing is fixed-price-per-zone (vehicle + extras
-                            + meet & greet auto-summed into Client Price by the
-                            picker). Supplier Cost stays for third-party luxury
-                            vehicles (e.g. Rolls Royce Cullinan). */}
-                        {serviceType !== "Airport Transfer" && (
-                          <>
-                            <div className="space-y-2">
-                              <Label>Driver Rate (£)</Label>
-                              <Input
-                                type="number" step="0.01" min="0"
-                                value={(bookingForm.watch("driver_cost" as any) as any) ?? ""}
-                                onChange={e => bookingForm.setValue("driver_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
-                                data-testid="input-driver-rate"
-                              />
-                            </div>
-                            <div className="space-y-2">
-                              <Label>Fuel Cost (£)</Label>
-                              <Input
-                                type="number" step="0.01" min="0"
-                                value={(bookingForm.watch("fuel_cost" as any) as any) ?? ""}
-                                onChange={e => bookingForm.setValue("fuel_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
-                                data-testid="input-fuel-cost"
-                              />
-                            </div>
-                          </>
-                        )}
-                      </div>
+                      )}
 
                       {(() => {
                         const isAT = serviceType === "Airport Transfer";
