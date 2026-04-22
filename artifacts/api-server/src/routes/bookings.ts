@@ -406,6 +406,32 @@ router.get("/", async (req, res) => {
   return res.json(result);
 });
 
+// Server-side validator for the Airport Transfer extras snapshot. Runs on
+// both POST and PUT — rejects malformed payloads (wrong type, missing keys,
+// non-numeric or negative price, oversize array) so the JSONB column stays
+// trustable for finance reporting downstream.
+const MAX_TRANSFER_EXTRAS = 20;
+function sanitizeTransferExtras(input: unknown): { ok: true; value: any[] } | { ok: false; error: string } {
+  if (input == null) return { ok: true, value: [] };
+  if (!Array.isArray(input)) return { ok: false, error: "transfer_extras must be an array" };
+  if (input.length > MAX_TRANSFER_EXTRAS) return { ok: false, error: `transfer_extras exceeds ${MAX_TRANSFER_EXTRAS} entries` };
+  const seen = new Set<string>();
+  const cleaned: any[] = [];
+  for (const raw of input) {
+    if (!raw || typeof raw !== "object") return { ok: false, error: "transfer_extras entries must be objects" };
+    const id = (raw as any).id;
+    const name = (raw as any).name;
+    const price = Number((raw as any).price);
+    if (typeof id !== "string" || !id.trim()) return { ok: false, error: "transfer_extras entry missing id" };
+    if (typeof name !== "string" || !name.trim()) return { ok: false, error: "transfer_extras entry missing name" };
+    if (!isFinite(price) || price < 0 || price > 100000) return { ok: false, error: "transfer_extras entry has invalid price" };
+    if (seen.has(id)) continue; // de-dupe by id
+    seen.add(id);
+    cleaned.push({ id: id.trim(), name: name.trim().slice(0, 200), price });
+  }
+  return { ok: true, value: cleaned };
+}
+
 // Exhaustive whitelist of every column in the bookings table
 const BOOKING_COLUMNS = new Set([
   "client_id","service_type","direction","pickup","dropoff",
@@ -509,6 +535,12 @@ router.post("/", async (req, res) => {
   const raw: Record<string, any> = {};
   for (const [k, v] of Object.entries(req.body)) {
     if (BOOKING_COLUMNS.has(k) && v !== "" && v !== undefined) raw[k] = v;
+  }
+
+  if (raw.transfer_extras !== undefined) {
+    const sanitized = sanitizeTransferExtras(raw.transfer_extras);
+    if (!sanitized.ok) return res.status(400).json({ error: sanitized.error });
+    raw.transfer_extras = sanitized.value;
   }
 
   const body: Record<string, any> = {
@@ -790,6 +822,11 @@ router.put("/:id", async (req, res) => {
       const n = Number(raw[f]);
       raw[f] = isNaN(n) ? null : n;
     }
+  }
+  if (raw.transfer_extras !== undefined) {
+    const sanitized = sanitizeTransferExtras(raw.transfer_extras);
+    if (!sanitized.ok) return res.status(400).json({ error: sanitized.error });
+    raw.transfer_extras = sanitized.value;
   }
   const body: Record<string, any> = { ...raw, is_amended: true };
 

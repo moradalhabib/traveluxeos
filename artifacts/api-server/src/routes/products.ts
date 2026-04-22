@@ -46,8 +46,10 @@ router.put("/:id", async (req, res) => {
 
 router.delete("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
-  if (!user || user.role !== "super_admin") {
-    return res.status(403).json({ error: "Only super_admin can delete products" });
+  // Admins manage the catalogue (vehicles, tiers, services). Operators are
+  // still locked out — they can only consume the catalogue in bookings.
+  if (!user || (user.role !== "super_admin" && user.role !== "admin")) {
+    return res.status(403).json({ error: "Only admin or super_admin can delete products" });
   }
   const { error } = await supabase.from("products").delete().eq("id", req.params.id);
   if (error) return res.status(400).json({ error: error.message });
