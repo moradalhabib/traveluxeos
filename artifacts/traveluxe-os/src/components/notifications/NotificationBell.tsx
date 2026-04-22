@@ -119,8 +119,10 @@ export function NotificationBell({ className = "" }: Props) {
           {/* Backdrop */}
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
 
-          {/* Panel */}
-          <div className="fixed right-2 top-14 md:absolute md:right-0 md:top-full md:mt-2 z-50 w-[340px] max-h-[75vh] bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+          {/* Panel — bell sits in the left sidebar, so anchor the panel's
+              left edge to the bell and extend rightward into the page.
+              On mobile, fall back to fixed positioning near the top. */}
+          <div className="fixed left-2 right-2 top-14 md:absolute md:left-full md:right-auto md:top-0 md:ml-3 z-50 md:w-[360px] max-h-[75vh] bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card sticky top-0">
               <div className="flex items-center gap-2">
