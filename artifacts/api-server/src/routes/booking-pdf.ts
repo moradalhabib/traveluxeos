@@ -34,14 +34,17 @@ function fmtDate(s?: string | null): string {
   });
 }
 
-// Render the dark luxury background + brand header on every page.
+// Per-page chrome: top gold bar + footer line.
+// IMPORTANT: must NOT repaint the page background — doing so wipes the
+// body content (PDFs draw in order; later ops paint over earlier ones).
+// The page background is painted once at the start of each page by the
+// caller before any content is added.
 function paintChrome(doc: any, pageNum: number, total: number) {
   doc.save();
-  doc.rect(0, 0, doc.page.width, doc.page.height).fill(COLOR_BG);
   // Top gold bar
   doc.rect(0, 0, doc.page.width, 6).fill(COLOR_GOLD);
   // Footer
-  doc.fillColor(COLOR_MUTED).fontSize(8)
+  doc.fillColor(COLOR_MUTED).font("Helvetica").fontSize(8)
     .text(`Traveluxe London · Mayfair · info@traveluxelondon.com`, 50, doc.page.height - 40, {
       width: doc.page.width - 100, align: "left",
     });
