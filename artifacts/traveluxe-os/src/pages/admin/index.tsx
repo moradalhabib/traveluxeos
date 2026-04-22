@@ -2181,19 +2181,35 @@ export default function Admin() {
               <div className="space-y-3">
                 {logsLoading ? (
                   [...Array(5)].map((_, i) => <Skeleton key={i} className="h-16" />)
-                ) : logs?.map((log) => (
-                  <div key={log.id} className="p-3 border border-border rounded-xl bg-background/50 text-sm">
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{log.operator_name || "System"}</span>
-                        <Badge variant="secondary" className="text-[10px]">{log.action}</Badge>
-                        <span className="text-xs text-muted-foreground">{log.entity_type}</span>
+                ) : logs?.map((log) => {
+                  // Detail strings carry an optional " before=…" / " after=…"
+                  // JSON payload appended by the audit helpers. Split it off
+                  // so the human-readable summary stays one tidy line and
+                  // the raw before/after JSON is tucked behind a toggle.
+                  const raw = (log as any).detail ?? "";
+                  const m = typeof raw === "string" ? raw.match(/\s(before|after)=/) : null;
+                  const summary = m ? raw.slice(0, m.index!).trim() : raw;
+                  const diff = m ? raw.slice(m.index!).trim() : "";
+                  return (
+                    <div key={log.id} className="p-3 border border-border rounded-xl bg-background/50 text-sm">
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{log.operator_name || "System"}</span>
+                          <Badge variant="secondary" className="text-[10px]">{log.action}</Badge>
+                          <span className="text-xs text-muted-foreground">{log.entity_type}</span>
+                        </div>
+                        <span className="text-xs text-muted-foreground">{format(new Date(log.created_at), "dd MMM · HH:mm")}</span>
                       </div>
-                      <span className="text-xs text-muted-foreground">{format(new Date(log.created_at), "dd MMM · HH:mm")}</span>
+                      {summary && <p className="text-xs text-muted-foreground mt-1">{summary}</p>}
+                      {diff && (
+                        <details className="mt-2">
+                          <summary className="text-[11px] text-primary cursor-pointer select-none hover:underline">Show full diff</summary>
+                          <pre className="mt-1 text-[11px] text-muted-foreground bg-muted/30 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">{diff}</pre>
+                        </details>
+                      )}
                     </div>
-                    {log.detail && <p className="text-xs text-muted-foreground mt-1">{log.detail}</p>}
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
