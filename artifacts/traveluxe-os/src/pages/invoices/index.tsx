@@ -126,7 +126,12 @@ export default function Invoices() {
         );
       });
     }
-    return list;
+    // Fix 3 — default Most Recent first across all list pages.
+    const ts = (v: any) => (v ? new Date(v).getTime() : 0);
+    return [...list].sort((a, b) =>
+      ts((b as any).generated_at ?? (b as any).created_at) -
+      ts((a as any).generated_at ?? (a as any).created_at)
+    );
   }, [invoices, searchQuery, statusFilter, sourceFilter, bookingMap, overdueOnly, cutoff48h]);
 
   const statuses = ["Generated", "Sent", "Paid", "Overdue"];

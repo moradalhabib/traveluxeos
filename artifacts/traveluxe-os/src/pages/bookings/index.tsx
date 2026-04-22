@@ -8,7 +8,26 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Link, useSearch } from "wouter";
 import { format, startOfDay, isBefore } from "date-fns";
 import { Input } from "@/components/ui/input";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
+
+// Sort + Group controls (Fix 3). Default sort is Most Recent (created_at desc)
+// across all list pages in the app; bookings additionally exposes Group By
+// Service Type so operators can scan bookings clustered by service.
+type SortKey = "recent" | "oldest" | "service" | "status" | "price";
+type GroupKey = "none" | "service";
+const SORT_OPTIONS: { value: SortKey; label: string }[] = [
+  { value: "recent",  label: "Most Recent" },
+  { value: "oldest",  label: "Oldest" },
+  { value: "service", label: "By Service Type" },
+  { value: "status",  label: "By Status" },
+  { value: "price",   label: "By Price" },
+];
+const STATUS_ORDER: Record<string, number> = {
+  Pending: 0, Confirmed: 1, Active: 2, Completed: 3, Cancelled: 4,
+};
 
 export default function Bookings() {
   const { user } = useAuth();
@@ -18,6 +37,8 @@ export default function Bookings() {
   const [status, setStatus] = useState<string>("");
   const [search, setSearch] = useState<string>("");
   const [source, setSource] = useState<"active" | "imported">("active");
+  const [sortKey, setSortKey] = useState<SortKey>("recent");
+  const [groupKey, setGroupKey] = useState<GroupKey>("none");
   const urlSearch = useSearch();
   const upcomingOnly = new URLSearchParams(urlSearch).get("upcoming") === "1";
 
@@ -60,6 +81,52 @@ export default function Bookings() {
     }
     return list;
   }, [rawBookings, isResidenceManager, search, upcomingOnly]);
+
+  // Sort the filtered list by the selected key. Defaults to Most Recent
+  // (created_at desc) per Fix 3 — replaces whatever order the API returned.
+  const sortedBookings = useMemo(() => {
+    const arr = [...bookings];
+    const ts = (v: any) => (v ? new Date(v).getTime() : 0);
+    switch (sortKey) {
+      case "oldest":
+        arr.sort((a, b) => ts(a.created_at) - ts(b.created_at));
+        break;
+      case "service":
+        arr.sort((a, b) =>
+          String(a.service_type ?? "").localeCompare(String(b.service_type ?? "")) ||
+          ts(b.created_at) - ts(a.created_at)
+        );
+        break;
+      case "status":
+        arr.sort((a, b) =>
+          (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99) ||
+          ts(b.created_at) - ts(a.created_at)
+        );
+        break;
+      case "price":
+        arr.sort((a, b) => Number(b.price ?? 0) - Number(a.price ?? 0));
+        break;
+      case "recent":
+      default:
+        arr.sort((a, b) => ts(b.created_at) - ts(a.created_at));
+    }
+    return arr;
+  }, [bookings, sortKey]);
+
+  // Group the sorted list. "none" returns a single anonymous bucket so the
+  // render path stays uniform.
+  const grouped = useMemo<{ key: string; items: any[] }[]>(() => {
+    if (groupKey !== "service") return [{ key: "", items: sortedBookings }];
+    const map = new Map<string, any[]>();
+    for (const b of sortedBookings) {
+      const k = b.service_type || "Other";
+      if (!map.has(k)) map.set(k, []);
+      map.get(k)!.push(b);
+    }
+    return Array.from(map.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, items]) => ({ key, items }));
+  }, [sortedBookings, groupKey]);
 
   const getStatusColor = (s: string) => {
     switch (s) {
@@ -161,11 +228,54 @@ export default function Bookings() {
         </div>
       </div>
 
-      {/* Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {isLoading ? (
-          [...Array(6)].map((_, i) => <Skeleton key={i} className="h-48" />)
-        ) : bookings.map((booking: any) => (
+      {/* Sort + Group controls (Fix 3) */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground whitespace-nowrap">Sort:</span>
+          <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
+            <SelectTrigger className="h-9 w-44" data-testid="select-bookings-sort">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {SORT_OPTIONS.map(o => (
+                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-muted-foreground whitespace-nowrap">Group by:</span>
+          <Select value={groupKey} onValueChange={(v) => setGroupKey(v as GroupKey)}>
+            <SelectTrigger className="h-9 w-44" data-testid="select-bookings-group">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="none">None</SelectItem>
+              <SelectItem value="service">Service Type</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
+
+      {/* Grid (grouped) */}
+      {isLoading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-48" />)}
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {grouped.map(group => (
+            <div key={group.key || "_all"} className="space-y-3">
+              {groupKey === "service" && (
+                <div className="flex items-center gap-2 pt-1">
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+                    {group.key}
+                  </h2>
+                  <span className="text-xs text-muted-foreground">({group.items.length})</span>
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {group.items.map((booking: any) => (
           <Card key={booking.id} className="border-primary/10 hover:border-primary/30 transition-colors bg-card overflow-hidden flex flex-col">
             <CardContent className="p-5 flex-1 flex flex-col">
               <div className="flex justify-between items-start mb-4">
@@ -249,15 +359,19 @@ export default function Bookings() {
               </div>
             </CardContent>
           </Card>
-        ))}
-        {bookings.length === 0 && !isLoading && (
-          <div className="col-span-full py-12 text-center text-muted-foreground border border-dashed rounded-lg">
-            {isResidenceManager
-              ? "No apartment bookings found."
-              : "No bookings found."}
-          </div>
-        )}
-      </div>
+                ))}
+              </div>
+            </div>
+          ))}
+          {bookings.length === 0 && (
+            <div className="py-12 text-center text-muted-foreground border border-dashed rounded-lg">
+              {isResidenceManager
+                ? "No apartment bookings found."
+                : "No bookings found."}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

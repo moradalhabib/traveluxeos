@@ -67,7 +67,8 @@ export default function FollowUps() {
   const [statusFilter, setStatusFilter] = useState("pending");
   const [dateFilter, setDateFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState("due_date");
+  // Fix 3 — Most Recent (created_at desc) is the default across all list pages.
+  const [sort, setSort] = useState("recent");
 
   // ── Data ──────────────────────────────────────────────────────────────────
   const [followUps, setFollowUps] = useState<any[]>([]);
@@ -398,6 +399,7 @@ export default function FollowUps() {
           <div className="flex gap-1.5 ml-auto items-center">
             <span className="text-[11px] text-muted-foreground">Sort:</span>
             {[
+              { v: "recent",       label: "Most Recent" },
               { v: "due_date",     label: "Due date" },
               { v: "client_name",  label: "Client" },
               { v: "arrival_date", label: "Arrival" },

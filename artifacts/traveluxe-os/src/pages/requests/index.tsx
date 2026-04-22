@@ -34,7 +34,8 @@ export default function Requests() {
   const [status, setStatus] = useState<RequestStatus | "">("");
   const [priority, setPriority] = useState<RequestPriority | "">("");
   const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<"follow_up" | "created">("follow_up");
+  // Fix 3 — default Most Recent (created_at desc) across all list pages.
+  const [sort, setSort] = useState<"follow_up" | "created">("created");
 
   const { data: requests, isLoading } = useListRequests({
     status: status || undefined,
@@ -117,8 +118,8 @@ export default function Requests() {
             onChange={e => setSort(e.target.value as any)}
             className="h-10 rounded-md border border-input bg-background px-3 text-sm"
           >
+            <option value="created">Sort: Most Recent</option>
             <option value="follow_up">Sort: Follow-up date</option>
-            <option value="created">Sort: Recently created</option>
           </select>
         </div>
       </div>

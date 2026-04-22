@@ -17,6 +17,9 @@ export type NotifType =
   | "booking_status"
   | "booking_amended"
   | "booking_cancelled"
+  | "payment_paid"
+  | "invoice_email_failed"
+  | "request_new"
   | "job_assigned"
   | "no_driver_3h"
   | "no_driver_24h"
@@ -44,6 +47,9 @@ const PREF_COL: Record<NotifType, string | null> = {
   booking_status:     "booking_status",
   booking_amended:    "booking_amended",
   booking_cancelled:  "booking_cancelled",
+  payment_paid:       "booking_status",
+  invoice_email_failed: null,
+  request_new:        "booking_new",
   no_driver_3h:       "no_driver_3h",
   no_driver_24h:      "no_driver_24h",
   flight_delay:       "flight_delay",

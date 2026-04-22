@@ -342,20 +342,36 @@ export default function Commissions() {
 
       {/* Tabs */}
       <Tabs defaultValue="outstanding" className="w-full">
-        <TabsList className="grid w-full grid-cols-3 max-w-[600px]">
-          <TabsTrigger value="outstanding" data-testid="tab-outstanding">
+        {/* Tabs: shrink the type on small screens so all three labels (incl.
+            "Settlement History") fit without overlapping. Allow whitespace to
+            wrap to two lines on the very narrowest viewports rather than
+            clipping. */}
+        <TabsList className="grid w-full grid-cols-3 max-w-[680px] h-auto">
+          <TabsTrigger
+            value="outstanding"
+            data-testid="tab-outstanding"
+            className="text-[11px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-2"
+          >
             Owed to TVL
             {owedToTvlDrivers.length > 0 && (
               <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-amber-400 inline-block" />
             )}
           </TabsTrigger>
-          <TabsTrigger value="payouts" data-testid="tab-payouts">
+          <TabsTrigger
+            value="payouts"
+            data-testid="tab-payouts"
+            className="text-[11px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-2"
+          >
             Owed to Drivers
             {owedToDriverDrivers.length > 0 && (
               <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-green-400 inline-block" />
             )}
           </TabsTrigger>
-          <TabsTrigger value="history" data-testid="tab-history">
+          <TabsTrigger
+            value="history"
+            data-testid="tab-history"
+            className="text-[11px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-2"
+          >
             Settlement History
           </TabsTrigger>
         </TabsList>

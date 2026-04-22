@@ -13,10 +13,17 @@ export default function Clients() {
   const { user } = useAuth();
   const isResidenceManager = user?.role === "residence_manager";
   const [search, setSearch] = useState("");
-  const { data: clients, isLoading } = useListClients(
+  const { data: clientsRaw, isLoading } = useListClients(
     { search: search || undefined },
     { query: { enabled: true, queryKey: getListClientsQueryKey({ search: search || undefined }) } }
   );
+
+  // Fix 3 — default Most Recent first across all list pages.
+  const clients = (clientsRaw ?? []).slice().sort((a: any, b: any) => {
+    const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+    const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+    return tb - ta;
+  });
 
   const getVipBadgeColor = (tier: string) => {
     switch (tier) {

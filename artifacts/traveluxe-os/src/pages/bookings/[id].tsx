@@ -2106,9 +2106,19 @@ export default function BookingDetail() {
                 <p className="text-xs text-muted-foreground mb-1">Payment Status</p>
                 <select
                   value={booking.payment_status || "Unpaid"}
-                  onChange={e => updateBooking.mutate({ id, data: { payment_status: e.target.value } as any }, {
-                    onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
-                  })}
+                  onChange={e => {
+                    const next = e.target.value;
+                    // When flipping to Paid, auto-stamp today's Date Paid if
+                    // it's still empty. Operator can still override the date
+                    // manually using the date input below.
+                    const patch: any = { payment_status: next };
+                    if (next === "Paid" && !((booking as any).payment_date)) {
+                      patch.payment_date = new Date().toISOString().slice(0, 10);
+                    }
+                    updateBooking.mutate({ id, data: patch }, {
+                      onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
+                    });
+                  }}
                   className={`h-9 rounded-md border px-3 text-sm bg-background w-full ${
                     booking.payment_status === 'Paid'
                       ? 'text-green-400 border-green-500/40'

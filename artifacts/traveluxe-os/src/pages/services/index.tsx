@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import {
-  ArrowLeft, ArrowRight, PlaneTakeoff, Car, Map, Building2, Hotel,
+  ArrowLeft, ArrowRight, PlaneTakeoff, Car, Map as MapIcon, Building2, Hotel,
   CalendarRange, Clock, CheckCircle2, Plus, Package, Tag
 } from "lucide-react";
 import { Link } from "wouter";
@@ -24,7 +24,7 @@ const SERVICES = [
   {
     key: "Tour",
     label: "Tours",
-    icon: <Map className="w-6 h-6" />,
+    icon: <MapIcon className="w-6 h-6" />,
     color: "from-emerald-500/20 to-emerald-600/10 border-emerald-500/30",
     iconColor: "text-emerald-400 bg-emerald-500/10",
   },
@@ -177,16 +177,67 @@ export default function Services() {
   const isUpcoming = (b: Booking) =>
     !!b.date_time && new Date(b.date_time).getTime() >= startOfToday;
 
-  // Stats reflect ACTIVE (non-Odoo) bookings only. Aggregate revenue is
-  // intentionally omitted from the Services view so operators aren't shown
-  // misleading totals that mix active ops with archived legacy data.
+  // Stats reflect ACTIVE (non-Odoo) bookings only. Fix 4 — operators asked for
+  // a richer per-service view: revenue, average ticket, busiest month and top
+  // client are derived client-side from non-Cancelled bookings so we don't
+  // pollute the totals with voided rows.
+  const MONTH_FMT = (iso: string) => {
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  };
   const statsFor = (key: ServiceKey) => {
     const svcBookings = bookings.filter(b => canonicalKey(b.service_type) === key);
     const active = svcBookings.filter(b =>
       ACTIVE_STATUSES.includes(b.status) && isUpcoming(b)
     ).length;
     const completed = svcBookings.filter(b => b.status === "Completed").length;
-    return { total: svcBookings.length, active, completed };
+
+    const revenueSet = svcBookings.filter(b => b.status !== "Cancelled");
+    const revenue = revenueSet.reduce((s, b) => s + Number(b.price || 0), 0);
+    const avg = revenueSet.length ? revenue / revenueSet.length : 0;
+
+    // Busiest month — uses date_time (the actual job date). Bookings without
+    // a date are skipped rather than bucketed under "Unknown".
+    const monthly = new Map<string, number>();
+    for (const b of revenueSet) {
+      if (!b.date_time) continue;
+      const m = MONTH_FMT(b.date_time);
+      monthly.set(m, (monthly.get(m) ?? 0) + 1);
+    }
+    let busiestMonth = "—";
+    let busiestCount = 0;
+    for (const [m, c] of monthly) {
+      if (c > busiestCount) { busiestMonth = m; busiestCount = c; }
+    }
+    if (busiestMonth !== "—") {
+      const [yy, mm] = busiestMonth.split("-");
+      busiestMonth = format(new Date(Number(yy), Number(mm) - 1, 1), "MMM yyyy");
+    }
+
+    // Top client by booking count (ties broken by who appears first in the
+    // sorted list — fine for an at-a-glance tile).
+    const clientCount = new Map<string, number>();
+    for (const b of revenueSet) {
+      const n = (b.client_name || "").trim();
+      if (!n || n === "—") continue;
+      clientCount.set(n, (clientCount.get(n) ?? 0) + 1);
+    }
+    let topClient = "—";
+    let topCount = 0;
+    for (const [n, c] of clientCount) {
+      if (c > topCount) { topClient = n; topCount = c; }
+    }
+
+    return {
+      total: svcBookings.length,
+      active,
+      completed,
+      revenue,
+      avg,
+      busiestMonth,
+      topClient,
+      topCount,
+    };
   };
 
   // Sort upcoming first (earliest → latest), then past (most recent → oldest)
@@ -266,7 +317,7 @@ export default function Services() {
           </Link>
         </div>
 
-        {/* Stats strip — revenue intentionally omitted (see Finance for £ totals) */}
+        {/* Stats strip — Fix 4 adds revenue / avg / busiest month / top client */}
         <div className="grid gap-3 grid-cols-3">
           {[
             { label: "Total",     value: stats.total,     icon: <CalendarRange className="w-4 h-4" /> },
@@ -279,6 +330,33 @@ export default function Services() {
               <div className="text-[10px] text-muted-foreground uppercase tracking-wide">{item.label}</div>
             </div>
           ))}
+        </div>
+        <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+          <div className="bg-card border border-border rounded-xl p-3" data-testid="tile-svc-revenue">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Revenue</div>
+            <div className="text-lg font-bold text-foreground mt-1">
+              £{Math.round(stats.revenue).toLocaleString()}
+            </div>
+          </div>
+          <div className="bg-card border border-border rounded-xl p-3" data-testid="tile-svc-avg">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Avg Booking</div>
+            <div className="text-lg font-bold text-foreground mt-1">
+              £{Math.round(stats.avg).toLocaleString()}
+            </div>
+          </div>
+          <div className="bg-card border border-border rounded-xl p-3" data-testid="tile-svc-busiest">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Busiest Month</div>
+            <div className="text-base font-bold text-foreground mt-1 truncate">{stats.busiestMonth}</div>
+          </div>
+          <div className="bg-card border border-border rounded-xl p-3" data-testid="tile-svc-top-client">
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Top Client</div>
+            <div className="text-base font-bold text-foreground mt-1 truncate" title={stats.topClient}>
+              {stats.topClient}
+              {stats.topCount > 0 && (
+                <span className="ml-1 text-xs font-normal text-muted-foreground">×{stats.topCount}</span>
+              )}
+            </div>
+          </div>
         </div>
 
         {/* Tab bar */}

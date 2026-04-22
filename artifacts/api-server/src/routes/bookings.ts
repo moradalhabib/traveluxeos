@@ -911,6 +911,20 @@ router.put("/:id", async (req, res) => {
           severity: "info",
         }).catch(() => {});
       }
+      // Fix 5 — broadcast cancellations to admins so they don't get buried
+      // in the generic status feed. Uses the dedicated booking_cancelled
+      // pref so users can opt out independently.
+      if (body.status === "Cancelled") {
+        notifyByRoles(STAFF_ROLES, {
+          type: "booking_cancelled",
+          title: "Booking Cancelled",
+          message: `${lbl.ref} · ${lbl.name} cancelled`,
+          link: `/bookings/${req.params.id}`,
+          entityType: "booking",
+          entityId: req.params.id,
+          severity: "warning",
+        }).catch(() => {});
+      }
     }
 
     // General amendment broadcast (only if it was already a confirmed booking,
@@ -954,6 +968,23 @@ router.put("/:id", async (req, res) => {
     sendPaymentReceiptEmail(enriched, { triggeredBy: user?.id ?? null }).catch(err =>
       console.error("[Email] Receipt send error:", err?.message)
     );
+
+    // Fix 5 — bell notification on payment received. We broadcast to staff
+    // (not just the booking owner) so finance/admin see the cash event in
+    // real time without watching the inbox.
+    {
+      const lbl = bookingShortLabel(enriched);
+      const amt = Number(enriched?.price ?? 0);
+      notifyByRoles(STAFF_ROLES, {
+        type: "payment_paid",
+        title: "Payment Received",
+        message: `${lbl.ref} · ${lbl.name}${amt > 0 ? ` — £${amt.toLocaleString()}` : ""}`,
+        link: `/bookings/${req.params.id}`,
+        entityType: "booking",
+        entityId: req.params.id,
+        severity: "success",
+      }).catch(() => {});
+    }
 
     // Auto-create follow-up if this was an Arrival transfer
     autoCreateFollowUp(req.params.id, updated).catch(err =>

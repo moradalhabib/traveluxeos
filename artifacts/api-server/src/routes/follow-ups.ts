@@ -52,13 +52,17 @@ router.get("/", async (req, res) => {
     q = (q as any).gte("due_date", today).lte("due_date", addDays(7));
   }
 
-  // Sort in DB where possible
-  if (sort === "due_date" || !sort) {
+  // Sort in DB where possible. Fix 3 — Most Recent (created_at desc) is now
+  // the default across every list page; explicit `due_date` keeps the old
+  // behaviour for users who pick it from the dropdown.
+  if (sort === "recent" || !sort) {
+    q = (q as any).order("created_at", { ascending: false });
+  } else if (sort === "due_date") {
     q = (q as any).order("due_date", { ascending: true, nullsFirst: false });
   } else if (sort === "arrival_date") {
     q = (q as any).order("created_at", { ascending: false });
   } else {
-    q = (q as any).order("due_date", { ascending: true, nullsFirst: false });
+    q = (q as any).order("created_at", { ascending: false });
   }
 
   const { data, error } = await q;
