@@ -363,14 +363,19 @@ export default function NewBooking() {
   // Auto-sync TVL Margin into the existing tvl_commission field for transport
   // service types so the consolidated Financials section persists correctly
   // without changing the DB schema. Hotel + Apartment have their own logic.
+  // Airport Transfer is excluded — operator enters tvl_commission MANUALLY
+  // (zone-based pricing makes a derived margin meaningless, and the manual
+  // value still flows through to Commissions / driver profiles / finance
+  // via the unchanged tvl_commission column).
   useEffect(() => {
     if (isHotel || isAccommodation) return;
+    if (serviceType === "Airport Transfer") return;
     const cp = Number(clientPriceWatch) || 0;
     const sc = Number(supplierCostManualWatch) || 0;
     const dr = Number(driverCost) || 0;
     const fc = Number(fuelCost) || 0;
     bookingForm.setValue("tvl_commission", cp - sc - dr - fc);
-  }, [isHotel, isAccommodation, clientPriceWatch, supplierCostManualWatch, driverCost, fuelCost]);
+  }, [isHotel, isAccommodation, serviceType, clientPriceWatch, supplierCostManualWatch, driverCost, fuelCost]);
 
   // Populate client_id from URL param on mount (coming from client profile
   // or a request conversion). When `from_request` is present we also prefill
@@ -2131,8 +2136,11 @@ export default function NewBooking() {
                     </div>
                   )}
 
-                  {/* Extras — transport only */}
-                  {!isAccommodation && !isHotel && (
+                  {/* Extras — transport only. Hidden for Airport Transfer:
+                      AT has its own structured extras (child seat, M&G tier,
+                      etc.) via the AirportTransferProductPicker above, so
+                      this free-text field would be redundant + confusing. */}
+                  {!isAccommodation && !isHotel && serviceType !== "Airport Transfer" && (
                     <FormField control={bookingForm.control} name="extras" render={({ field }) => (
                       <FormItem>
                         <FormLabel>Extras <span className="text-xs text-muted-foreground font-normal">(child seat, flowers, champagne, etc.)</span></FormLabel>
@@ -2308,21 +2316,53 @@ export default function NewBooking() {
 
                       {(() => {
                         const isAT = serviceType === "Airport Transfer";
+
+                        // ── Airport Transfer: MANUAL TVL commission ──────────
+                        // Zone-based pricing means a derived margin is
+                        // misleading. Operator types the driver's commission
+                        // to TVL directly; it's persisted to tvl_commission
+                        // and read by Commissions / driver profiles / finance
+                        // / settlement statements unchanged.
+                        if (isAT) {
+                          const tc = Number(bookingForm.watch("tvl_commission")) || 0;
+                          const positive = tc >= 0;
+                          return (
+                            <div className="p-3 rounded-md border border-border bg-muted/30 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">TVL Commission (manual)</Label>
+                                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                                    Driver settlement to TVL · feeds Commissions, driver profile &amp; finance
+                                  </p>
+                                </div>
+                                <div className={`text-2xl font-bold ${positive ? "text-green-400" : "text-destructive"}`} data-testid="text-tvl-margin">
+                                  £{tc.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                </div>
+                              </div>
+                              <Input
+                                type="number" step="0.01"
+                                placeholder="Enter TVL commission (£)"
+                                value={(bookingForm.watch("tvl_commission") as any) ?? ""}
+                                onChange={e => bookingForm.setValue("tvl_commission", e.target.value === "" ? 0 : Number(e.target.value), { shouldDirty: true })}
+                                className="font-semibold"
+                                data-testid="input-tvl-commission-manual"
+                              />
+                            </div>
+                          );
+                        }
+
+                        // ── Other transport types: auto-calculated margin ───
                         const cp = Number(bookingForm.watch("price")) || 0;
                         const sc = Number(bookingForm.watch("supplier_cost" as any)) || 0;
-                        const dr = isAT ? 0 : Number(bookingForm.watch("driver_cost" as any)) || 0;
-                        const fc = isAT ? 0 : Number(bookingForm.watch("fuel_cost" as any)) || 0;
+                        const dr = Number(bookingForm.watch("driver_cost" as any)) || 0;
+                        const fc = Number(bookingForm.watch("fuel_cost" as any)) || 0;
                         const margin = cp - sc - dr - fc;
                         const positive = margin >= 0;
                         return (
                           <div className="flex items-center justify-between p-3 rounded-md border border-border bg-muted/30">
                             <div>
                               <Label className="text-xs uppercase tracking-wider text-muted-foreground">TVL Margin (auto)</Label>
-                              <p className="text-[10px] text-muted-foreground mt-0.5">
-                                {isAT
-                                  ? "Client Price − Supplier Cost"
-                                  : "Client Price − Supplier Cost − Driver Rate − Fuel Cost"}
-                              </p>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">Client Price − Supplier Cost − Driver Rate − Fuel Cost</p>
                             </div>
                             <div className={`text-2xl font-bold ${positive ? "text-green-400" : "text-destructive"}`} data-testid="text-tvl-margin">
                               £{margin.toLocaleString(undefined, { maximumFractionDigits: 2 })}
