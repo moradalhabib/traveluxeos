@@ -84,6 +84,8 @@ export interface Booking {
   additional_charges?: number;
   price: number;
   tvl_commission?: number;
+  supplier_commission?: number | null;
+  supplier_id?: string | null;
   driver_receives?: number;
   commission_type?: string;
   payment_status?: string;
@@ -227,6 +229,8 @@ export interface CreateBookingBody {
   additional_charges?: number;
   price: number;
   tvl_commission?: number;
+  supplier_commission?: number | null;
+  supplier_id?: string | null;
   payment_status?: string;
   payment_method?: string;
   source?: string;

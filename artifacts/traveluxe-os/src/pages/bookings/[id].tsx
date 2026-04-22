@@ -2090,6 +2090,37 @@ export default function BookingDetail() {
                   £{((booking as any).commission_amount || 0).toLocaleString()}
                 </span>
               </div>
+            ) : svc === "Airport Transfer" ? (
+              // Airport Transfer uses a SPLIT commission model:
+              //   Driver Commission (tvl_commission)  — driver owes TVL
+              //   Supplier Commission (supplier_commission) — TVL markup on
+              //     third-party supplier services (e.g. Heathrow M&G agents)
+              //   Total TVL Profit = Driver + Supplier
+              <>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">Driver Commission</span>
+                  <span className="font-medium">£{(booking.tvl_commission || 0).toLocaleString()}</span>
+                </div>
+                {((booking as any).supplier_commission != null && Number((booking as any).supplier_commission) !== 0) && (
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">
+                      Supplier Commission
+                      {(booking as any).supplier_id ? <span className="text-[10px] text-muted-foreground/70 ml-1">(markup)</span> : null}
+                    </span>
+                    <span className="font-medium">£{Number((booking as any).supplier_commission || 0).toLocaleString()}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-center text-sm pt-1 border-t border-border/40">
+                  <span className="text-muted-foreground font-medium">Total TVL Profit</span>
+                  <span className="font-semibold text-green-400">
+                    £{(Number(booking.tvl_commission || 0) + Number((booking as any).supplier_commission || 0)).toLocaleString()}
+                  </span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">Driver Receives</span>
+                  <span className="font-medium text-blue-400">£{(booking.driver_receives || 0).toLocaleString()}</span>
+                </div>
+              </>
             ) : (
               <>
                 <div className="flex justify-between items-center text-sm">

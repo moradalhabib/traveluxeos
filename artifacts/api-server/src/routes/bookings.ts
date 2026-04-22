@@ -598,6 +598,30 @@ router.post("/", async (req, res) => {
     return res.status(400).json({ error: error.message });
   }
 
+  // Workaround: a DB trigger (bookings_recalc_supplier_commission) auto-derives
+  // supplier_commission from supplier.commission_rate * price on INSERT,
+  // overwriting any operator-supplied value. The trigger fires on
+  // BEFORE INSERT OR UPDATE OF supplier_id, price — so a follow-up UPDATE
+  // that touches ONLY supplier_commission bypasses it. Persist the operator's
+  // manual value (used by Airport Transfer split commissions).
+  if (
+    typeof body.supplier_commission === "number" &&
+    !isNaN(body.supplier_commission) &&
+    Number(data.supplier_commission ?? 0) !== body.supplier_commission
+  ) {
+    const { data: patched, error: patchErr } = await db
+      .from("bookings")
+      .update({ supplier_commission: body.supplier_commission })
+      .eq("id", data.id)
+      .select()
+      .single();
+    if (patchErr) {
+      console.error("[POST /bookings] supplier_commission patch error:", patchErr.message);
+    } else if (patched) {
+      data.supplier_commission = patched.supplier_commission;
+    }
+  }
+
   // Notify driver if one was provided at creation time
   if (body.driver_id) {
     notifyDriverAssigned(data.id).catch(() => {});
@@ -870,6 +894,28 @@ router.put("/:id", async (req, res) => {
   }
 
   const updated: any = data;
+
+  // Workaround: same trigger-bypass as POST. If the operator changed supplier_id
+  // or price together with supplier_commission, the BEFORE UPDATE OF
+  // supplier_id, price trigger will have just clobbered our value. Re-apply it
+  // with a column-isolated UPDATE that does not match the trigger's column list.
+  if (
+    typeof body.supplier_commission === "number" &&
+    !isNaN(body.supplier_commission) &&
+    Number(updated.supplier_commission ?? 0) !== body.supplier_commission
+  ) {
+    const { data: patched, error: patchErr } = await db
+      .from("bookings")
+      .update({ supplier_commission: body.supplier_commission })
+      .eq("id", req.params.id)
+      .select()
+      .single();
+    if (patchErr) {
+      console.error("[PUT /bookings/:id] supplier_commission patch error:", patchErr.message);
+    } else if (patched) {
+      updated.supplier_commission = patched.supplier_commission;
+    }
+  }
 
   // If driver assigned, update status
   // Notify driver if a new driver was just assigned via PUT

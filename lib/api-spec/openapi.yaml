@@ -1213,6 +1213,12 @@ components:
           type: number
         tvl_commission:
           type: number
+        supplier_commission:
+          type: number
+          nullable: true
+        supplier_id:
+          type: string
+          nullable: true
         driver_receives:
           type: number
         commission_type:
@@ -1310,6 +1316,12 @@ components:
           type: number
         tvl_commission:
           type: number
+        supplier_commission:
+          type: number
+          nullable: true
+        supplier_id:
+          type: string
+          nullable: true
         payment_status:
           type: string
         payment_method:
