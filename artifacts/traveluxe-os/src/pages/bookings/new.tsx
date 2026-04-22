@@ -342,6 +342,18 @@ export default function NewBooking() {
     bookingForm.setValue("tvl_commission", 0);
   }, [isHotel, hotelTotalRevenue, hotelTotalCommission]);
 
+  // Auto-sync TVL Margin into the existing tvl_commission field for transport
+  // service types so the consolidated Financials section persists correctly
+  // without changing the DB schema. Hotel + Apartment have their own logic.
+  useEffect(() => {
+    if (isHotel || isAccommodation) return;
+    const cp = Number(clientPriceWatch) || 0;
+    const sc = Number(supplierCostManualWatch) || 0;
+    const dr = Number(driverCost) || 0;
+    const fc = Number(fuelCost) || 0;
+    bookingForm.setValue("tvl_commission", cp - sc - dr - fc);
+  }, [isHotel, isAccommodation, clientPriceWatch, supplierCostManualWatch, driverCost, fuelCost]);
+
   // Populate client_id from URL param on mount (coming from client profile
   // or a request conversion). When `from_request` is present we also prefill
   // service_type/date_time/notes/price.
@@ -1303,11 +1315,13 @@ export default function NewBooking() {
                 </CardContent>
               </Card>
 
-              {/* ─── Cost Breakdown — Car Rental & As Directed ─────────────
-                  Captures true cost (car from supplier + driver) so we can
-                  compute real margin. The "supplier provides driver" toggle
-                  decides whether driver_cost rolls into the supplier KPI. */}
-              {needsCostBreakdown && (
+              {/* ─── Cost Breakdown — HIDDEN per Financials Cleanup spec.
+                  Fields (supplier_cost, driver_cost, fuel_cost, etc.) now live
+                  in the consolidated Financials section below. The data model
+                  is unchanged — saved bookings still read/write the same
+                  columns, and the booking detail / invoice screens are
+                  untouched. */}
+              {false && needsCostBreakdown && (
                 <Card className="border-primary/20">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">Cost Breakdown</CardTitle>
@@ -2138,8 +2152,12 @@ export default function NewBooking() {
                 </CardContent>
               </Card>
 
-              {/* Products / Order Lines — transport & tours only */}
-              {!isAccommodation && !isHotel && (
+              {/* Products / Order Lines — HIDDEN per Financials Cleanup spec.
+                  The picker is no longer shown on the new booking form, but
+                  the data model is preserved so existing bookings still
+                  display their order lines correctly elsewhere. Operators
+                  enter Client Price directly in the Financials section below. */}
+              {false && !isAccommodation && !isHotel && (
                 <Card className="border-primary/10">
                   <CardHeader className="pb-3">
                     <CardTitle className="text-base">
@@ -2184,30 +2202,68 @@ export default function NewBooking() {
                     </div>
                   ) : (
                     <>
-                      <div className="grid grid-cols-3 gap-3">
+                      {/* Consolidated Financials — single source of truth.
+                          Replaces the old Price / TVL Commission / Driver Gets
+                          row plus the standalone Cost Breakdown card. Margin is
+                          auto-calculated and synced into tvl_commission on
+                          every render via the effect below — DB schema
+                          unchanged, booking detail / invoice screens untouched. */}
+                      <div className="grid grid-cols-2 gap-3">
                         <FormField control={bookingForm.control} name="price" render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Price (£)</FormLabel>
-                            <FormControl><Input type="number" step="0.01" {...field} className="text-lg font-bold" /></FormControl>
+                            <FormLabel>Client Price (£)</FormLabel>
+                            <FormControl><Input type="number" step="0.01" {...field} className="text-lg font-bold" data-testid="input-client-price" /></FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
-                        <FormField control={bookingForm.control} name="tvl_commission" render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>TVL Commission (£)</FormLabel>
-                            <FormControl><Input type="number" step="0.01" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
-                        {!needsCommission && (
-                          <div className="space-y-2">
-                            <Label className="text-sm font-medium">Driver Gets</Label>
-                            <div className="h-10 flex items-center px-3 border border-border rounded-md bg-muted/50 font-bold text-primary">
-                              £{driverReceives.toFixed(0)}
+                        <div className="space-y-2">
+                          <Label>Supplier Cost (£)</Label>
+                          <Input
+                            type="number" step="0.01" min="0"
+                            value={(bookingForm.watch("supplier_cost" as any) as any) ?? ""}
+                            onChange={e => bookingForm.setValue("supplier_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
+                            data-testid="input-supplier-cost"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Driver Rate (£)</Label>
+                          <Input
+                            type="number" step="0.01" min="0"
+                            value={(bookingForm.watch("driver_cost" as any) as any) ?? ""}
+                            onChange={e => bookingForm.setValue("driver_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
+                            data-testid="input-driver-rate"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label>Fuel Cost (£)</Label>
+                          <Input
+                            type="number" step="0.01" min="0"
+                            value={(bookingForm.watch("fuel_cost" as any) as any) ?? ""}
+                            onChange={e => bookingForm.setValue("fuel_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
+                            data-testid="input-fuel-cost"
+                          />
+                        </div>
+                      </div>
+
+                      {(() => {
+                        const cp = Number(bookingForm.watch("price")) || 0;
+                        const sc = Number(bookingForm.watch("supplier_cost" as any)) || 0;
+                        const dr = Number(bookingForm.watch("driver_cost" as any)) || 0;
+                        const fc = Number(bookingForm.watch("fuel_cost" as any)) || 0;
+                        const margin = cp - sc - dr - fc;
+                        const positive = margin >= 0;
+                        return (
+                          <div className="flex items-center justify-between p-3 rounded-md border border-border bg-muted/30">
+                            <div>
+                              <Label className="text-xs uppercase tracking-wider text-muted-foreground">TVL Margin (auto)</Label>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">Client Price − Supplier Cost − Driver Rate − Fuel Cost</p>
+                            </div>
+                            <div className={`text-2xl font-bold ${positive ? "text-green-400" : "text-destructive"}`} data-testid="text-tvl-margin">
+                              £{margin.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                             </div>
                           </div>
-                        )}
-                      </div>
+                        );
+                      })()}
 
                       {/* Third-party Commission — Apartment only (Hotel handled above) */}
                       {isAccommodation && (
@@ -2491,6 +2547,16 @@ export default function NewBooking() {
                   )} />
                 </CardContent>
               </Card>
+
+              {confirmedClient && !((confirmedClient as any).email ?? "").trim() && (
+                <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 flex items-start gap-2.5">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                  <div className="text-xs text-amber-200 leading-relaxed">
+                    <span className="font-semibold">No email on file for {confirmedClient.name}.</span>{" "}
+                    The booking will still be created, but confirmation, receipt, and invoice emails will be skipped automatically. Add an email on the client profile to enable them.
+                  </div>
+                </div>
+              )}
 
               <Button type="submit" className="w-full h-13 text-base font-semibold shadow-[0_0_20px_rgba(201,168,76,0.3)]" disabled={createBooking.isPending}>
                 {createBooking.isPending && <Loader2 className="w-4 h-4 mr-2 animate-spin" />}

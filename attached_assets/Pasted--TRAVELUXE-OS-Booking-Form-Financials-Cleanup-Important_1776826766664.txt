@@ -1,0 +1,46 @@
+
+
+TRAVELUXE OS — Booking Form Financials Cleanup
+Important: Read before making any changes
+
+Do NOT touch any existing booking records or database schema for saved bookings
+Do NOT remove any database fields — only hide or consolidate them on the front-end form UI
+Do NOT change anything on the booking detail view, jobs board, invoice generation, or any other screen — only the new booking form UI is affected
+If any of these changes risk breaking existing functionality, stop and flag it before proceeding
+Make changes incrementally and test after each step
+
+
+The problem
+The new booking form currently has three separate sections all tracking money — Products & Order Lines, Cost Breakdown, and Financials & Assignment. They contradict each other and confuse the margin calculation. This is a UI consolidation only — not a data model change.
+
+What to change — UI only
+Consolidate all three financial sections into one single clean section called "Financials" containing:
+
+Client Price (£) — what we charge the client
+Supplier Cost (£) — what we pay to rent the vehicle (per day × number of days)
+Driver Rate (£) — what we pay our driver for the job
+Fuel Cost (£) — fuel for the job
+TVL Margin (£) — auto-calculated: Client Price minus Supplier Cost minus Driver Rate minus Fuel Cost. Show in green if positive, red if negative
+Payment Status — Unpaid/Paid dropdown (keep exactly as is)
+Payment Method — keep exactly as is
+Source — keep exactly as is
+Assign Driver — keep exactly as is
+2nd and 3rd Driver — keep as collapsed optional fields exactly as is
+Internal Notes — keep exactly as is
+
+
+What to hide on the form UI (do not delete from database)
+
+Hide the Products & Order Lines section from the new booking form UI only — do not delete it from the database or backend as it may be used elsewhere
+Hide the separate Cost Breakdown section from the new booking form UI only — merge its fields into the new single Financials section above
+The underlying data must still save correctly to the same database fields as before
+
+
+Specific fixes
+
+Driver Gets is currently showing the full client price (£120) which is wrong — it should show only the driver rate entered
+TVL Commission is showing £0 — it should show the auto-calculated TVL Margin
+Client price must be a single input that feeds into both the invoice and the margin calculation — not duplicated across multiple sections
+
+
+Do not republish until you have confirmed that existing bookings still display correctly and that invoice generation still works with the consolidated form.
