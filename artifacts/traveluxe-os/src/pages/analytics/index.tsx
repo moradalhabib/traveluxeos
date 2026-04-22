@@ -224,16 +224,33 @@ export default function Analytics() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-4" data-testid="text-forecast-7d">
                   <div className="text-xs text-muted-foreground uppercase tracking-wider">Next 7 days</div>
-                  <div className="text-2xl font-bold text-primary mt-1">£{(forecast.next_7_days_revenue || 0).toLocaleString()}</div>
+                  <div className="text-2xl font-bold text-primary mt-1">£{(Number(forecast.next_7_days_revenue) || 0).toLocaleString()}</div>
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    {forecast.next_7_days_count ?? forecast.by_day.slice(0, 7).reduce((s, d) => s + d.count, 0)} bookings
+                    {(() => {
+                      // Fix 1a — Revenue Forecast was showing "NaN bookings"
+                      // when an old API response omitted the count key AND
+                      // any by_day row was missing/non-numeric. Coerce every
+                      // input to a finite number and short-circuit nullish
+                      // counts at the source.
+                      const direct = Number(forecast.next_7_days_count);
+                      if (Number.isFinite(direct)) return direct;
+                      const fallback = (forecast.by_day ?? []).slice(0, 7)
+                        .reduce((s, d) => s + (Number(d?.count) || 0), 0);
+                      return Number.isFinite(fallback) ? fallback : 0;
+                    })()} bookings
                   </div>
                 </div>
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-4" data-testid="text-forecast-30d">
                   <div className="text-xs text-muted-foreground uppercase tracking-wider">Next 30 days</div>
-                  <div className="text-2xl font-bold text-primary mt-1">£{(forecast.next_30_days_revenue || 0).toLocaleString()}</div>
+                  <div className="text-2xl font-bold text-primary mt-1">£{(Number(forecast.next_30_days_revenue) || 0).toLocaleString()}</div>
                   <div className="text-xs text-muted-foreground mt-0.5">
-                    {forecast.next_30_days_count ?? forecast.by_day.reduce((s, d) => s + d.count, 0)} bookings
+                    {(() => {
+                      const direct = Number(forecast.next_30_days_count);
+                      if (Number.isFinite(direct)) return direct;
+                      const fallback = (forecast.by_day ?? [])
+                        .reduce((s, d) => s + (Number(d?.count) || 0), 0);
+                      return Number.isFinite(fallback) ? fallback : 0;
+                    })()} bookings
                   </div>
                 </div>
               </div>
