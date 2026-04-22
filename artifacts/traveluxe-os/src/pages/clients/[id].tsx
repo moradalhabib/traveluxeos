@@ -334,11 +334,13 @@ export default function ClientDetail() {
         </div>
         <div className="rounded-xl border border-border bg-card p-4 text-center">
           <div className="text-sm font-bold text-foreground">
-            {sinceFromBooking
-              ? format(clientSince!, 'MMM yyyy')
-              : clientSince
-                ? `${monthsActive}mo`
-                : '—'}
+            {!clientSince
+              ? '—'
+              : sinceFromBooking
+                ? format(clientSince, 'MMM yyyy')
+                : monthsActive === 0
+                  ? 'New'
+                  : `${monthsActive}mo`}
           </div>
           <div className="text-xs text-muted-foreground mt-1">
             {clientSince ? `Since ${format(clientSince, 'MMM yyyy')}` : 'Client Since'}
