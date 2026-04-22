@@ -2145,11 +2145,22 @@ export default function BookingDetail() {
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Date Paid</p>
                 <Input
+                  // The `key` forces React to remount this uncontrolled input
+                  // whenever the server-side payment_date changes (e.g. when
+                  // F1 autofill stamps today's date after flipping to Paid).
+                  // Without it, the stale defaultValue persists and the
+                  // operator's next blur could overwrite the autofill with "".
+                  key={(booking as any).payment_date ?? "empty"}
                   type="date"
                   defaultValue={(booking as any).payment_date?.slice(0,10) || ""}
-                  onBlur={e => updateBooking.mutate({ id, data: { payment_date: e.target.value || null } as any }, {
-                    onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
-                  })}
+                  onBlur={e => {
+                    const next = e.target.value || null;
+                    const cur = (booking as any).payment_date?.slice(0,10) || null;
+                    if (next === cur) return; // no-op blur shouldn't clobber autofill
+                    updateBooking.mutate({ id, data: { payment_date: next } as any }, {
+                      onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
+                    });
+                  }}
                   className="h-9"
                   data-testid="input-payment-date"
                 />

@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { supabase, auditLog, getUserFromToken } from "../lib/supabase";
+import { notifyByRoles, STAFF_ROLES } from "../services/notify";
 
 const router = Router();
 
@@ -85,6 +86,22 @@ router.post("/", async (req, res) => {
     "create_request", "request", data.id, user?.id ?? null,
     `Created request for ${data.clients?.name ?? data.client_name ?? "client"}`
   );
+
+  // Fix — bell notification when a new request lands. Goes to staff because
+  // any operator may pick it up. dedupe_key prevents double-fires from retries.
+  {
+    const clientName = data.clients?.name ?? data.client_name ?? "client";
+    notifyByRoles(STAFF_ROLES, {
+      type: "request_new",
+      title: "New Request",
+      message: `${data.service_type ?? "Request"} · ${clientName}`,
+      link: `/requests/${data.id}`,
+      entityType: "request",
+      entityId: data.id,
+      severity: data.priority === "urgent" ? "urgent" : "info",
+      dedupeKey: `request_new:${data.id}`,
+    }).catch(() => {});
+  }
 
   return res.status(201).json({
     ...data,

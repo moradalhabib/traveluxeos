@@ -92,12 +92,17 @@ router.get("/:id", async (req, res) => {
     console.warn(
       `[suppliers] balance columns missing, falling back to legacy select: ${bookingsRes.error.message}`,
     );
-    bookingsRes = await supabase
+    // The legacy select is missing supplier_paid_at / supplier_payment_ref
+    // (those columns don't exist yet on this DB), so the inferred response
+    // type is narrower than the FULL one. The callers below treat the row as
+    // `any`, so the missing fields just stay `undefined`. Widen via cast so
+    // TS doesn't flag the reassignment.
+    bookingsRes = (await supabase
       .from("bookings")
       .select(BOOKINGS_COLS_LEGACY)
       .eq("supplier_id", id)
       .order("date_time", { ascending: false })
-      .limit(500);
+      .limit(500)) as unknown as typeof bookingsRes;
   }
   if (bookingsRes.error) {
     return res.status(500).json({ error: `bookings: ${bookingsRes.error.message}` });

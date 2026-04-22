@@ -131,17 +131,21 @@ async function insertRows(userIds: string[], opts: NotifyOpts): Promise<void> {
     dedupe_key: opts.dedupeKey ?? null,
   }));
 
-  // ON CONFLICT for the unique (user_id, dedupe_key) index. Supabase JS:
-  // use upsert with onConflict so duplicates are silently skipped.
+  // The unique constraint on (user_id, dedupe_key) in this DB is a PARTIAL
+  // index (`WHERE dedupe_key IS NOT NULL`), which Postgres can't use as an
+  // ON CONFLICT arbiter via supabase-js's `upsert({ onConflict: "..." })` —
+  // it surfaces "no unique or exclusion constraint matching the ON CONFLICT
+  // specification" (23P01-ish). Instead, just INSERT and treat the partial
+  // unique index as an after-the-fact dedupe: a 23505 means "already there,
+  // skip silently". Other errors still log.
   const client = notifClient();
-  if (opts.dedupeKey) {
-    const { error } = await client
-      .from("notifications")
-      .upsert(rows, { onConflict: "user_id,dedupe_key", ignoreDuplicates: true });
-    if (error) console.error("[notify] upsert error:", error.message);
-  } else {
-    const { error } = await client.from("notifications").insert(rows);
-    if (error) console.error("[notify] insert error:", error.message);
+  const { error } = await client.from("notifications").insert(rows);
+  if (error) {
+    if (opts.dedupeKey && (error as any).code === "23505") {
+      // duplicate against the partial unique index — expected, swallow.
+      return;
+    }
+    console.error("[notify] insert error:", error.message);
   }
 }
 

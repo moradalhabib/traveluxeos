@@ -3,7 +3,7 @@ import { supabase, auditLog, getUserFromToken, getDbClient, getServiceRoleClient
 import { logActivity } from "../lib/activity";
 import { sendEmail } from "../services/email";
 import { notifyDriverAssigned, notifyDriverDeclined } from "../services/scheduler";
-import { notifyByRoles, notifyUser, STAFF_ROLES } from "../services/notify";
+import { notifyByRoles, notifyUser, STAFF_ROLES, ADMIN_ROLES } from "../services/notify";
 
 function bookingShortLabel(b: any) {
   const ref = b.tvl_ref ?? "TVL-????";
@@ -911,11 +911,11 @@ router.put("/:id", async (req, res) => {
           severity: "info",
         }).catch(() => {});
       }
-      // Fix 5 — broadcast cancellations to admins so they don't get buried
-      // in the generic status feed. Uses the dedicated booking_cancelled
-      // pref so users can opt out independently.
+      // Fix 5 — cancellations go to admins + the booking owner only, not
+      // every operator. ADMIN_ROLES + explicit notifyUser keeps the alert
+      // useful without spamming the whole staff list.
       if (body.status === "Cancelled") {
-        notifyByRoles(STAFF_ROLES, {
+        notifyByRoles(ADMIN_ROLES, {
           type: "booking_cancelled",
           title: "Booking Cancelled",
           message: `${lbl.ref} · ${lbl.name} cancelled`,
@@ -923,7 +923,20 @@ router.put("/:id", async (req, res) => {
           entityType: "booking",
           entityId: req.params.id,
           severity: "warning",
+          dedupeKey: `booking_cancelled:${req.params.id}`,
         }).catch(() => {});
+        if (updated.operator_id) {
+          notifyUser(updated.operator_id, {
+            type: "booking_cancelled",
+            title: "Booking Cancelled",
+            message: `${lbl.ref} · ${lbl.name} cancelled`,
+            link: `/bookings/${req.params.id}`,
+            entityType: "booking",
+            entityId: req.params.id,
+            severity: "warning",
+            dedupeKey: `booking_cancelled:${req.params.id}`,
+          }).catch(() => {});
+        }
       }
     }
 
@@ -969,21 +982,26 @@ router.put("/:id", async (req, res) => {
       console.error("[Email] Receipt send error:", err?.message)
     );
 
-    // Fix 5 — bell notification on payment received. We broadcast to staff
-    // (not just the booking owner) so finance/admin see the cash event in
-    // real time without watching the inbox.
+    // Fix 5 — payment notifications go to admins + the booking owner. Other
+    // operators don't need every cash event in their bell. Dedupe key
+    // prevents double-fires if the PUT is retried.
     {
       const lbl = bookingShortLabel(enriched);
       const amt = Number(enriched?.price ?? 0);
-      notifyByRoles(STAFF_ROLES, {
-        type: "payment_paid",
+      const payload = {
+        type: "payment_paid" as const,
         title: "Payment Received",
         message: `${lbl.ref} · ${lbl.name}${amt > 0 ? ` — £${amt.toLocaleString()}` : ""}`,
         link: `/bookings/${req.params.id}`,
         entityType: "booking",
         entityId: req.params.id,
-        severity: "success",
-      }).catch(() => {});
+        severity: "success" as const,
+        dedupeKey: `payment_paid:${req.params.id}`,
+      };
+      notifyByRoles(ADMIN_ROLES, payload).catch(() => {});
+      if (updated.operator_id) {
+        notifyUser(updated.operator_id, payload).catch(() => {});
+      }
     }
 
     // Auto-create follow-up if this was an Arrival transfer

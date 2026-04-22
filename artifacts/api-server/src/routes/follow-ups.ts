@@ -116,6 +116,19 @@ router.get("/", async (req, res) => {
     );
   }
 
+  // Arrival-date sort needs the joined booking row, so it's done post-hydrate.
+  // The DB-side fallback (created_at desc) was misleading — the label said
+  // "Arrival" but rows were ordered by row creation. This now sorts by the
+  // booking's actual date_time (soonest arrival first; rows with no booking
+  // sink to the bottom).
+  if (sort === "arrival_date") {
+    results.sort((a: any, b: any) => {
+      const ta = a.booking?.date_time ? new Date(a.booking.date_time).getTime() : Infinity;
+      const tb = b.booking?.date_time ? new Date(b.booking.date_time).getTime() : Infinity;
+      return ta - tb;
+    });
+  }
+
   // Hydrate operator names
   const operatorIds = [...new Set(results.map((f: any) => f.booking?.operator_id).filter(Boolean))];
   let operatorMap: Record<string, string> = {};
