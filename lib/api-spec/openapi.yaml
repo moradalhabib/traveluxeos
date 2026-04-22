@@ -404,6 +404,27 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Booking"
+    delete:
+      operationId: deleteBooking
+      tags: [bookings]
+      summary: Permanently delete a booking (Super Admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  id: { type: string }
+                  tvl_ref: { type: string, nullable: true }
 
   /bookings/{id}/cancel:
     post:

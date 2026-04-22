@@ -33,6 +33,7 @@ import type {
   CreateSettlementBody,
   CreateTaskBody,
   DashboardSummary,
+  DeleteBooking200,
   Driver,
   DriverDetail,
   DriverRating,
@@ -1551,6 +1552,90 @@ export const useUpdateBooking = <
   TContext
 > => {
   return useMutation(getUpdateBookingMutationOptions(options));
+};
+
+/**
+ * @summary Permanently delete a booking (Super Admin only)
+ */
+export const getDeleteBookingUrl = (id: string) => {
+  return `/api/bookings/${id}`;
+};
+
+export const deleteBooking = async (
+  id: string,
+  options?: RequestInit,
+): Promise<DeleteBooking200> => {
+  return customFetch<DeleteBooking200>(getDeleteBookingUrl(id), {
+    ...options,
+    method: "DELETE",
+  });
+};
+
+export const getDeleteBookingMutationOptions = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteBooking>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof deleteBooking>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  const mutationKey = ["deleteBooking"];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation &&
+      "mutationKey" in options.mutation &&
+      options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof deleteBooking>>,
+    { id: string }
+  > = (props) => {
+    const { id } = props ?? {};
+
+    return deleteBooking(id, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type DeleteBookingMutationResult = NonNullable<
+  Awaited<ReturnType<typeof deleteBooking>>
+>;
+
+export type DeleteBookingMutationError = ErrorType<unknown>;
+
+/**
+ * @summary Permanently delete a booking (Super Admin only)
+ */
+export const useDeleteBooking = <
+  TError = ErrorType<unknown>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof deleteBooking>>,
+    TError,
+    { id: string },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof deleteBooking>>,
+  TError,
+  { id: string },
+  TContext
+> => {
+  return useMutation(getDeleteBookingMutationOptions(options));
 };
 
 /**

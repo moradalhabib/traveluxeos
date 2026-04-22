@@ -25,6 +25,7 @@ export * from "./createQuoteBody";
 export * from "./createSettlementBody";
 export * from "./createTaskBody";
 export * from "./dashboardSummary";
+export * from "./deleteBooking200";
 export * from "./driver";
 export * from "./driverCommissionBreakdown";
 export * from "./driverDetail";

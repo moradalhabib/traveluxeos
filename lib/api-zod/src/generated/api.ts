@@ -676,6 +676,19 @@ export const UpdateBookingResponse = zod.object({
 });
 
 /**
+ * @summary Permanently delete a booking (Super Admin only)
+ */
+export const DeleteBookingParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const DeleteBookingResponse = zod.object({
+  ok: zod.boolean().optional(),
+  id: zod.string().optional(),
+  tvl_ref: zod.string().nullish(),
+});
+
+/**
  * @summary Cancel a booking
  */
 export const CancelBookingParams = zod.object({

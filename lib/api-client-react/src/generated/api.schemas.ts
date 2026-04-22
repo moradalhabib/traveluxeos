@@ -494,6 +494,12 @@ export const ListBookingsImported = {
   all: "all",
 } as const;
 
+export type DeleteBooking200 = {
+  ok?: boolean;
+  id?: string;
+  tvl_ref?: string | null;
+};
+
 export type ListDriversParams = {
   status?: string;
 };

@@ -1161,6 +1161,56 @@ router.put("/:id", async (req, res) => {
   return res.json(enriched);
 });
 
+// ── Hard delete a booking and all its dependent rows ────────────────────────
+// Super Admin only. Used to purge test bookings cleanly. Order matters:
+// child rows first (no ON DELETE CASCADE on these FKs), then the booking.
+// Errors on individual child tables are logged but don't abort — some rows
+// may simply not exist for a given booking, and a missing optional table
+// (e.g. issues in a fresh deploy) shouldn't block the purge.
+router.delete("/:id", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || user.role !== "super_admin") {
+    return res.status(403).json({ error: "Only Super Admin can delete bookings" });
+  }
+  const id = req.params.id;
+
+  const { data: bk } = await supabase
+    .from("bookings")
+    .select("id, tvl_ref")
+    .eq("id", id)
+    .single();
+  if (!bk) return res.status(404).json({ error: "Booking not found" });
+
+  // Clear self-referential pointers (return_booking_id) on any sibling
+  await supabase.from("bookings").update({ return_booking_id: null }).eq("return_booking_id", id);
+
+  // Delete dependents — every table that holds booking_id
+  const childTables = [
+    "follow_ups",
+    "booking_email_log",
+    "booking_products",
+    "booking_amendments",
+    "driver_ratings",
+    "issues",
+    "invoices",
+    "requests",
+  ];
+  for (const t of childTables) {
+    const { error } = await supabase.from(t).delete().eq("booking_id", id);
+    if (error && !/does not exist|relation .* does not exist/i.test(error.message)) {
+      console.warn(`[delete-booking] ${t} cleanup warning:`, error.message);
+    }
+  }
+
+  const { error: delErr } = await supabase.from("bookings").delete().eq("id", id);
+  if (delErr) return res.status(400).json({ error: delErr.message });
+
+  await auditLog("delete_booking", "booking", id, user.id,
+    `Booking ${bk.tvl_ref} permanently deleted`);
+
+  return res.json({ ok: true, id, tvl_ref: bk.tvl_ref });
+});
+
 router.post("/:id/cancel", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
   const { reason, cancellation_fee } = req.body;

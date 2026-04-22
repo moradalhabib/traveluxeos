@@ -1,9 +1,16 @@
 import { useState, useMemo } from "react";
-import { useListBookings, getListBookingsQueryKey } from "@workspace/api-client-react";
+import { useListBookings, getListBookingsQueryKey, useDeleteBooking } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Briefcase, CalendarRange, Home, X, StickyNote } from "lucide-react";
+import { Plus, Briefcase, CalendarRange, Home, X, StickyNote, Trash2 } from "lucide-react";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link, useSearch } from "wouter";
 import { format, startOfDay, isBefore } from "date-fns";
@@ -31,8 +38,25 @@ const STATUS_ORDER: Record<string, number> = {
 
 export default function Bookings() {
   const { user } = useAuth();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
   const isResidenceManager = user?.role === "residence_manager";
   const isSuperAdmin = user?.role === "super_admin";
+
+  // Hard delete — Super Admin only. Backend purges all dependent rows
+  // (invoices, follow-ups, products, amendments, ratings, email log) then
+  // the booking itself. Used to clean up test bookings.
+  const deleteBookingMut = useDeleteBooking({
+    mutation: {
+      onSuccess: (data: any) => {
+        toast({ title: "Booking deleted", description: data?.tvl_ref ? `${data.tvl_ref} permanently removed` : "Removed" });
+        queryClient.invalidateQueries({ queryKey: ["listBookings"] });
+      },
+      onError: (err: any) => {
+        toast({ title: "Delete failed", description: err?.response?.data?.error ?? err?.message ?? "Unknown error", variant: "destructive" });
+      },
+    },
+  });
 
   const [status, setStatus] = useState<string>("");
   const [search, setSearch] = useState<string>("");
@@ -356,6 +380,39 @@ export default function Bookings() {
                     {isResidenceManager ? "View Details" : "Job Sheet"}
                   </Button>
                 </Link>
+                {isSuperAdmin && (
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="outline"
+                        size="icon"
+                        className="h-10 w-10 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/40"
+                        title="Delete booking"
+                        data-testid={`button-delete-${booking.id}`}
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete {booking.tvl_ref}?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This permanently removes the booking and all related records (invoice, follow-ups, products, ratings, email log). This cannot be undone. For real cancellations, use the Cancel action on the job sheet instead.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Keep booking</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          onClick={() => deleteBookingMut.mutate({ id: booking.id })}
+                          data-testid={`button-confirm-delete-${booking.id}`}
+                        >
+                          Delete permanently
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                )}
               </div>
             </CardContent>
           </Card>
