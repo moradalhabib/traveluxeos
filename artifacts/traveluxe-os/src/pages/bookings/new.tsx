@@ -809,10 +809,15 @@ export default function NewBooking() {
       driver_id: values.driver_id,
       notes: values.notes,
       duration: values.duration,
-      // Build 4 — supplier + cost breakdown (Car Rental / As Directed)
+      // Build 4 — supplier + cost breakdown (Car Rental / As Directed / AT)
       supplier_id: (values as any).supplier_id || undefined,
       supplier_product_id: (values as any).supplier_product_id || undefined,
-      supplier_commission: (values as any).supplier_commission,
+      // Only persist supplier_commission for service types whose UI exposes it.
+      // Otherwise a stale value (e.g. operator typed it in AT then switched to
+      // Hotel before saving) would silently pollute the new booking.
+      supplier_commission: ["Airport Transfer", "Car Rental", "As Directed"].includes(values.service_type)
+        ? (values as any).supplier_commission
+        : undefined,
       // Manual supplier_cost override — only persist when set, otherwise
       // the DB trigger derives it from base_daily_rate × rental_days + fuel + driver.
       supplier_cost: (values as any).supplier_cost != null && (values as any).supplier_cost !== ""

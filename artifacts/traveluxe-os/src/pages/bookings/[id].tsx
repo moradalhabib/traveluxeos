@@ -983,8 +983,10 @@ export default function BookingDetail() {
   const svc = booking.service_type;
   const isTransport = svc === "Airport Transfer" || svc === "Tour" || svc === "As Directed";
   const isAccommodation = svc === "Hotel" || svc === "Apartment";
+  // Use Europe/London for client/driver message dates so admins in any
+  // timezone (e.g. Egypt) always send UK-local times to recipients.
   const fmtDT = (s: string | null | undefined) =>
-    s ? format(new Date(s), "EEE d MMM yyyy 'at' HH:mm") : "";
+    s ? fmtLondon(s, "EEE d MMM yyyy 'at' HH:mm") : "";
 
   const buildClientMessage = () => {
     const lines: string[] = [
