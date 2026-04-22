@@ -1169,14 +1169,17 @@ router.put("/:id", async (req, res) => {
 // (e.g. issues in a fresh deploy) shouldn't block the purge.
 router.delete("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
-  if (!user || user.role !== "super_admin") {
-    return res.status(403).json({ error: "Only Super Admin can delete bookings" });
+  if (!user || !["admin", "super_admin"].includes(user.role)) {
+    return res.status(403).json({ error: "Only Admin or Super Admin can delete bookings" });
   }
   const id = req.params.id;
 
+  // Snapshot the booking before deletion so the audit trail captures the
+  // full record (client, dates, financials) — once it's gone we can't
+  // reconstruct it. The notification + activity feed also need the ref.
   const { data: bk } = await supabase
     .from("bookings")
-    .select("id, tvl_ref")
+    .select("*")
     .eq("id", id)
     .single();
   if (!bk) return res.status(404).json({ error: "Booking not found" });
@@ -1205,8 +1208,42 @@ router.delete("/:id", async (req, res) => {
   const { error: delErr } = await supabase.from("bookings").delete().eq("id", id);
   if (delErr) return res.status(400).json({ error: delErr.message });
 
-  await auditLog("delete_booking", "booking", id, user.id,
-    `Booking ${bk.tvl_ref} permanently deleted`);
+  // Full audit trail — captures the entire booking record + who deleted it.
+  // Audit log is the immutable record (compliance/forensics); activity feed
+  // is the operator-visible timeline; the in-app notification alerts other
+  // staff in real time so deletions can't happen quietly.
+  const summary = `Booking ${bk.tvl_ref ?? id} permanently deleted by ${user.name ?? user.email ?? user.id} (${user.role}). ` +
+    `Client: ${bk.client_name ?? "—"} · Service: ${bk.service_type ?? "—"} · ` +
+    `Date: ${bk.date_time ?? "—"} · Price: £${bk.price ?? 0} · Status was: ${bk.status ?? "—"}`;
+
+  await auditLog(
+    "delete_booking",
+    "booking",
+    id,
+    user.id,
+    `${summary}\n--- SNAPSHOT ---\n${JSON.stringify(bk)}`,
+  );
+
+  await logActivity({
+    action_type: "booking_deleted",
+    description: summary,
+    entity_type: "booking",
+    entity_id: id,
+    entity_label: bk.tvl_ref ?? null,
+    operator_id: user.id,
+    operator_name: user.name ?? user.email ?? null,
+  });
+
+  // Broadcast to every staff member so deletions are visible across the team
+  notifyByRoles(STAFF_ROLES, {
+    type: "booking_cancelled",
+    title: "Booking Deleted",
+    message: `${bk.tvl_ref ?? id} · ${bk.client_name ?? "—"} — deleted by ${user.name ?? user.email ?? "admin"}`,
+    link: `/bookings`,
+    entityType: "booking",
+    entityId: id,
+    severity: "warning",
+  }).catch(() => {});
 
   return res.json({ ok: true, id, tvl_ref: bk.tvl_ref });
 });

@@ -42,6 +42,9 @@ export default function Bookings() {
   const queryClient = useQueryClient();
   const isResidenceManager = user?.role === "residence_manager";
   const isSuperAdmin = user?.role === "super_admin";
+  // Admin + Super Admin can hard-delete bookings; every deletion is
+  // captured in the audit log + activity feed and broadcast to all staff.
+  const canDeleteBookings = user?.role === "admin" || user?.role === "super_admin";
 
   // Hard delete — Super Admin only. Backend purges all dependent rows
   // (invoices, follow-ups, products, amendments, ratings, email log) then
@@ -380,7 +383,7 @@ export default function Bookings() {
                     {isResidenceManager ? "View Details" : "Job Sheet"}
                   </Button>
                 </Link>
-                {isSuperAdmin && (
+                {canDeleteBookings && (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button
