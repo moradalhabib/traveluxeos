@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
 import { useFollowUpBadge } from "@/hooks/use-follow-up-badge";
+import { useListBookings, getListBookingsQueryKey } from "@workspace/api-client-react";
 
 // ─── Nav definitions per role ───────────────────────────────────────────────
 
@@ -177,6 +178,16 @@ export function Shell({ children }: { children: ReactNode }) {
   const [location, setLocation] = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
   const followUpBadge = useFollowUpBadge();
+
+  // Live count of unassigned-driver bookings for the Jobs tab badge.
+  // Cheap because the bookings list is already cached by other pages.
+  const { data: bookingsForBadge } = useListBookings(
+    {},
+    { query: { enabled: !!user, queryKey: getListBookingsQueryKey({}), refetchInterval: 60000 } }
+  );
+  const unassignedCount = (bookingsForBadge ?? []).filter(
+    (b: any) => !b.driver_id && b.status !== 'Completed' && b.status !== 'Cancelled'
+  ).length;
 
   if (!user) return <>{children}</>;
 
@@ -365,8 +376,15 @@ export function Shell({ children }: { children: ReactNode }) {
               <span className="text-[10px] font-medium">Home</span>
             </Link>
 
-            <Link href="/jobs" className={`flex flex-col items-center justify-center w-14 h-16 ${location.startsWith('/jobs') ? 'text-primary' : 'text-muted-foreground'}`}>
-              <Briefcase className="w-5 h-5 mb-1" />
+            <Link href="/jobs" className={`relative flex flex-col items-center justify-center w-14 h-16 ${location.startsWith('/jobs') ? 'text-primary' : 'text-muted-foreground'}`}>
+              <div className="relative">
+                <Briefcase className="w-5 h-5 mb-1" />
+                {unassignedCount > 0 && (
+                  <span className="absolute -top-1.5 -right-2 min-w-[16px] h-[16px] px-1 rounded-full bg-destructive text-[9px] font-bold text-white flex items-center justify-center leading-none ring-1 ring-card">
+                    {unassignedCount > 9 ? '9+' : unassignedCount}
+                  </span>
+                )}
+              </div>
               <span className="text-[10px] font-medium">Jobs</span>
             </Link>
 

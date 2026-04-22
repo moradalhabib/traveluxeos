@@ -1158,6 +1158,9 @@ export default function NewBooking() {
                       <FormItem>
                         <FormLabel>Email <span className="text-muted-foreground font-normal">(optional)</span></FormLabel>
                         <FormControl><Input type="email" placeholder="email@example.com" {...field} /></FormControl>
+                        <p className="text-[11px] text-amber-400/80 mt-1">
+                          Without an email, booking confirmation and receipt emails cannot be sent automatically.
+                        </p>
                         <FormMessage />
                       </FormItem>
                     )} />

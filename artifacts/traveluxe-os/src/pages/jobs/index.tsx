@@ -130,14 +130,21 @@ export default function Jobs() {
     });
   };
 
+  // Operator-driven "show only unassigned" filter. Toggled by tapping the
+  // urgent banner so the operator can act on the alert with one tap.
+  const [unassignedOnly, setUnassignedOnly] = useState(false);
+
   const filteredBookings = useMemo(() => {
     if (!bookings) return [];
     const now = new Date();
     return bookings.filter(b => {
       if (b.status === 'Cancelled') return false;
+      if (unassignedOnly) {
+        if (b.driver_id) return false;
+        if (b.status === 'Completed') return false;
+        return true;
+      }
       if (customFilter === 'needs-driver') {
-        // Mirror the dashboard's "needs driver" KPI exactly:
-        // only Pending/Confirmed bookings without a driver count as urgent.
         if (b.driver_id) return false;
         if (b.status !== 'Pending' && b.status !== 'Confirmed') return false;
         return true;
@@ -157,12 +164,21 @@ export default function Jobs() {
         default: return !isBefore(d, startOfDay(now));
       }
     });
-  }, [bookings, timeFilter, statusFilter, customFilter]);
+  }, [bookings, timeFilter, statusFilter, customFilter, unassignedOnly]);
 
-  const urgentJobs = filteredBookings.filter(b => !b.driver_id && b.status !== 'Completed');
+  // Urgent count is global across the visible (non-cancelled) bookings, not
+  // the currently filtered view — so the count stays stable when the operator
+  // applies time / status filters that would otherwise hide it.
+  const urgentJobs = useMemo(
+    () => (bookings ?? []).filter(b => !b.driver_id && b.status !== 'Completed' && b.status !== 'Cancelled'),
+    [bookings]
+  );
   const activeJobs = bookings?.filter(b => b.status !== 'Cancelled') || [];
 
-  // Group jobs by date for date-section headings
+  // Group jobs by date for date-section headings.
+  // Sort rule per operator request: within each day, push Completed jobs whose
+  // pickup time is in the past to the bottom — the operator wants the next
+  // upcoming job at the top, not a finished morning airport run.
   const groupedByDate = useMemo(() => {
     const groups = new Map<string, { label: string; sortKey: string; jobs: typeof filteredBookings }>();
     const undated: typeof filteredBookings = [];
@@ -177,9 +193,16 @@ export default function Jobs() {
       groups.get(sortKey)!.jobs.push(job);
     }
     const sorted = [...groups.values()].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-    // Sort jobs within each day by time
+    const nowMs = Date.now();
+    const isFinishedPast = (j: any) =>
+      j.status === 'Completed' && j.date_time && new Date(j.date_time).getTime() < nowMs;
     for (const g of sorted) {
-      g.jobs.sort((a, b) => new Date(a.date_time!).getTime() - new Date(b.date_time!).getTime());
+      g.jobs.sort((a, b) => {
+        const aDone = isFinishedPast(a);
+        const bDone = isFinishedPast(b);
+        if (aDone !== bDone) return aDone ? 1 : -1;            // upcoming first, finished-past last
+        return new Date(a.date_time!).getTime() - new Date(b.date_time!).getTime();
+      });
     }
     if (undated.length > 0) sorted.push({ label: "Date TBC", sortKey: "zzz", jobs: undated });
     return sorted;
@@ -207,13 +230,37 @@ export default function Jobs() {
         </Button>
       </div>
 
-      {/* Urgent alert */}
+      {/* Urgent alert — tap to filter to just the unassigned jobs */}
       {urgentJobs.length > 0 && (
-        <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-4">
-          <div className="flex items-center gap-2 text-destructive font-semibold text-sm">
-            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-            <span>{urgentJobs.length} job{urgentJobs.length > 1 ? 's' : ''} need a driver assigned urgently</span>
+        <button
+          type="button"
+          onClick={() => setUnassignedOnly(v => !v)}
+          className={`w-full text-left border rounded-xl p-4 transition-colors ${
+            unassignedOnly
+              ? 'bg-destructive/20 border-destructive/60'
+              : 'bg-destructive/10 border-destructive/30 hover:bg-destructive/15'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-2 text-destructive font-semibold text-sm">
+            <div className="flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+              <span>{urgentJobs.length} job{urgentJobs.length > 1 ? 's' : ''} need a driver assigned urgently</span>
+            </div>
+            <span className="text-[11px] font-normal opacity-80">
+              {unassignedOnly ? 'Tap to clear filter' : 'Tap to filter'}
+            </span>
           </div>
+        </button>
+      )}
+
+      {unassignedOnly && (
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className="border-destructive/40 text-destructive bg-destructive/10 gap-1.5 py-1">
+            Showing only: Unassigned
+          </Badge>
+          <Button variant="ghost" size="sm" className="text-muted-foreground gap-1 h-8" onClick={() => setUnassignedOnly(false)}>
+            <X className="w-3.5 h-3.5" /> Clear Filter
+          </Button>
         </div>
       )}
 

@@ -57,6 +57,28 @@ export default function InvoiceDetail() {
     }
   };
 
+  // Email-log state (effect that depends on `invoice` is wired up further
+  // down, after `invoice` is derived from the list).
+  const [emailLog, setEmailLog] = useState<Array<{ kind: string; status: string; created_at: string; error?: string | null; to_email?: string | null }>>([]);
+  const [logLoading, setLogLoading] = useState(false);
+  const refetchEmailLog = async (bookingId: string) => {
+    setLogLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+      const res = await fetch(`${base}/api/bookings/${bookingId}/email-log`, {
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      });
+      if (res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setEmailLog(Array.isArray(body?.entries) ? body.entries : []);
+      }
+    } finally {
+      setLogLoading(false);
+    }
+  };
+
   const [emailSending, setEmailSending] = useState(false);
   const sendInvoiceEmail = async () => {
     setEmailSending(true);
@@ -64,7 +86,11 @@ export default function InvoiceDetail() {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
-      const res = await fetch(`${base}/api/invoices/${id}/send-email`, {
+      // Route through the booking email pipeline so the attempt is recorded
+      // in booking_email_log and the badge can reflect it. The handler picks
+      // payment_receipt vs booking_confirmation based on payment_status.
+      if (!invoice?.booking_id) throw new Error("Invoice has no linked booking.");
+      const res = await fetch(`${base}/api/bookings/${invoice.booking_id}/send-invoice-email`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -74,9 +100,10 @@ export default function InvoiceDetail() {
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error ?? "Failed to send email");
       await queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
+      await refetchEmailLog(invoice.booking_id);
       toast({
         title: "Invoice emailed",
-        description: `Sent to ${body.sent_to}. Status set to Sent.`,
+        description: `Sent to ${body.sent_to}.`,
       });
     } catch (e: any) {
       toast({ title: "Email failed", description: e.message, variant: "destructive" });
@@ -90,6 +117,12 @@ export default function InvoiceDetail() {
   );
 
   const invoice = invoices?.find(inv => inv.id === id);
+
+  // Fetch the email-log when the invoice resolves to a booking_id.
+  useEffect(() => {
+    if (invoice?.booking_id) refetchEmailLog(invoice.booking_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invoice?.booking_id]);
 
   const { data: booking, isLoading: bookLoading } = useGetBooking(
     invoice?.booking_id ?? "",
@@ -411,6 +444,38 @@ export default function InvoiceDetail() {
             <div className="text-left sm:text-right">
               <div className="font-mono text-3xl font-bold text-primary">{invoice.invoice_number}</div>
               <Badge variant="outline" className={`mt-2 ${getStatusColor(invoice.status)}`}>{invoice.status}</Badge>
+              {(() => {
+                // The booking email pipeline logs every confirmation/receipt
+                // attempt under kinds 'booking_confirmation' or
+                // 'payment_receipt' — there's no separate 'manual_invoice'
+                // kind. Take the most recent entry of any kind as the badge
+                // signal (entries arrive ordered desc by created_at).
+                const inv = emailLog[0];
+                if (logLoading && emailLog.length === 0) return null;
+                let label: string, cls: string, tip: string;
+                if (!inv) {
+                  label = "Email: Not Sent";
+                  cls = "border-amber-500/40 text-amber-400 bg-amber-500/10";
+                  tip = "No email has been sent for this booking yet.";
+                } else if (inv.status === "sent") {
+                  label = `Email: Sent ${format(new Date(inv.created_at), "dd MMM HH:mm")}`;
+                  cls = "border-green-500/40 text-green-400 bg-green-500/10";
+                  tip = `Sent to ${inv.to_email ?? "—"} at ${new Date(inv.created_at).toLocaleString("en-GB")}`;
+                } else if (inv.status === "skipped_no_email") {
+                  label = "Email: No Email";
+                  cls = "border-muted-foreground/40 text-muted-foreground bg-secondary/30";
+                  tip = inv.error ?? "Skipped — no email on file for this client.";
+                } else {
+                  label = "Email: Failed";
+                  cls = "border-destructive/40 text-destructive bg-destructive/10";
+                  tip = inv.error ?? "Last send attempt failed.";
+                }
+                return (
+                  <div className="mt-2" title={tip}>
+                    <Badge variant="outline" className={cls}>{label}</Badge>
+                  </div>
+                );
+              })()}
               {invoice.generated_at && (
                 <div className="text-xs text-muted-foreground mt-2">
                   {format(new Date(invoice.generated_at), "dd MMMM yyyy")}

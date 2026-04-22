@@ -286,17 +286,24 @@ export default function FollowUps() {
         </Button>
       </div>
 
-      {/* Daily digest banner */}
+      {/* Daily digest banner — tap to filter to overdue + due-today */}
       {!bannerDismissed && stats && stats.pending > 0 && (
         <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3.5 flex items-center justify-between gap-3">
-          <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            onClick={() => setDateFilter(dateFilter === "today" || dateFilter === "overdue" ? "all" : "today")}
+            className="flex items-center gap-2.5 flex-1 text-left hover:opacity-90"
+          >
             <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0" />
             <span className="text-sm text-amber-300 font-medium">
               {stats.overdue > 0 ? `${stats.overdue} overdue` : ""}{stats.overdue > 0 && todayPending > 0 ? " · " : ""}
               {todayPending > 0 ? `${todayPending} due today` : ""}
               {stats.overdue === 0 && todayPending === 0 ? `${stats.pending} pending follow-up${stats.pending !== 1 ? "s" : ""}` : ""}
             </span>
-          </div>
+            <span className="text-[11px] font-normal text-amber-300/70 ml-auto pr-1">
+              {dateFilter === "today" || dateFilter === "overdue" ? "Tap to clear filter" : "Tap to filter"}
+            </span>
+          </button>
           <button onClick={dismissBanner} className="text-muted-foreground hover:text-foreground transition-colors">
             <X className="w-4 h-4" />
           </button>

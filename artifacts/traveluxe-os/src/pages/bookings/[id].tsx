@@ -1564,6 +1564,24 @@ export default function BookingDetail() {
         </a>
       )}
 
+      {/* Missing-email warning — automated emails (confirmation, receipt,
+          invoice) cannot fire without a client_email on file. The banner is
+          non-blocking and links straight to the client profile to fix it. */}
+      {!((booking as any).client_email ?? "").trim() && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 p-3.5 flex items-start gap-3">
+          <AlertTriangle className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 text-sm text-amber-200">
+            <span className="font-semibold">No email on file for this client.</span>
+            {" "}Booking confirmation, payment receipt, and invoice emails will be skipped.
+            {(booking as any).client_id && (
+              <Link href={`/clients/${(booking as any).client_id}`}>
+                <span className="ml-2 underline cursor-pointer text-amber-100 font-medium">Add email →</span>
+              </Link>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* Client + Driver */}
       <Card className="border-primary/10 bg-card">
         <CardContent className="p-4 grid grid-cols-2 gap-4">
@@ -1581,6 +1599,9 @@ export default function BookingDetail() {
                 <Badge variant="outline" className={getVipBadgeColor(booking.client_vip_tier)}>{booking.client_vip_tier}</Badge>
               )}
             </div>
+            {(booking as any).client_email && (
+              <p className="text-[11px] text-muted-foreground mt-1 truncate">{(booking as any).client_email}</p>
+            )}
           </div>
           <div>
             <p className="text-xs text-muted-foreground uppercase mb-2 font-medium">Driver</p>

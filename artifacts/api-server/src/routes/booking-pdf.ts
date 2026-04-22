@@ -50,7 +50,7 @@ function paintChrome(doc: any, pageNum: number, total: number) {
   doc.restore();
 }
 
-function buildPdf(b: any, client: any, driver: any): Promise<Buffer> {
+export function buildPdf(b: any, client: any, driver: any): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", margin: 50, bufferPages: true });
     const chunks: Buffer[] = [];
@@ -275,7 +275,7 @@ function buildPdf(b: any, client: any, driver: any): Promise<Buffer> {
 // ── Receipt PDF ────────────────────────────────────────────────────────────
 // Compact one-page receipt for paid (or partially paid) bookings. Sent as a
 // stand-alone document independently of the booking confirmation.
-function buildReceiptPdf(b: any, client: any): Promise<Buffer> {
+export function buildReceiptPdf(b: any, client: any): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", margin: 50, bufferPages: true });
     const chunks: Buffer[] = [];

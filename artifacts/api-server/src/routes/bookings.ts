@@ -15,8 +15,162 @@ function bookingShortLabel(b: any) {
   return { ref, name, svc, when };
 }
 import { bookingConfirmationHtml, paymentReceiptHtml } from "../templates/emailTemplates";
+import { buildPdf, buildReceiptPdf } from "./booking-pdf";
 
 const router = Router();
+
+// ─── Email automation: de-dup + structured logging ─────────────────────────
+// Every transactional email about a booking goes through `sendBookingEmail()`.
+// It writes a row to `booking_email_log` for every attempt — sent, failed, or
+// skipped — so the UI can show a real status badge and the operator can retry.
+// De-dup: if a 'sent' row already exists for (booking_id, kind) we skip
+// silently, unless the caller passes `force=true` (used by the manual
+// "Send Invoice" / "Retry" buttons).
+
+type EmailKind = "booking_confirmation" | "payment_receipt" | "invoice_resend" | "manual_invoice";
+
+async function hasAlreadySent(bookingId: string, kind: EmailKind): Promise<boolean> {
+  const { data, error } = await supabase
+    .from("booking_email_log")
+    .select("id")
+    .eq("booking_id", bookingId)
+    .eq("kind", kind)
+    .eq("status", "sent")
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    // Most likely cause: migration-booking-email-log.sql not run yet. Don't
+    // block the email — just log so we can spot the schema gap quickly.
+    console.warn(`[Email] de-dup lookup failed (table missing?): ${error.message}`);
+    return false;
+  }
+  return !!data;
+}
+
+async function recordEmailLog(row: {
+  booking_id: string;
+  kind: EmailKind;
+  status: "sent" | "failed" | "skipped_no_email";
+  to_email?: string | null;
+  error?: string | null;
+  triggered_by?: string | null;
+  trigger_source?: "auto" | "manual";
+}) {
+  const { error } = await supabase.from("booking_email_log").insert({
+    booking_id: row.booking_id,
+    kind: row.kind,
+    status: row.status,
+    to_email: row.to_email ?? null,
+    error: row.error ?? null,
+    triggered_by: row.triggered_by ?? null,
+    trigger_source: row.trigger_source ?? "auto",
+  });
+  if (error) {
+    console.warn(`[Email] could not write booking_email_log row: ${error.message}`);
+  }
+}
+
+interface SendBookingEmailArgs {
+  bookingId: string;
+  tvlRef: string | null;
+  kind: EmailKind;
+  to: string | null | undefined;
+  subject: string;
+  html: string;
+  attachments?: { filename: string; content: Buffer; contentType?: string }[];
+  triggeredBy?: string | null;
+  triggerSource?: "auto" | "manual";
+  force?: boolean;
+}
+
+async function sendBookingEmail(args: SendBookingEmailArgs): Promise<{ sent: boolean; reason?: string; skipped?: boolean }> {
+  const tag = `[Email:${args.kind}:${args.tvlRef ?? args.bookingId.slice(0, 8)}]`;
+  console.info(`${tag} trigger fired`);
+
+  if (!args.to || !String(args.to).trim()) {
+    console.warn(`${tag} skipped — no email on file for client`);
+    await recordEmailLog({
+      booking_id: args.bookingId,
+      kind: args.kind,
+      status: "skipped_no_email",
+      triggered_by: args.triggeredBy,
+      trigger_source: args.triggerSource ?? "auto",
+    });
+    return { sent: false, skipped: true, reason: "no_email_on_file" };
+  }
+
+  if (!args.force && (await hasAlreadySent(args.bookingId, args.kind))) {
+    console.info(`${tag} skipped — already sent (de-dup); use force=true to resend`);
+    return { sent: false, skipped: true, reason: "already_sent" };
+  }
+
+  console.info(`${tag} sending → ${args.to} (${args.attachments?.length ?? 0} attachment(s))`);
+  const result = await sendEmail({
+    to: args.to,
+    subject: args.subject,
+    html: args.html,
+    account: "invoice",
+    attachments: args.attachments,
+  });
+
+  await recordEmailLog({
+    booking_id: args.bookingId,
+    kind: args.kind,
+    status: result.sent ? "sent" : "failed",
+    to_email: args.to,
+    error: result.sent ? null : result.reason ?? "Unknown error",
+    triggered_by: args.triggeredBy,
+    trigger_source: args.triggerSource ?? "auto",
+  });
+
+  if (result.sent) {
+    console.info(`${tag} ✓ sent successfully`);
+  } else {
+    console.error(`${tag} ✗ FAILED: ${result.reason}`);
+  }
+  return result;
+}
+
+// Build the receipt PDF buffer for a fully-enriched booking. Returns null on
+// any failure so a missing PDF never blocks the email itself.
+async function buildReceiptAttachment(booking: any): Promise<{ filename: string; content: Buffer; contentType: string } | null> {
+  try {
+    const { data: client } = await supabase
+      .from("clients")
+      .select("name, email, address, vip_tier")
+      .eq("id", booking.client_id)
+      .single();
+    const buf = await buildReceiptPdf(booking, client ?? null);
+    return {
+      filename: `Receipt-${booking.tvl_ref ?? "Traveluxe"}.pdf`,
+      content: buf,
+      contentType: "application/pdf",
+    };
+  } catch (e: any) {
+    console.warn(`[Email] could not build receipt PDF for ${booking.tvl_ref}: ${e?.message}`);
+    return null;
+  }
+}
+
+async function buildConfirmationAttachment(booking: any): Promise<{ filename: string; content: Buffer; contentType: string } | null> {
+  try {
+    const [{ data: client }, { data: driver }] = await Promise.all([
+      supabase.from("clients").select("name, email, address, vip_tier").eq("id", booking.client_id).single(),
+      booking.driver_id
+        ? supabase.from("drivers").select("name, vehicle_model, vehicle_year, plate, whatsapp").eq("id", booking.driver_id).single()
+        : Promise.resolve({ data: null }),
+    ]);
+    const buf = await buildPdf(booking, client ?? null, driver ?? null);
+    return {
+      filename: `Booking-${booking.tvl_ref ?? "Traveluxe"}.pdf`,
+      content: buf,
+      contentType: "application/pdf",
+    };
+  } catch (e: any) {
+    console.warn(`[Email] could not build confirmation PDF for ${booking.tvl_ref}: ${e?.message}`);
+    return null;
+  }
+}
 
 // ─── Auto-create follow-up for Arrival Airport Transfers ─────────────────────
 // Race-safe in two layers:
@@ -100,32 +254,42 @@ async function autoGenerateInvoice(bookingId: string, userId: string | null): Pr
   return data.invoice_number;
 }
 
-async function sendConfirmationEmail(booking: any, invoiceNumber: string | null) {
-  const email = booking.client_email;
-  if (!email) {
-    console.warn(`[Email] No email for client on booking ${booking.tvl_ref} — skipping`);
-    return;
-  }
-  await sendEmail({
-    to: email,
+async function sendConfirmationEmail(
+  booking: any,
+  invoiceNumber: string | null,
+  opts: { triggeredBy?: string | null; force?: boolean; triggerSource?: "auto" | "manual" } = {}
+) {
+  return sendBookingEmail({
+    bookingId: booking.id,
+    tvlRef: booking.tvl_ref ?? null,
+    kind: "booking_confirmation",
+    to: booking.client_email,
     subject: `Booking Confirmed — ${booking.tvl_ref ?? ""} — ${booking.service_type}`,
     html: bookingConfirmationHtml(booking, invoiceNumber ?? undefined),
-    account: "invoice",
+    triggeredBy: opts.triggeredBy ?? null,
+    triggerSource: opts.triggerSource ?? "auto",
+    force: !!opts.force,
   });
 }
 
-async function sendPaymentReceiptEmail(booking: any) {
-  const email = booking.client_email;
-  if (!email) {
-    console.warn(`[Email] No email for client on booking ${booking.tvl_ref} — skipping receipt`);
-    return;
-  }
+async function sendPaymentReceiptEmail(
+  booking: any,
+  opts: { triggeredBy?: string | null; force?: boolean; triggerSource?: "auto" | "manual" } = {}
+) {
   const { data: inv } = await supabase.from("invoices").select("invoice_number").eq("booking_id", booking.id).single();
-  await sendEmail({
-    to: email,
+  // Build the invoice / receipt PDF as an attachment per the operator spec.
+  const pdf = await buildReceiptAttachment(booking);
+  return sendBookingEmail({
+    bookingId: booking.id,
+    tvlRef: booking.tvl_ref ?? null,
+    kind: "payment_receipt",
+    to: booking.client_email,
     subject: `Payment Confirmed — ${booking.tvl_ref ?? ""} — Thank You`,
     html: paymentReceiptHtml(booking, inv?.invoice_number ?? undefined),
-    account: "invoice",
+    attachments: pdf ? [pdf] : undefined,
+    triggeredBy: opts.triggeredBy ?? null,
+    triggerSource: opts.triggerSource ?? "auto",
+    force: !!opts.force,
   });
 }
 
@@ -732,13 +896,24 @@ router.put("/:id", async (req, res) => {
         `Booking ${updated.tvl_ref} auto-completed on payment`);
     }
 
-    sendPaymentReceiptEmail(enriched).catch(err =>
+    sendPaymentReceiptEmail(enriched, { triggeredBy: user?.id ?? null }).catch(err =>
       console.error("[Email] Receipt send error:", err?.message)
     );
 
     // Auto-create follow-up if this was an Arrival transfer
     autoCreateFollowUp(req.params.id, updated).catch(err =>
       console.error("[FollowUp] auto-create error:", err?.message)
+    );
+  }
+
+  // On status → Confirmed via the general edit form (PUT /:id):
+  // PUT /:id/status already covers the dedicated status control on the jobs
+  // board / detail page, but the booking-edit form goes through this route
+  // and was previously skipping the confirmation email entirely.
+  if (body.status === "Confirmed" && prev?.status !== "Confirmed") {
+    const invNumber = await autoGenerateInvoice(req.params.id, user?.id ?? null);
+    sendConfirmationEmail(enriched, invNumber, { triggeredBy: user?.id ?? null }).catch(err =>
+      console.error("[Email] Confirmation send error:", err?.message)
     );
   }
 
@@ -904,7 +1079,7 @@ router.put("/:id/status", async (req, res) => {
   if (status === "Confirmed") {
     const invNumber = await autoGenerateInvoice(req.params.id, user?.id ?? null);
     const bookingWithEmail = { ...enriched };
-    sendConfirmationEmail(bookingWithEmail, invNumber).catch(err =>
+    sendConfirmationEmail(bookingWithEmail, invNumber, { triggeredBy: user?.id ?? null }).catch(err =>
       console.error("[Email] Confirmation send error:", err?.message)
     );
   }
@@ -991,6 +1166,132 @@ router.post("/:id/return", async (req, res) => {
     `Return journey ${returnBooking.tvl_ref} created from ${original.tvl_ref}`);
 
   return res.status(201).json(returnBooking);
+});
+
+// ─── Email log + manual send / retry endpoints ─────────────────────────────
+
+// GET /api/bookings/:id/email-log
+// Returns recent email attempts (newest first) so the UI can render the
+// status badge and audit trail. Public to any authenticated session.
+router.get("/:id/email-log", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user) return res.status(401).json({ error: "Unauthorised" });
+
+  const { data, error } = await supabase
+    .from("booking_email_log")
+    .select("id, kind, status, to_email, error, trigger_source, created_at")
+    .eq("booking_id", req.params.id)
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (error) {
+    // Table missing → return empty list so the badge falls back to "Not Sent"
+    if (/relation .* does not exist|undefined table/i.test(error.message)) {
+      return res.json({ entries: [], schema_missing: true });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+
+  return res.json({ entries: data ?? [] });
+});
+
+// POST /api/bookings/:id/send-invoice-email
+// Manual trigger from the invoice / booking detail screen. Always force=true
+// so the operator can resend even after a previous successful delivery.
+router.post("/:id/send-invoice-email", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user) return res.status(401).json({ error: "Unauthorised" });
+
+  const { data: booking, error } = await supabase
+    .from("bookings")
+    .select("*")
+    .eq("id", req.params.id)
+    .single();
+  if (error || !booking) return res.status(404).json({ error: "Booking not found" });
+
+  const enriched = await enrichBooking(booking);
+  if (!enriched.client_email) {
+    return res.status(400).json({
+      error: "No email on file for this client. Add one on the client profile, then try again.",
+    });
+  }
+
+  // If the booking is already Paid, send the receipt (with PDF attachment).
+  // Otherwise send the booking confirmation.
+  const kind = booking.payment_status === "Paid" ? "payment_receipt" : "booking_confirmation";
+  const result =
+    kind === "payment_receipt"
+      ? await sendPaymentReceiptEmail(enriched, {
+          triggeredBy: user.id,
+          triggerSource: "manual",
+          force: true,
+        })
+      : await sendConfirmationEmail(enriched, null, {
+          triggeredBy: user.id,
+          triggerSource: "manual",
+          force: true,
+        });
+
+  if (!result.sent) {
+    return res.status(502).json({
+      error: result.reason ?? "Email send failed",
+      kind,
+    });
+  }
+  return res.json({ ok: true, kind, sent_to: enriched.client_email });
+});
+
+// POST /api/bookings/:id/resend-email
+// Retry the most-recent failed attempt (any kind). If the last attempt was
+// 'sent' or 'skipped_no_email', this is a no-op with an explanatory error.
+router.post("/:id/resend-email", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user) return res.status(401).json({ error: "Unauthorised" });
+
+  const { data: lastAttempt, error: logErr } = await supabase
+    .from("booking_email_log")
+    .select("kind, status")
+    .eq("booking_id", req.params.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (logErr) return res.status(500).json({ error: logErr.message });
+  if (!lastAttempt) {
+    return res.status(400).json({ error: "No previous email attempt to retry. Use Send Invoice instead." });
+  }
+  if (lastAttempt.status !== "failed") {
+    return res.status(400).json({
+      error: `Last attempt was '${lastAttempt.status}', not 'failed'. Nothing to retry.`,
+    });
+  }
+
+  const { data: booking, error } = await supabase
+    .from("bookings")
+    .select("*")
+    .eq("id", req.params.id)
+    .single();
+  if (error || !booking) return res.status(404).json({ error: "Booking not found" });
+
+  const enriched = await enrichBooking(booking);
+  const kind = lastAttempt.kind as EmailKind;
+  let result: { sent: boolean; reason?: string };
+  if (kind === "payment_receipt") {
+    result = await sendPaymentReceiptEmail(enriched, {
+      triggeredBy: user.id,
+      triggerSource: "manual",
+      force: true,
+    });
+  } else {
+    result = await sendConfirmationEmail(enriched, null, {
+      triggeredBy: user.id,
+      triggerSource: "manual",
+      force: true,
+    });
+  }
+
+  if (!result.sent) return res.status(502).json({ error: result.reason ?? "Email send failed", kind });
+  return res.json({ ok: true, kind, sent_to: enriched.client_email });
 });
 
 export default router;
