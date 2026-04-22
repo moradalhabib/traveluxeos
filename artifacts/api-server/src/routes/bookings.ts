@@ -422,6 +422,10 @@ const BOOKING_COLUMNS = new Set([
   // Booking extensions (April-21 migration): driver acceptance, completion
   "driver_acceptance_status","driver_accepted_at","driver_declined_at","driver_decline_reason",
   "client_satisfied","driver_on_time","completion_notes","completed_at",
+  // Feature 4 — Commission Split (referral partner)
+  "referral_partner_name","referral_commission_type","referral_commission_value",
+  // Feature 5 — Supplier Balance Tracker
+  "supplier_paid_at","supplier_payment_ref",
 ]);
 
 // Friendlier labels for amendment-history field rows.
@@ -497,7 +501,7 @@ router.post("/", async (req, res) => {
   };
 
   // Coerce numeric fields so strings like "150" don't cause type errors
-  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights","hours","supplier_cost","client_price","base_daily_rate","rental_days","fuel_cost","driver_cost"]) {
+  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights","hours","supplier_cost","client_price","base_daily_rate","rental_days","fuel_cost","driver_cost","referral_commission_value"]) {
     if (body[f] !== undefined && body[f] !== null) {
       const n = Number(body[f]);
       body[f] = isNaN(n) ? null : n;
@@ -764,7 +768,7 @@ router.put("/:id", async (req, res) => {
   for (const [k, v] of Object.entries(req.body)) {
     if (BOOKING_COLUMNS.has(k) && v !== "" && v !== undefined) raw[k] = v;
   }
-  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights","hours","supplier_cost","client_price","base_daily_rate","rental_days","fuel_cost","driver_cost"]) {
+  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights","hours","supplier_cost","client_price","base_daily_rate","rental_days","fuel_cost","driver_cost","referral_commission_value"]) {
     if (raw[f] !== undefined && raw[f] !== null) {
       const n = Number(raw[f]);
       raw[f] = isNaN(n) ? null : n;

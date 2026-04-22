@@ -91,6 +91,10 @@ pnpm workspace monorepo with TypeScript throughout.
 Run `artifacts/traveluxe-os/supabase-schema.sql` in the Supabase SQL editor to create all tables, RLS policies, triggers, and indexes.
 Then run `artifacts/traveluxe-os/migration-service-types.sql` and `artifacts/traveluxe-os/migration-products.sql` for the Services and Products modules.
 
+**Apr 2026 batch — must run in Supabase SQL editor before features work:**
+- `migration-booking-referral-split.sql` — adds `referral_partner_name`, `referral_commission_type`, `referral_commission_value` to `bookings` (Commission Split / TVL Net after referral).
+- `migration-supplier-balance.sql` — adds `supplier_paid_at`, `supplier_payment_ref` to `bookings` + partial index (Supplier Balance Tracker).
+
 For invite emails to deliver, configure SMTP in Supabase Dashboard → Auth → SMTP (or rely on Supabase's built-in email for low volume).
 
 Auto-features in schema:

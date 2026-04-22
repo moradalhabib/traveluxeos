@@ -73,13 +73,32 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
   const ourDriverPay  = supplierProvidedDriver ? 0 : driverCost;
   const margin        = Number(booking.price || 0) - subtotal;
 
+  // Parse any prior auto-generated "Overtime: X hr @ £Y/hr" extra so the
+  // operator sees the current overtime in the dedicated field instead of as
+  // a confusing manual extras row. We strip it from the visible extras list
+  // and re-emit it on save (only if overtime_hours > 0 + base_daily_rate > 0).
+  const parsePriorOvertime = (xs: any[]): { otHours: number; cleanedExtras: any[] } => {
+    let otHours = 0;
+    const cleaned: any[] = [];
+    for (const e of xs ?? []) {
+      const desc = (e?.description ?? "").trim();
+      const m = desc.match(/^Overtime:\s*([\d.]+)\s*hr/i);
+      if (m) otHours = Number(m[1]);
+      else cleaned.push(e);
+    }
+    return { otHours, cleanedExtras: cleaned };
+  };
+
   const openEdit = () => {
+    const { otHours, cleanedExtras } = parsePriorOvertime(extras);
     setDraft({
       base_daily_rate: booking.base_daily_rate ?? "",
       rental_days:     booking.rental_days ?? "",
       fuel_cost:       booking.fuel_cost ?? "",
       driver_cost:     booking.driver_cost ?? "",
-      extra_charges:   extras.length ? [...extras] : [],
+      hours:           booking.hours ?? "",
+      overtime_hours:  otHours || "",
+      extra_charges:   cleanedExtras,
       as_directed_supplier_driver: supplierProvidedDriver,
     });
     setEditOpen(true);
@@ -89,12 +108,27 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
     setSaving(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
+      // Re-emit the auto "Overtime: X hr @ £Y/hr" extra from the dedicated
+      // overtime_hours field. This keeps the cost-breakdown trigger / supplier
+      // cost in sync without the operator having to enter a manual extras row.
+      const ot = Number(draft.overtime_hours || 0);
+      const dr = Number(draft.base_daily_rate || 0);
+      const cleaned: any[] = (draft.extra_charges ?? []).filter(
+        (e: any) => !(e?.description || "").trim().match(/^Overtime:/i),
+      );
+      if (ot > 0 && dr > 0) {
+        cleaned.push({
+          description: `Overtime: ${ot} hr @ £${(dr * 0.10).toFixed(2)}/hr`,
+          amount: Math.round(ot * dr * 0.10),
+        });
+      }
       const payload: any = {
         base_daily_rate: draft.base_daily_rate === "" ? null : Number(draft.base_daily_rate),
         rental_days:     draft.rental_days === "" ? null : Number(draft.rental_days),
         fuel_cost:       draft.fuel_cost === "" ? null : Number(draft.fuel_cost),
         driver_cost:     draft.driver_cost === "" ? null : Number(draft.driver_cost),
-        extra_charges:   draft.extra_charges,
+        hours:           draft.hours === "" ? null : Number(draft.hours),
+        extra_charges:   cleaned,
         as_directed_supplier_driver: !!draft.as_directed_supplier_driver,
       };
       const res = await fetch(`/api/bookings/${booking.id}`, {
@@ -235,6 +269,35 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
                 £{margin.toLocaleString()}
               </span>
             </div>
+            {/* Feature 4 — Referral Split sub-line. Hidden unless this booking
+                actually has a referral_partner_name set. Does NOT change the
+                Margin row above; it's purely informational so the operator can
+                see what they net after paying the referral. */}
+            {booking.referral_partner_name && (() => {
+              const ctype = booking.referral_commission_type === "amount" ? "amount" : "percent";
+              const cval = Number(booking.referral_commission_value || 0);
+              const referralCut = ctype === "percent"
+                ? Math.max(0, (margin * cval) / 100)
+                : Math.max(0, cval);
+              const tvlNetAfter = margin - referralCut;
+              return (
+                <div className="rounded-md bg-blue-500/5 border border-blue-500/20 p-2 mt-1 text-xs space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">
+                      Referral — <span className="font-medium text-foreground">{booking.referral_partner_name}</span>
+                      {" "}({ctype === "percent" ? `${cval}% of margin` : `£${cval.toLocaleString()}`})
+                    </span>
+                    <span className="font-medium text-foreground">−£{referralCut.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex justify-between pt-1 border-t border-blue-500/20">
+                    <span className="font-semibold">TVL Net after referral</span>
+                    <span className={`font-bold ${tvlNetAfter >= 0 ? "text-green-400" : "text-destructive"}`}>
+                      £{tvlNetAfter.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+              );
+            })()}
           </div>
         )}
       </CardContent>
@@ -294,6 +357,29 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
                   onChange={e => setDraft({ ...draft, driver_cost: e.target.value })} />
               </div>
             </div>
+            {isAsDirected && (
+              <div className="space-y-2 p-3 rounded-md border border-amber-500/20 bg-amber-500/5">
+                <Label className="text-xs uppercase tracking-wider text-amber-400">Chauffeuring hours</Label>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Hours / day <span className="text-[10px]">(max 10)</span></Label>
+                    <Input type="number" step="1" min="1" max="10" placeholder="10" value={draft.hours ?? ""}
+                      onChange={e => setDraft({ ...draft, hours: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label className="text-xs text-muted-foreground">Overtime hrs <span className="text-[10px]">(+10% / hr)</span></Label>
+                    <Input type="number" step="0.5" min="0" placeholder="0" value={draft.overtime_hours ?? ""}
+                      onChange={e => setDraft({ ...draft, overtime_hours: e.target.value })} />
+                  </div>
+                </div>
+                {Number(draft.overtime_hours || 0) > 0 && Number(draft.base_daily_rate || 0) > 0 && (
+                  <p className="text-[11px] text-muted-foreground">
+                    Auto-adds extra: <span className="font-medium text-foreground">£{(Number(draft.overtime_hours) * Number(draft.base_daily_rate) * 0.10).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                    {" "}— recalculates total cost &amp; TVL margin on save.
+                  </p>
+                )}
+              </div>
+            )}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label>Extra charges</Label>
@@ -1088,6 +1174,15 @@ export default function BookingDetail() {
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">{booking.service_type} · {dateStr} · {timeStr}</p>
         </div>
+        {/* Feature 6 — Driver Job Sheet shortcut. Lives in the page header so
+            the operator can grab it on any device without scrolling. The
+            sheet itself has a WhatsApp share button. */}
+        <Link href={`/bookings/${id}/job-sheet`}>
+          <Button variant="outline" size="sm" className="gap-1.5 shrink-0" data-testid="btn-view-job-sheet">
+            <ClipboardList className="w-4 h-4" />
+            <span className="hidden sm:inline">Job Sheet</span>
+          </Button>
+        </Link>
       </div>
 
       {/* WHATSAPP BUTTONS — Large and prominent.

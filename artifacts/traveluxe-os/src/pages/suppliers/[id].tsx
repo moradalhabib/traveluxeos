@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
@@ -8,9 +8,11 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   ArrowLeft, Building2, Phone, Mail, MessageCircle, Save, Trash2,
   MapPin, Globe, Star, Briefcase, Package, Plus, Pencil, Check, X,
+  PoundSterling, Receipt, Undo2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
@@ -278,45 +280,15 @@ export default function SupplierDetail() {
         onChange={(next) => setSupplier({ ...supplier, products: next })}
       />
 
-      {/* Recent bookings */}
-      <Card className="bg-card border-border">
-        <CardContent className="p-6 space-y-3">
-          <h3 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
-            <Briefcase className="w-4 h-4" /> Recent bookings
-          </h3>
-          {(supplier.bookings ?? []).length === 0 ? (
-            <p className="text-sm text-muted-foreground py-4 text-center">No bookings linked to this supplier yet.</p>
-          ) : (
-            <div className="space-y-2">
-              {supplier.bookings.map((b: any) => (
-                <Link key={b.id} href={`/bookings/${b.id}`}>
-                  <div className="flex items-center justify-between p-3 rounded-lg border border-border hover:border-primary/40 hover:bg-secondary/10 cursor-pointer transition-all">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono text-xs text-muted-foreground">{b.tvl_ref}</span>
-                        <Badge variant="outline" className="text-[10px] py-0 px-1.5">{b.service_type}</Badge>
-                        <Badge variant="outline" className="text-[10px] py-0 px-1.5">{b.status}</Badge>
-                      </div>
-                      <div className="text-sm font-medium text-foreground mt-0.5">{b.client_name ?? "—"}</div>
-                      {b.date_time && (
-                        <div className="text-[11px] text-muted-foreground">
-                          {format(new Date(b.date_time), "EEE d MMM yyyy HH:mm")}
-                        </div>
-                      )}
-                    </div>
-                    <div className="text-right">
-                      <div className="text-sm font-semibold text-primary">£{(b.price ?? 0).toLocaleString()}</div>
-                      {b.supplier_cost ? (
-                        <div className="text-[11px] text-muted-foreground">cost £{b.supplier_cost.toLocaleString()}</div>
-                      ) : null}
-                    </div>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Feature 5 — Supplier Balance Tracker */}
+      <SupplierBalanceTracker
+        supplierId={id!}
+        bookings={supplier.bookings ?? []}
+        onChanged={async () => {
+          const res = await authedFetch(`/api/suppliers/${id}`);
+          if (res.ok) setSupplier(await res.json());
+        }}
+      />
 
       {/* Danger zone */}
       <div className="flex justify-end">
@@ -325,6 +297,274 @@ export default function SupplierDetail() {
         </Button>
       </div>
     </div>
+  );
+}
+
+// ─── Supplier Balance Tracker ─────────────────────────────────────────────
+// Lists every booking linked to this supplier with supplier_cost > 0 so the
+// operator can see who they owe (or have already paid). Supports:
+//   - Date range filter (date_time)
+//   - Status filter (all / outstanding / paid)
+//   - Per-row mark paid / unmark paid
+//   - Bulk mark paid with optional payment reference
+//   - Running totals: invoiced (£), paid (£), outstanding (£)
+function SupplierBalanceTracker({
+  supplierId,
+  bookings,
+  onChanged,
+}: {
+  supplierId: string;
+  bookings: any[];
+  onChanged: () => Promise<void> | void;
+}) {
+  const [from, setFrom] = useState<string>("");
+  const [to, setTo] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "outstanding" | "paid">("outstanding");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [paymentRef, setPaymentRef] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // Only bookings that actually represent a supplier liability appear here.
+  // No supplier_cost = nothing to pay = nothing to track.
+  const billable = useMemo(
+    () => (bookings ?? []).filter((b: any) => Number(b.supplier_cost ?? 0) > 0),
+    [bookings],
+  );
+
+  const filtered = useMemo(() => {
+    return billable.filter((b: any) => {
+      if (from && b.date_time && new Date(b.date_time) < new Date(from)) return false;
+      if (to && b.date_time && new Date(b.date_time) > new Date(to + "T23:59:59")) return false;
+      if (statusFilter === "paid"        && !b.supplier_paid_at) return false;
+      if (statusFilter === "outstanding" && b.supplier_paid_at)  return false;
+      return true;
+    });
+  }, [billable, from, to, statusFilter]);
+
+  const totals = useMemo(() => {
+    let invoiced = 0, paid = 0, outstanding = 0;
+    for (const b of filtered) {
+      const c = Number(b.supplier_cost || 0);
+      invoiced += c;
+      if (b.supplier_paid_at) paid += c; else outstanding += c;
+    }
+    return { invoiced, paid, outstanding };
+  }, [filtered]);
+
+  // Reset any selections that aren't present in the current view (e.g. after
+  // toggling status filter to "paid" — the previously-selected outstanding
+  // rows should drop out so a bulk action only ever hits visible rows).
+  useEffect(() => {
+    const visible = new Set(filtered.map((b: any) => b.id));
+    setSelected(prev => {
+      const next = new Set<string>();
+      for (const id of prev) if (visible.has(id)) next.add(id);
+      return next;
+    });
+  }, [filtered]);
+
+  const toggleAll = (on: boolean) => {
+    if (!on) { setSelected(new Set()); return; }
+    setSelected(new Set(filtered.filter((b: any) => !b.supplier_paid_at).map((b: any) => b.id)));
+  };
+
+  const markPaid = async (ids: string[]) => {
+    if (ids.length === 0) { toast.error("Select at least one booking"); return; }
+    setBusy(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`/api/suppliers/${supplierId}/balance/mark-paid`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ booking_ids: ids, payment_ref: paymentRef.trim() || null }),
+      });
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || `HTTP ${res.status}`);
+      }
+      const j = await res.json();
+      toast.success(`Marked ${j.updated} booking${j.updated === 1 ? "" : "s"} paid`);
+      setSelected(new Set());
+      setPaymentRef("");
+      await onChanged();
+    } catch (e: any) {
+      toast.error(e.message || "Failed to mark paid");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const unmarkPaid = async (id: string) => {
+    if (!confirm("Revert this booking to unpaid?")) return;
+    setBusy(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`/api/suppliers/${supplierId}/balance/unmark-paid`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ booking_ids: [id] }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({})))?.error || `HTTP ${res.status}`);
+      toast.success("Reverted to unpaid");
+      await onChanged();
+    } catch (e: any) {
+      toast.error(e.message || "Failed");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="bg-card border-border">
+      <CardContent className="p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-bold text-foreground uppercase tracking-wider flex items-center gap-2">
+            <Receipt className="w-4 h-4" /> Supplier balance
+          </h3>
+          <div className="text-[11px] text-muted-foreground">{filtered.length} of {billable.length} bookings</div>
+        </div>
+
+        {/* Totals strip */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="p-3 rounded-lg border border-border bg-secondary/10">
+            <div className="text-[10px] uppercase text-muted-foreground tracking-wider">Invoiced</div>
+            <div className="text-lg font-bold text-foreground">£{totals.invoiced.toLocaleString()}</div>
+          </div>
+          <div className="p-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5">
+            <div className="text-[10px] uppercase text-emerald-300 tracking-wider">Paid</div>
+            <div className="text-lg font-bold text-emerald-400">£{totals.paid.toLocaleString()}</div>
+          </div>
+          <div className={`p-3 rounded-lg border ${totals.outstanding > 0 ? "border-amber-500/40 bg-amber-500/5" : "border-border bg-secondary/10"}`}>
+            <div className={`text-[10px] uppercase tracking-wider ${totals.outstanding > 0 ? "text-amber-300" : "text-muted-foreground"}`}>Outstanding</div>
+            <div className={`text-lg font-bold ${totals.outstanding > 0 ? "text-amber-400" : "text-foreground"}`}>£{totals.outstanding.toLocaleString()}</div>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
+          <div>
+            <Label className="text-[10px] uppercase text-muted-foreground">From</Label>
+            <Input type="date" value={from} onChange={e => setFrom(e.target.value)} />
+          </div>
+          <div>
+            <Label className="text-[10px] uppercase text-muted-foreground">To</Label>
+            <Input type="date" value={to} onChange={e => setTo(e.target.value)} />
+          </div>
+          <div className="sm:col-span-2 flex gap-1">
+            {(["outstanding","paid","all"] as const).map(s => (
+              <Button key={s} type="button" size="sm"
+                variant={statusFilter === s ? "default" : "outline"}
+                onClick={() => setStatusFilter(s)}
+                className="flex-1 capitalize"
+                data-testid={`btn-balance-filter-${s}`}>
+                {s}
+              </Button>
+            ))}
+          </div>
+        </div>
+
+        {/* Bulk actions bar */}
+        {selected.size > 0 && (
+          <div className="flex flex-wrap items-center gap-2 p-2 rounded-md border border-primary/30 bg-primary/5">
+            <span className="text-xs font-medium">{selected.size} selected</span>
+            <Input
+              placeholder="Payment ref (optional)"
+              value={paymentRef}
+              onChange={e => setPaymentRef(e.target.value)}
+              className="h-8 max-w-[200px]"
+              data-testid="input-supplier-payment-ref"
+            />
+            <Button size="sm" disabled={busy}
+              onClick={() => markPaid(Array.from(selected))}
+              data-testid="btn-bulk-mark-paid">
+              <PoundSterling className="w-3.5 h-3.5 mr-1" />
+              Mark {selected.size} paid
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
+          </div>
+        )}
+
+        {/* Booking rows */}
+        {filtered.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-6 text-center">
+            {billable.length === 0
+              ? "No supplier-billable bookings yet."
+              : "No bookings match the current filters."}
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            {/* Select-all header */}
+            <div className="flex items-center gap-2 px-2 py-1 text-[11px] text-muted-foreground">
+              <Checkbox
+                checked={selected.size > 0 && selected.size === filtered.filter((b: any) => !b.supplier_paid_at).length}
+                onCheckedChange={(v) => toggleAll(!!v)}
+                data-testid="checkbox-select-all"
+              />
+              <span>Select all unpaid</span>
+            </div>
+            {filtered.map((b: any) => {
+              const isPaid = !!b.supplier_paid_at;
+              const isSelected = selected.has(b.id);
+              return (
+                <div key={b.id}
+                  className={`flex items-center gap-3 p-3 rounded-lg border transition-all
+                    ${isPaid ? "border-emerald-500/20 bg-emerald-500/5"
+                            : "border-border hover:border-primary/40 hover:bg-secondary/10"}`}>
+                  <Checkbox
+                    checked={isSelected}
+                    disabled={isPaid}
+                    onCheckedChange={(v) => {
+                      const next = new Set(selected);
+                      if (v) next.add(b.id); else next.delete(b.id);
+                      setSelected(next);
+                    }}
+                    data-testid={`checkbox-balance-${b.id}`}
+                  />
+                  <Link href={`/bookings/${b.id}`} className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-xs text-muted-foreground">{b.tvl_ref}</span>
+                      <Badge variant="outline" className="text-[10px] py-0 px-1.5">{b.service_type}</Badge>
+                      {isPaid && <Badge className="text-[10px] py-0 px-1.5 bg-emerald-500/20 text-emerald-300 border-emerald-500/40">Paid</Badge>}
+                    </div>
+                    <div className="text-sm font-medium text-foreground mt-0.5 truncate">{b.client_name ?? "—"}</div>
+                    {b.date_time && (
+                      <div className="text-[11px] text-muted-foreground">
+                        {format(new Date(b.date_time), "EEE d MMM yyyy")}
+                        {isPaid && b.supplier_paid_at && (
+                          <> · paid {format(new Date(b.supplier_paid_at), "d MMM")}{b.supplier_payment_ref ? ` · ref ${b.supplier_payment_ref}` : ""}</>
+                        )}
+                      </div>
+                    )}
+                  </Link>
+                  <div className="text-right shrink-0">
+                    <div className="text-sm font-bold text-foreground">£{Number(b.supplier_cost ?? 0).toLocaleString()}</div>
+                    {isPaid ? (
+                      <Button type="button" size="sm" variant="ghost" className="h-6 px-2 text-[11px]"
+                        onClick={() => unmarkPaid(b.id)} disabled={busy}
+                        data-testid={`btn-unmark-${b.id}`}>
+                        <Undo2 className="w-3 h-3 mr-1" /> Unmark
+                      </Button>
+                    ) : (
+                      <Button type="button" size="sm" variant="outline" className="h-6 px-2 text-[11px]"
+                        onClick={() => markPaid([b.id])} disabled={busy}
+                        data-testid={`btn-mark-${b.id}`}>
+                        Mark paid
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

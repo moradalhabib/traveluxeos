@@ -718,15 +718,14 @@ export default function NewBooking() {
       luggage: isAccommodationSubmit ? undefined : values.luggage,
       vehicle_type: isAccommodationSubmit ? undefined : values.vehicle_type,
       vehicle_preference: isAccommodationSubmit ? undefined : (values.vehicle_preference || null),
-      // Feature 4 — referral split deferred. Only emit the columns when the
-      // operator actually filled in a partner name AND the columns exist in
-      // the DB (migration is intentionally not run yet for this batch). For
-      // now we drop them entirely so the insert payload stays compatible.
-      // ...(values.referral_partner_name?.trim() ? {
-      //   referral_partner_name: values.referral_partner_name.trim(),
-      //   referral_commission_type: values.referral_commission_type ?? "percent",
-      //   referral_commission_value: Number(values.referral_commission_value) || 0,
-      // } : {}),
+      // Feature 4 — referral split. Only emit the columns when the operator
+      // actually filled in a partner name; otherwise we leave them NULL so
+      // bookings without a referral remain clean.
+      ...(values.referral_partner_name?.trim() ? {
+        referral_partner_name: values.referral_partner_name.trim(),
+        referral_commission_type: values.referral_commission_type ?? "percent",
+        referral_commission_value: Number(values.referral_commission_value) || 0,
+      } : {}),
       nameboard: isAccommodationSubmit ? undefined : values.nameboard,
     };
 
@@ -765,27 +764,11 @@ export default function NewBooking() {
       }
     }
 
-    // As Directed: if there's overtime, append a calculated extra_charges line
-    // so the cost-breakdown trigger picks it up in supplier_cost.
+    // Hours/day & Overtime hrs are now captured on the booking detail page
+    // (post-creation), so we just forward whatever extras were entered here.
     let mergedExtras = Array.isArray((values as any).extra_charges)
       ? [...(values as any).extra_charges]
       : [];
-    if (isAsDirectedSubmit) {
-      // Always strip any prior auto-generated overtime line so we never
-      // double-count or leak a stale charge after overtime is reset to 0.
-      mergedExtras = mergedExtras.filter(
-        (e: any) => !(e?.description || "").startsWith("Overtime: "),
-      );
-      const ot = Number((values as any).overtime_hours || 0);
-      const dr = Number((values as any).base_daily_rate || 0);
-      if (ot > 0 && dr > 0) {
-        const otAmt = Math.round(ot * dr * 0.10);
-        mergedExtras.push({
-          description: `Overtime: ${ot} hr @ £${Math.round(dr * 0.10)}/hr`,
-          amount: otAmt,
-        });
-      }
-    }
 
     // Only include fields that exist as columns in the bookings table
     const allowedPayload: Record<string, any> = {
@@ -858,10 +841,8 @@ export default function NewBooking() {
       if (values.hotel_cost_per_night) extraDetails.push(`Cost/Night: £${values.hotel_cost_per_night}`);
       if (values.hotel_sold_per_night) extraDetails.push(`Sold/Night: £${values.hotel_sold_per_night}`);
       if (hotelTotalCost > 0) extraDetails.push(`Total Cost: £${hotelTotalCost}`);
-      if (values.hotel_third_party) extraDetails.push(`Source: ${values.hotel_third_party}`);
       // Synthesise commission_notes for the commissions/finance pages
       const noteParts: string[] = [];
-      if (values.hotel_third_party) noteParts.push(`Source: ${values.hotel_third_party}`);
       if (values.hotel_cost_per_night && values.hotel_sold_per_night) {
         noteParts.push(`£${values.hotel_cost_per_night}/n cost · £${values.hotel_sold_per_night}/n sold · ${values.num_nights ?? 0}n`);
       }
@@ -882,7 +863,6 @@ export default function NewBooking() {
       if (values.weekly_rent) extraDetails.push(`Weekly Rent: £${values.weekly_rent}`);
       if (values.weeks_agreed) extraDetails.push(`Weeks Agreed: ${values.weeks_agreed}`);
       if (values.pre_deposit) extraDetails.push(`Pre-Deposit: £${values.pre_deposit}`);
-      if (values.property_agent) extraDetails.push(`Agent: ${values.property_agent}`);
       if (values.payment_notes) extraDetails.push(`Payment Notes: ${values.payment_notes}`);
     }
     if (extraDetails.length > 0) {
@@ -1550,14 +1530,6 @@ export default function NewBooking() {
                           £{carRentalMargin.toLocaleString()}
                         </span>
                       </div>
-                      {Number(clientPriceWatch) > 0 && (
-                        <div className="flex justify-between text-xs">
-                          <span className="text-muted-foreground">Margin %</span>
-                          <span className={`font-semibold ${carRentalMargin >= 0 ? "text-green-400" : "text-destructive"}`}>
-                            {((carRentalMargin / Number(clientPriceWatch)) * 100).toFixed(1)}%
-                          </span>
-                        </div>
-                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -1829,9 +1801,7 @@ export default function NewBooking() {
 
                   {isAsDirected && (() => {
                     const baseRate = Number((bookingForm.watch("base_daily_rate" as any) as any) || 0);
-                    const hrlyOvertime = baseRate * 0.10;
-                    const overtimeAmount = overtimeHours * hrlyOvertime;
-                    const subtotal = baseRate * adRentalDays + overtimeAmount;
+                    const subtotal = baseRate * adRentalDays;
                     return (
                     <div className="space-y-3 p-3 rounded-xl border border-amber-500/20 bg-amber-500/5">
                       <p className="text-xs font-semibold text-amber-400 uppercase tracking-wider">Chauffeuring Period</p>
@@ -1857,50 +1827,21 @@ export default function NewBooking() {
                           </FormItem>
                         )} />
                       </div>
-                      <div className="grid grid-cols-3 gap-3 items-end">
-                        <FormField control={bookingForm.control} name="hours" render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Hours / day <span className="text-[10px] text-muted-foreground font-normal ml-1">(max 10)</span></FormLabel>
-                            <FormControl>
-                              <Input type="number" step="1" min="1" max="10" placeholder="10"
-                                value={field.value ?? 10}
-                                onChange={(e) => field.onChange(e.target.value === "" ? 10 : Number(e.target.value))}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
-                        <FormField control={bookingForm.control} name={"overtime_hours" as any} render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Overtime hrs <span className="text-[10px] text-muted-foreground font-normal ml-1">(+10% / hr)</span></FormLabel>
-                            <FormControl>
-                              <Input type="number" step="0.5" min="0" placeholder="0"
-                                value={field.value ?? ""}
-                                onChange={(e) => field.onChange(e.target.value === "" ? 0 : Number(e.target.value))}
-                              />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
-                        <div className="space-y-1">
-                          <Label className="text-xs text-muted-foreground">Total days</Label>
-                          <div className="h-9 px-3 rounded-md border border-border bg-secondary/20 flex items-center font-semibold text-foreground">
-                            {adRentalDays || "—"}
-                          </div>
+                      <div className="space-y-1">
+                        <Label className="text-xs text-muted-foreground">Total days</Label>
+                        <div className="h-9 px-3 rounded-md border border-border bg-secondary/20 flex items-center font-semibold text-foreground">
+                          {adRentalDays || "—"}
                         </div>
                       </div>
+                      <p className="text-[11px] text-muted-foreground italic">
+                        Hours / day and Overtime hrs are added on the booking detail page after creation.
+                      </p>
                       {(baseRate > 0 || adRentalDays > 0) && (
                         <div className="rounded-md bg-background/40 border border-border p-2.5 space-y-1 text-xs">
                           <div className="flex justify-between">
                             <span className="text-muted-foreground">{adRentalDays || 0} day{adRentalDays === 1 ? "" : "s"} × £{baseRate.toLocaleString()}/day</span>
                             <span className="font-medium">£{(baseRate * adRentalDays).toLocaleString()}</span>
                           </div>
-                          {overtimeHours > 0 && (
-                            <div className="flex justify-between">
-                              <span className="text-muted-foreground">Overtime: {overtimeHours} hr × £{Math.round(hrlyOvertime).toLocaleString()}/hr</span>
-                              <span className="font-medium">£{Math.round(overtimeAmount).toLocaleString()}</span>
-                            </div>
-                          )}
                           <div className="flex justify-between pt-1 border-t border-border">
                             <span className="font-semibold text-foreground">Chauffeuring subtotal</span>
                             <span className="font-bold text-primary">£{Math.round(subtotal).toLocaleString()}</span>
@@ -2012,14 +1953,6 @@ export default function NewBooking() {
                         </div>
 
                         <div className="border-t border-primary/20 pt-3 space-y-3">
-                          <FormField control={bookingForm.control} name="hotel_third_party" render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Third Party / Source <span className="text-xs text-muted-foreground font-normal">(name only — we earn commission, we do not pay it)</span></FormLabel>
-                              <FormControl><Input placeholder="e.g. Booking.com, Direct, ABC Travel" {...field} value={field.value ?? ""} /></FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )} />
-
                           <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-1">
                               <Label className="text-xs uppercase tracking-wider text-muted-foreground">Commission / Night</Label>
@@ -2282,7 +2215,17 @@ export default function NewBooking() {
                         <FormField control={bookingForm.control} name="price" render={({ field }) => (
                           <FormItem>
                             <FormLabel>Client Price (£)</FormLabel>
-                            <FormControl><Input type="number" step="0.01" {...field} className="text-lg font-bold" data-testid="input-client-price" /></FormControl>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder=""
+                                value={field.value ?? ""}
+                                onChange={e => field.onChange(e.target.value === "" ? undefined : Number(e.target.value))}
+                                className="text-lg font-bold"
+                                data-testid="input-client-price"
+                              />
+                            </FormControl>
                             <FormMessage />
                           </FormItem>
                         )} />
@@ -2335,11 +2278,9 @@ export default function NewBooking() {
                         );
                       })()}
 
-                      {/* Feature 4 — Commission Split deferred (out of scope
-                          for the current 9-task email/jobs batch). UI removed
-                          to keep the form clean; zod fields kept harmless. */}
-                      {false && (() => null)()}
-                      {/* @deferred-commission-split-start
+                      {/* Feature 4 — Commission Split (referral partner).
+                          Optional; does not change TVL Margin above. Persists
+                          to bookings.referral_* (see migration-booking-referral-split.sql). */}
                       {(() => {
                         const cp = Number(bookingForm.watch("price")) || 0;
                         const sc = Number(bookingForm.watch("supplier_cost" as any)) || 0;
@@ -2433,7 +2374,6 @@ export default function NewBooking() {
                           </div>
                         );
                       })()}
-                      @deferred-commission-split-end */}
 
                       {/* Third-party Commission — Apartment only (Hotel handled above) */}
                       {isAccommodation && (
@@ -2492,13 +2432,6 @@ export default function NewBooking() {
                             £{((bookingForm.watch("weekly_rent") || 0) * (bookingForm.watch("weeks_agreed") || 0)).toLocaleString()}
                           </div>
                         </div>
-                        <FormField control={bookingForm.control} name="property_agent" render={({ field }) => (
-                          <FormItem className="col-span-2">
-                            <FormLabel>Property Agent / Source</FormLabel>
-                            <FormControl><Input placeholder="e.g. Foxtons, Knight Frank, Direct landlord" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
                         <FormField control={bookingForm.control} name="payment_notes" render={({ field }) => (
                           <FormItem className="col-span-2">
                             <FormLabel>Payment Notes <span className="text-xs text-muted-foreground font-normal">(extensions, weekly payments received, etc.)</span></FormLabel>
