@@ -219,7 +219,9 @@ async function fetchDriverSafely(driverId: string | null) {
   return { ...fallback.data, staff_no: null };
 }
 
-async function enrichBooking(booking: any) {
+// Exported so invoices.ts can shape a booking exactly the same way for the
+// shared email helpers (which expect client_email + tvl_ref + service_type).
+export async function enrichBooking(booking: any) {
   const [{ data: client }, driver, { data: operator }] = await Promise.all([
     supabase.from("clients").select("name, vip_tier, email, nationality").eq("id", booking.client_id).single(),
     fetchDriverSafely(booking.driver_id),
@@ -255,7 +257,10 @@ async function autoGenerateInvoice(bookingId: string, userId: string | null): Pr
   return data.invoice_number;
 }
 
-async function sendConfirmationEmail(
+// Exported so invoices.ts can fire the same canonical pipeline (de-dup,
+// structured logging, booking_email_log row) instead of bypassing it with a
+// raw sendEmail call. Both routes must end up writing the same audit trail.
+export async function sendConfirmationEmail(
   booking: any,
   invoiceNumber: string | null,
   opts: { triggeredBy?: string | null; force?: boolean; triggerSource?: "auto" | "manual" } = {}
@@ -273,7 +278,7 @@ async function sendConfirmationEmail(
   });
 }
 
-async function sendPaymentReceiptEmail(
+export async function sendPaymentReceiptEmail(
   booking: any,
   opts: { triggeredBy?: string | null; force?: boolean; triggerSource?: "auto" | "manual" } = {}
 ) {
@@ -330,21 +335,52 @@ router.get("/", async (req, res) => {
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
 
-  const result = (data ?? []).map((b: any) => ({
-    ...b,
-    client_name: b.clients?.name ?? null,
-    client_vip_tier: b.clients?.vip_tier ?? null,
-    client_nationality: b.clients?.nationality ?? null,
-    driver_name: b.drivers?.name ?? null,
-    driver_staff_no: b.drivers?.staff_no ?? null,
-    driver_vehicle: b.drivers
-      ? [b.drivers.vehicle_year, b.drivers.vehicle_model ?? b.drivers.vehicle_type].filter(Boolean).join(" ").trim() || null
-      : null,
-    operator_name: b.users?.name ?? null,
-    clients: undefined,
-    drivers: undefined,
-    users: undefined,
-  }));
+  // T004: enrich each booking with the most recent email-log status so the
+  // jobs board can show a tiny status dot per row. Single bulk query, mapped
+  // in JS. If the booking_email_log table doesn't exist yet (migration not
+  // applied) we silently treat every booking as `last_email_status: null`.
+  const bookingIds = (data ?? []).map((b: any) => b.id).filter(Boolean);
+  const latestEmailByBooking = new Map<string, { kind: string; status: string; created_at: string }>();
+  if (bookingIds.length > 0) {
+    const { data: logs, error: logErr } = await db
+      .from("booking_email_log")
+      .select("booking_id, kind, status, created_at")
+      .in("booking_id", bookingIds)
+      .order("created_at", { ascending: false });
+    if (!logErr && logs) {
+      for (const row of logs as any[]) {
+        if (!latestEmailByBooking.has(row.booking_id)) {
+          latestEmailByBooking.set(row.booking_id, {
+            kind: row.kind,
+            status: row.status,
+            created_at: row.created_at,
+          });
+        }
+      }
+    }
+  }
+
+  const result = (data ?? []).map((b: any) => {
+    const latest = latestEmailByBooking.get(b.id);
+    return {
+      ...b,
+      client_name: b.clients?.name ?? null,
+      client_vip_tier: b.clients?.vip_tier ?? null,
+      client_nationality: b.clients?.nationality ?? null,
+      driver_name: b.drivers?.name ?? null,
+      driver_staff_no: b.drivers?.staff_no ?? null,
+      driver_vehicle: b.drivers
+        ? [b.drivers.vehicle_year, b.drivers.vehicle_model ?? b.drivers.vehicle_type].filter(Boolean).join(" ").trim() || null
+        : null,
+      operator_name: b.users?.name ?? null,
+      last_email_status: latest?.status ?? null,
+      last_email_kind: latest?.kind ?? null,
+      last_email_at: latest?.created_at ?? null,
+      clients: undefined,
+      drivers: undefined,
+      users: undefined,
+    };
+  });
 
   return res.json(result);
 });
@@ -549,9 +585,16 @@ router.post("/", async (req, res) => {
     }
   }
 
-  // Auto-generate invoice for confirmed bookings on creation
+  // Auto-generate invoice for confirmed bookings on creation, and fire the
+  // booking-confirmation email too. This was the biggest silent gap — most
+  // new bookings are created with the default status "Confirmed" (set above)
+  // but the email trigger only existed on the PUT /:id and PUT /:id/status
+  // paths, so the very first transactional email was being skipped entirely.
   if (data.status === "Confirmed") {
-    await autoGenerateInvoice(data.id, user?.id ?? null);
+    const invNumber = await autoGenerateInvoice(data.id, user?.id ?? null);
+    sendConfirmationEmail(enriched, invNumber, { triggeredBy: user?.id ?? null }).catch(err =>
+      console.error("[Email] Confirmation send error (POST /bookings):", err?.message ?? err)
+    );
   }
 
   return res.status(201).json(enriched);

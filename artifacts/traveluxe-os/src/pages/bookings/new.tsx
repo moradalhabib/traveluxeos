@@ -19,6 +19,7 @@ import { Label } from "@/components/ui/label";
 import ProductPicker, { type OrderLine } from "@/components/booking/ProductPicker";
 import { SupplierProductPicker } from "@/components/SupplierProductPicker";
 import { NATIONALITIES, nationalityFlag } from "@/lib/nationalities";
+import { Switch } from "@/components/ui/switch";
 import { FlightLookupCard } from "@/components/booking/FlightLookupCard";
 
 type Phase = "lookup" | "found" | "register" | "booking";
@@ -55,6 +56,10 @@ const bookingSchema = z.object({
   luggage: z.coerce.number().optional(),
   vehicle_type: z.string().optional(),
   vehicle_preference: z.string().optional(),
+  // Feature 4 — Commission Split (referral partner)
+  referral_partner_name: z.string().optional(),
+  referral_commission_type: z.enum(["percent", "amount"]).optional(),
+  referral_commission_value: z.coerce.number().optional(),
   nameboard: z.string().optional(),
   special_requests: z.string().optional(),
   extras: z.string().optional(),
@@ -131,6 +136,10 @@ export default function NewBooking() {
   const [phase, setPhase] = useState<Phase>("lookup");
   const [waInput, setWaInput] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  // Feature 4 — operator opens the Commission Split block per booking. We
+  // also auto-open it whenever the booking already has a referral_partner_name
+  // (e.g. when re-rendering an edit) — handled at the render site below.
+  const [showReferralSplit, setShowReferralSplit] = useState(false);
   const [foundClient, setFoundClient] = useState<FoundClient | null>(null);
   const [confirmedClient, setConfirmedClient] = useState<FoundClient | null>(null);
   const [isEditingFound, setIsEditingFound] = useState(false);
@@ -709,6 +718,15 @@ export default function NewBooking() {
       luggage: isAccommodationSubmit ? undefined : values.luggage,
       vehicle_type: isAccommodationSubmit ? undefined : values.vehicle_type,
       vehicle_preference: isAccommodationSubmit ? undefined : (values.vehicle_preference || null),
+      // Feature 4 — referral split deferred. Only emit the columns when the
+      // operator actually filled in a partner name AND the columns exist in
+      // the DB (migration is intentionally not run yet for this batch). For
+      // now we drop them entirely so the insert payload stays compatible.
+      // ...(values.referral_partner_name?.trim() ? {
+      //   referral_partner_name: values.referral_partner_name.trim(),
+      //   referral_commission_type: values.referral_commission_type ?? "percent",
+      //   referral_commission_value: Number(values.referral_commission_value) || 0,
+      // } : {}),
       nameboard: isAccommodationSubmit ? undefined : values.nameboard,
     };
 
@@ -2316,6 +2334,106 @@ export default function NewBooking() {
                           </div>
                         );
                       })()}
+
+                      {/* Feature 4 — Commission Split deferred (out of scope
+                          for the current 9-task email/jobs batch). UI removed
+                          to keep the form clean; zod fields kept harmless. */}
+                      {false && (() => null)()}
+                      {/* @deferred-commission-split-start
+                      {(() => {
+                        const cp = Number(bookingForm.watch("price")) || 0;
+                        const sc = Number(bookingForm.watch("supplier_cost" as any)) || 0;
+                        const dr = Number(bookingForm.watch("driver_cost" as any)) || 0;
+                        const fc = Number(bookingForm.watch("fuel_cost" as any)) || 0;
+                        const margin = cp - sc - dr - fc;
+                        const partner = (bookingForm.watch("referral_partner_name") ?? "").trim();
+                        const splitOn = showReferralSplit || partner.length > 0;
+                        const ctype = (bookingForm.watch("referral_commission_type") ?? "percent") as "percent" | "amount";
+                        const cval = Number(bookingForm.watch("referral_commission_value")) || 0;
+                        const referralCut =
+                          ctype === "percent"
+                            ? Math.max(0, (margin * cval) / 100)
+                            : Math.max(0, cval);
+                        const tvlNetAfter = margin - referralCut;
+                        return (
+                          <div className="space-y-3 p-3 rounded-xl border border-blue-500/20 bg-blue-500/5">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-xs font-semibold text-blue-300 uppercase tracking-wider">Commission Split</p>
+                                <p className="text-[10px] text-muted-foreground mt-0.5">Optional referral partner — does not change TVL Margin above</p>
+                              </div>
+                              <Switch
+                                checked={splitOn}
+                                onCheckedChange={(v) => {
+                                  setShowReferralSplit(v);
+                                  if (!v) {
+                                    bookingForm.setValue("referral_partner_name", "");
+                                    bookingForm.setValue("referral_commission_value", 0 as any);
+                                  } else if (!bookingForm.getValues("referral_commission_type")) {
+                                    bookingForm.setValue("referral_commission_type", "percent");
+                                  }
+                                }}
+                                data-testid="switch-referral-split"
+                              />
+                            </div>
+                            {splitOn && (
+                              <>
+                                <div className="grid grid-cols-3 gap-3">
+                                  <FormField control={bookingForm.control} name="referral_partner_name" render={({ field }) => (
+                                    <FormItem className="col-span-1">
+                                      <FormLabel>Referral Partner</FormLabel>
+                                      <FormControl><Input placeholder="e.g. Concierge X" {...field} data-testid="input-referral-name" /></FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )} />
+                                  <FormField control={bookingForm.control} name="referral_commission_type" render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>Type</FormLabel>
+                                      <Select onValueChange={field.onChange} value={field.value || "percent"}>
+                                        <FormControl><SelectTrigger data-testid="select-referral-type"><SelectValue /></SelectTrigger></FormControl>
+                                        <SelectContent>
+                                          <SelectItem value="percent">% of margin</SelectItem>
+                                          <SelectItem value="amount">£ amount</SelectItem>
+                                        </SelectContent>
+                                      </Select>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )} />
+                                  <FormField control={bookingForm.control} name="referral_commission_value" render={({ field }) => (
+                                    <FormItem>
+                                      <FormLabel>{ctype === "percent" ? "%" : "£"}</FormLabel>
+                                      <FormControl>
+                                        <Input
+                                          type="number"
+                                          step={ctype === "percent" ? "0.1" : "0.01"}
+                                          min="0"
+                                          placeholder={ctype === "percent" ? "e.g. 10" : "e.g. 50"}
+                                          {...field}
+                                          data-testid="input-referral-value"
+                                        />
+                                      </FormControl>
+                                      <FormMessage />
+                                    </FormItem>
+                                  )} />
+                                </div>
+                                <div className="flex items-center justify-between text-sm pt-1 border-t border-blue-500/20">
+                                  <span className="text-muted-foreground">
+                                    Referral cut:&nbsp;
+                                    <span className="font-medium text-foreground">£{referralCut.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                                  </span>
+                                  <span>
+                                    <span className="text-muted-foreground mr-1.5">TVL Net after referral:</span>
+                                    <span className={`font-bold ${tvlNetAfter >= 0 ? "text-green-400" : "text-destructive"}`} data-testid="text-tvl-net-after-referral">
+                                      £{tvlNetAfter.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                    </span>
+                                  </span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })()}
+                      @deferred-commission-split-end */}
 
                       {/* Third-party Commission — Apartment only (Hotel handled above) */}
                       {isAccommodation && (

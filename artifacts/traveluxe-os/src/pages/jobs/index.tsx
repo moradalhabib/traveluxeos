@@ -327,6 +327,35 @@ export default function Jobs() {
                         {job.service_type}{(job as any).direction ? ` · ${(job as any).direction}` : ""}
                       </Badge>
                     )}
+                    {/* T004: tiny last-email status indicator. Only shows when
+                        we have a logged event — so unset bookings stay clean. */}
+                    {(job as any).last_email_status === 'sent' && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] py-0 px-1.5 bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                        title={`Email sent${(job as any).last_email_kind ? ` · ${(job as any).last_email_kind.replace(/_/g, ' ')}` : ''}`}
+                      >
+                        ✓ Email
+                      </Badge>
+                    )}
+                    {(job as any).last_email_status === 'failed' && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] py-0 px-1.5 bg-destructive/10 text-destructive border-destructive/40"
+                        title={`Last email FAILED${(job as any).last_email_kind ? ` · ${(job as any).last_email_kind.replace(/_/g, ' ')}` : ''} — open booking to retry`}
+                      >
+                        ⚠ Email failed
+                      </Badge>
+                    )}
+                    {(job as any).last_email_status === 'skipped_no_email' && (
+                      <Badge
+                        variant="outline"
+                        className="text-[10px] py-0 px-1.5 bg-amber-500/10 text-amber-300 border-amber-500/40"
+                        title="No email on file — emails will be skipped"
+                      >
+                        No email
+                      </Badge>
+                    )}
                   </div>
                   <div className="font-bold text-foreground text-base mt-0.5 flex items-center gap-2">
                     {job.client_id ? (

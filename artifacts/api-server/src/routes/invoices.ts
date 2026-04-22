@@ -1,7 +1,10 @@
 import { Router } from "express";
 import { supabase, auditLog, getUserFromToken } from "../lib/supabase";
-import { sendEmail } from "../services/email";
-import { bookingConfirmationHtml } from "../templates/emailTemplates";
+import {
+  sendConfirmationEmail,
+  sendPaymentReceiptEmail,
+  enrichBooking,
+} from "./bookings";
 
 const router = Router();
 
@@ -104,6 +107,10 @@ router.patch("/:id/status", async (req, res) => {
       if (booking?.payment_status === "Paid") bookingPatch.payment_status = "Unpaid";
     }
 
+    // Was the booking *previously* unpaid? Captured BEFORE the patch goes in
+    // so we can fire the receipt email exactly once per real transition.
+    const wasNotPaid = booking?.payment_status !== "Paid";
+
     if (Object.keys(bookingPatch).length > 0) {
       const { error: syncErr } = await supabase
         .from("bookings")
@@ -133,6 +140,24 @@ router.patch("/:id/status", async (req, res) => {
         user.id,
         `Booking ${booking?.tvl_ref ?? ""} synced after invoice ${data.invoice_number} → ${status}: ${JSON.stringify(bookingPatch)}`,
       );
+    }
+
+    // ── Fire receipt email when an invoice flips to Paid via this route ───
+    // The reverse path (PUT /bookings/:id with payment_status=Paid) already
+    // fires the receipt. Without this branch, paying via the invoice screen
+    // completed the booking but never sent the client a receipt.
+    if (status === "Paid" && wasNotPaid) {
+      const { data: bk } = await supabase
+        .from("bookings")
+        .select("*")
+        .eq("id", data.booking_id)
+        .single();
+      if (bk) {
+        const enriched = await enrichBooking(bk);
+        sendPaymentReceiptEmail(enriched, { triggeredBy: user.id }).catch(err =>
+          console.error("[Email] Receipt send error (invoice → Paid):", err?.message ?? err)
+        );
+      }
     }
   }
 
@@ -204,29 +229,44 @@ router.post("/:id/send-email", async (req, res) => {
     .single();
 
   const email = client?.email;
-  if (!email) {
-    return res.status(400).json({
-      error: `No email on file for ${client?.name ?? "client"}. Add one on the client profile, then try again.`,
+
+  // Route every manual send through the canonical sendBookingEmail pipeline
+  // — including the no-email case — so the badge / audit trail stays
+  // consistent. The helper itself writes a `skipped_no_email` row when `to`
+  // is empty, which we surface back to the UI as a non-error 200 so the
+  // toast can show a friendly "no email on file" message.
+  const enriched = await enrichBooking(booking);
+  const enrichedWithEmail: any = { ...enriched, client_email: email ?? null };
+
+  // Paid → receipt; everything else → confirmation. Manual operator action,
+  // so force=true to override de-dup.
+  const sendResult =
+    booking.payment_status === "Paid"
+      ? await sendPaymentReceiptEmail(enrichedWithEmail, {
+          triggeredBy: user.id,
+          triggerSource: "manual",
+          force: true,
+        })
+      : await sendConfirmationEmail(enrichedWithEmail, invoice.invoice_number, {
+          triggeredBy: user.id,
+          triggerSource: "manual",
+          force: true,
+        });
+
+  if (sendResult.skipped && sendResult.reason === "no_email_on_file") {
+    return res.json({
+      ok: false,
+      skipped: true,
+      reason: "no_email_on_file",
+      message: `No email on file for ${client?.name ?? "client"}. Add one on the client profile, then try again.`,
+      invoice_number: invoice.invoice_number,
     });
   }
 
-  const enriched = {
-    ...booking,
-    client_name: client?.name ?? null,
-    client_email: email,
-    client_vip_tier: client?.vip_tier ?? null,
-  };
-
-  try {
-    await sendEmail({
-      to: email,
-      subject: `Invoice ${invoice.invoice_number} — Traveluxe London — ${booking.tvl_ref ?? ""}`,
-      html: bookingConfirmationHtml(enriched, invoice.invoice_number),
-      account: "invoice",
+  if (!sendResult.sent) {
+    return res.status(502).json({
+      error: `Failed to send email: ${sendResult.reason ?? "unknown"}`,
     });
-  } catch (e: any) {
-    console.error("[Invoice email] send failed:", e?.message);
-    return res.status(502).json({ error: `Failed to send email: ${e?.message ?? "unknown"}` });
   }
 
   // Flip Generated → Sent (don't downgrade Paid/Overdue)

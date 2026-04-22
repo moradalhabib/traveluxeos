@@ -844,11 +844,154 @@ async function maybeRunBackup() {
   }
 }
 
-// ─── Unpaid-invoice reminder ─────────────────────────────────────────────────
-// REMOVED: Operator email reminders for unpaid invoices have been deliberately
-// removed. Per product policy, operator alerts for overdue unpaid invoices are
-// surfaced as in-app banners on the Invoices screen only — never via email.
-// Do not re-introduce email here.
+// ─── Unpaid-invoice operator reminder ────────────────────────────────────────
+// Re-introduced per the T005 spec, but tightly scoped: emails the single
+// operator account (moradlondon1, falling back to any super_admin) when an
+// invoice has been Generated/Sent for more than 48h after its booking was
+// completed. Uses invoices.unpaid_reminder_sent_at as a 24h throttle so the
+// inbox isn't flooded by the 60s tick.
+async function getUnpaidReminderRecipient(): Promise<string | null> {
+  // Primary: the named operator account.
+  const { data: byUsername } = await supabase
+    .from("users")
+    .select("email, active")
+    .eq("username", "moradlondon1")
+    .maybeSingle();
+  if (byUsername?.active && byUsername.email) return byUsername.email;
+  // Fallback: any active super_admin.
+  const { data: superAdmins } = await supabase
+    .from("users")
+    .select("email, active")
+    .eq("role", "super_admin")
+    .eq("active", true)
+    .limit(1);
+  return superAdmins?.[0]?.email ?? null;
+}
+
+function unpaidInvoiceReminderHtml(rows: any[]) {
+  const itemsHtml = rows
+    .map((r: any) => {
+      const since = r.completed_at
+        ? new Date(r.completed_at).toLocaleString("en-GB")
+        : "—";
+      return `
+        <tr>
+          <td style="padding:8px;border-bottom:1px solid #eee">${r.invoice_number ?? "—"}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee">${r.tvl_ref ?? "—"}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee">${r.client_name ?? "—"}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee;text-align:right">£${Number(r.amount ?? 0).toLocaleString()}</td>
+          <td style="padding:8px;border-bottom:1px solid #eee">${since}</td>
+        </tr>`;
+    })
+    .join("");
+  return `
+    <div style="font-family:Arial,sans-serif;max-width:680px;margin:auto;padding:24px;color:#111">
+      <h2 style="margin:0 0 12px;color:#b45309">Unpaid invoices &gt; 48h after completion</h2>
+      <p style="margin:0 0 12px">${rows.length} invoice${rows.length === 1 ? "" : "s"} need${rows.length === 1 ? "s" : ""} attention. Booking is Completed but invoice is still Generated or Sent.</p>
+      <table style="width:100%;border-collapse:collapse;margin-top:8px;font-size:14px">
+        <tr style="background:#f5f5f5">
+          <th style="padding:8px;text-align:left">Invoice</th>
+          <th style="padding:8px;text-align:left">Booking</th>
+          <th style="padding:8px;text-align:left">Client</th>
+          <th style="padding:8px;text-align:right">Amount</th>
+          <th style="padding:8px;text-align:left">Completed</th>
+        </tr>
+        ${itemsHtml}
+      </table>
+      <p style="margin-top:20px;font-size:12px;color:#888">Traveluxe OS · automated unpaid-invoice reminder · throttled to one alert per 24h per invoice</p>
+    </div>
+  `;
+}
+
+let lastUnpaidReminderHour: number | null = null;
+async function maybeRunUnpaidInvoiceReminder() {
+  // Hourly cadence: only run once per wall-clock hour to keep the load light.
+  const nowHour = Math.floor(Date.now() / 3_600_000);
+  if (lastUnpaidReminderHour === nowHour) return;
+  lastUnpaidReminderHour = nowHour;
+
+  try {
+    const cutoff = new Date(Date.now() - 48 * 3_600_000).toISOString();
+    const throttleAfter = new Date(Date.now() - 24 * 3_600_000).toISOString();
+
+    // Pull candidate invoices: Generated/Sent + booking Completed > 48h ago,
+    // and either never reminded or last reminder more than 24h ago.
+    const { data: invoices, error } = await supabase
+      .from("invoices")
+      .select("id, invoice_number, status, unpaid_reminder_sent_at, booking_id, bookings:booking_id(tvl_ref, status, completed_at, price, client_id, clients(name))")
+      .in("status", ["Generated", "Sent"]);
+
+    if (error) {
+      // unpaid_reminder_sent_at column missing → migration not run yet.
+      console.warn("[Scheduler] unpaid-invoice reminder skipped:", error.message);
+      return;
+    }
+
+    const due = (invoices ?? []).filter((inv: any) => {
+      const bk = inv.bookings;
+      if (!bk || bk.status !== "Completed" || !bk.completed_at) return false;
+      if (bk.completed_at > cutoff) return false; // not 48h yet
+      if (inv.unpaid_reminder_sent_at && inv.unpaid_reminder_sent_at > throttleAfter) return false;
+      return true;
+    });
+
+    if (due.length === 0) return;
+
+    const recipient = await getUnpaidReminderRecipient();
+    if (!recipient) {
+      console.warn("[Scheduler] unpaid-invoice reminder: no recipient (moradlondon1 / super_admin) found");
+      return;
+    }
+
+    const rows = due.map((inv: any) => ({
+      invoice_number: inv.invoice_number,
+      amount: inv.bookings?.price ?? 0,
+      tvl_ref: inv.bookings?.tvl_ref,
+      completed_at: inv.bookings?.completed_at,
+      client_name: inv.bookings?.clients?.name,
+    }));
+
+    const result = await sendEmail({
+      to: recipient,
+      subject: `[Traveluxe OS] ${due.length} unpaid invoice${due.length === 1 ? "" : "s"} > 48h after completion`,
+      html: unpaidInvoiceReminderHtml(rows),
+      account: "system",
+    });
+
+    if (result.sent) {
+      // Stamp the throttle column on every invoice we just notified about.
+      // CRITICAL: if this update fails the throttle is bypassed and the same
+      // invoice would be re-emailed every hour. We must surface the failure
+      // and skip the audit-log entry so an operator can intervene.
+      const ids = due.map((inv: any) => inv.id);
+      const { error: stampErr } = await supabase
+        .from("invoices")
+        .update({ unpaid_reminder_sent_at: new Date().toISOString() })
+        .in("id", ids);
+      if (stampErr) {
+        console.error(
+          `[Scheduler] Unpaid-invoice reminder: SENT to ${recipient} but throttle stamp FAILED for ${ids.length} invoice(s): ${stampErr.message} — next hourly tick may re-send`,
+        );
+        return;
+      }
+      await auditLog(
+        "unpaid_invoice_reminder",
+        "system",
+        "00000000-0000-0000-0000-000000000000",
+        null,
+        `Reminded ${recipient} about ${due.length} unpaid invoice(s)`,
+      ).catch(() => {});
+      console.info(`[Scheduler] Unpaid-invoice reminder: sent to ${recipient} (${due.length} invoice${due.length === 1 ? "" : "s"})`);
+    } else {
+      // Send failed — release the in-memory hourly guard so the next tick
+      // can retry rather than waiting a full hour for a transient SMTP blip.
+      lastUnpaidReminderHour = null;
+      console.error("[Scheduler] Unpaid-invoice reminder send failed:", result.reason);
+    }
+  } catch (e: any) {
+    console.error("[Scheduler] unpaid-invoice reminder error:", e?.message ?? e);
+  }
+}
 
 export function startScheduler() {
   if (started) return;
@@ -863,6 +1006,7 @@ export function startScheduler() {
       await maybeRunDigest();
       await maybeRunBriefing();
       await maybeRunOverdueCommissionAlert();
+      await maybeRunUnpaidInvoiceReminder();
       await maybeRunBackup();
     } catch (e: any) {
       console.error("[Scheduler] tick error:", e?.message);
