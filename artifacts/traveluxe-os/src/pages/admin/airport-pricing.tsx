@@ -244,9 +244,374 @@ function VehiclesTab() {
   return <ProductsCrudTab category="Vehicle" title="Vehicles" emptyHint="Add a vehicle (e.g. Mercedes V-Class)" requireAirportTransfer={true} />;
 }
 
-// ─── Extras Tab ────────────────────────────────────────────────────────────
+// ─── Extras Tab — Service Types with Tiers ─────────────────────────────────
 function ExtrasTab() {
-  return <ProductsCrudTab category={null} title="Additional Services" emptyHint="Add a service (e.g. Meet & Greet Diamond)" excludeCategory="Vehicle" requireAirportTransfer={true} />;
+  return <ServiceTypesTab />;
+}
+
+// ─── Service Types tab — flexible groups of tiers ──────────────────────────
+function ServiceTypesTab() {
+  const { toast } = useToast();
+  const [items, setItems] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingTier, setEditingTier] = useState<Product | null>(null);
+  const [tierFormOpen, setTierFormOpen] = useState(false);
+  const [tierFormDefaultType, setTierFormDefaultType] = useState<string | null>(null);
+  const [deletingTier, setDeletingTier] = useState<Product | null>(null);
+  const [renameType, setRenameType] = useState<{ old: string } | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [deletingType, setDeletingType] = useState<string | null>(null);
+  const [showAddType, setShowAddType] = useState(false);
+  const [newTypeName, setNewTypeName] = useState("");
+  const [newTypeTierName, setNewTypeTierName] = useState("");
+  const [newTypeTierPrice, setNewTypeTierPrice] = useState("");
+  const [newTypeDescription, setNewTypeDescription] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    const { data } = await supabase
+      .from("products")
+      .select("id, name, category, description, unit_price, active, service_types, sort_order")
+      .neq("category", "Vehicle")
+      .order("category")
+      .order("sort_order")
+      .order("name");
+    let list = (data ?? []) as Product[];
+    list = list.filter(p =>
+      !p.service_types
+      || p.service_types.length === 0
+      || p.service_types.includes("Airport Transfer")
+    );
+    setItems(list);
+    setLoading(false);
+  };
+  useEffect(() => { load(); }, []);
+
+  const grouped = useMemo(() => {
+    const map = new Map<string, Product[]>();
+    for (const it of items) {
+      const list = map.get(it.category) ?? [];
+      list.push(it);
+      map.set(it.category, list);
+    }
+    return Array.from(map.entries()).map(([type, tiers]) => ({
+      type,
+      tiers: tiers.slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+    }));
+  }, [items]);
+
+  const saveTier = async (form: Partial<Product>) => {
+    const headers = { "Content-Type": "application/json", ...(await authHeader()) };
+    const body = {
+      name: form.name,
+      category: form.category ?? "Misc",
+      description: form.description ?? null,
+      unit_price: form.unit_price ?? 0,
+      active: form.active ?? true,
+      sort_order: form.sort_order ?? 0,
+    };
+    const url = editingTier?.id ? `/api/products/${editingTier.id}` : "/api/products";
+    const method = editingTier?.id ? "PUT" : "POST";
+    const res = await fetch(url, { method, headers, body: JSON.stringify(body) });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      toast({ title: "Save failed", description: j.error ?? `HTTP ${res.status}`, variant: "destructive" });
+      return;
+    }
+    const saved = await res.json();
+    // Tag for Airport Transfer so it appears in the booking picker
+    const cur: string[] = saved.service_types ?? [];
+    if (!cur.includes("Airport Transfer")) {
+      await supabase
+        .from("products")
+        .update({ service_types: Array.from(new Set([...cur, "Airport Transfer"])) })
+        .eq("id", saved.id);
+    }
+    toast({ title: editingTier ? "Tier updated" : "Tier added", description: body.name });
+    setTierFormOpen(false);
+    setEditingTier(null);
+    setTierFormDefaultType(null);
+    await load();
+  };
+
+  const deleteTier = async (p: Product) => {
+    const headers = await authHeader();
+    const res = await fetch(`/api/products/${p.id}`, { method: "DELETE", headers });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      toast({ title: "Delete failed", description: j.error ?? `HTTP ${res.status}`, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Tier deleted", description: p.name });
+    setDeletingTier(null);
+    await load();
+  };
+
+  const renameServiceType = async () => {
+    if (!renameType || !renameValue.trim()) return;
+    const newName = renameValue.trim();
+    if (newName === renameType.old) { setRenameType(null); return; }
+    setBusy(true);
+    // Bulk update all tiers in this category
+    const { error } = await supabase
+      .from("products")
+      .update({ category: newName })
+      .eq("category", renameType.old);
+    setBusy(false);
+    if (error) {
+      toast({ title: "Rename failed", description: error.message, variant: "destructive" });
+      return;
+    }
+    toast({ title: "Service Type renamed", description: `${renameType.old} → ${newName}` });
+    setRenameType(null);
+    setRenameValue("");
+    await load();
+  };
+
+  const deleteServiceType = async (type: string) => {
+    setBusy(true);
+    const ids = items.filter(i => i.category === type).map(i => i.id);
+    const headers = await authHeader();
+    let allOk = true;
+    for (const id of ids) {
+      const res = await fetch(`/api/products/${id}`, { method: "DELETE", headers });
+      if (!res.ok) allOk = false;
+    }
+    setBusy(false);
+    setDeletingType(null);
+    if (!allOk) {
+      toast({ title: "Some tiers failed to delete", variant: "destructive" });
+    } else {
+      toast({ title: "Service Type deleted", description: type });
+    }
+    await load();
+  };
+
+  const createServiceType = async () => {
+    if (!newTypeName.trim() || !newTypeTierName.trim()) return;
+    setBusy(true);
+    const headers = { "Content-Type": "application/json", ...(await authHeader()) };
+    const body = {
+      name: newTypeTierName.trim(),
+      category: newTypeName.trim(),
+      description: newTypeDescription.trim() || null,
+      unit_price: newTypeTierPrice === "" ? 0 : Number(newTypeTierPrice),
+      active: true,
+      sort_order: 10,
+    };
+    const res = await fetch("/api/products", { method: "POST", headers, body: JSON.stringify(body) });
+    if (!res.ok) {
+      const j = await res.json().catch(() => ({}));
+      setBusy(false);
+      toast({ title: "Create failed", description: j.error ?? `HTTP ${res.status}`, variant: "destructive" });
+      return;
+    }
+    const saved = await res.json();
+    await supabase
+      .from("products")
+      .update({ service_types: ["Airport Transfer"] })
+      .eq("id", saved.id);
+    setBusy(false);
+    toast({ title: "Service Type created", description: newTypeName });
+    setShowAddType(false);
+    setNewTypeName(""); setNewTypeTierName(""); setNewTypeTierPrice(""); setNewTypeDescription("");
+    await load();
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex-row items-center justify-between">
+        <div>
+          <CardTitle className="text-base">Additional Services</CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            Each Service Type is a group of tiers. On the booking form, single-tier types appear as a checkbox; multi-tier types as exclusive options. Add new types and tiers any time — no code changes needed.
+          </p>
+        </div>
+        <Button size="sm" onClick={() => setShowAddType(true)} data-testid="button-add-service-type">
+          <Plus className="w-4 h-4 mr-1.5" /> Add Service Type
+        </Button>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="flex items-center gap-2 text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" />Loading…</div>
+        ) : grouped.length === 0 ? (
+          <p className="text-sm text-muted-foreground">No services yet. Click "Add Service Type" to create one (e.g. Meet &amp; Greet, Champagne Service, Late Night Surcharge).</p>
+        ) : (
+          <div className="space-y-4">
+            {grouped.map(({ type, tiers }) => (
+              <div key={type} className="rounded-md border border-border" data-testid={`type-group-${type}`}>
+                <div className="flex items-center justify-between gap-2 p-3 bg-secondary/20 border-b border-border">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold">{type}</div>
+                    <div className="text-[11px] text-muted-foreground">{tiers.length} {tiers.length === 1 ? "tier" : "tiers"}</div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setEditingTier(null);
+                        setTierFormDefaultType(type);
+                        setTierFormOpen(true);
+                      }}
+                      data-testid={`add-tier-${type}`}
+                    >
+                      <Plus className="w-3.5 h-3.5 mr-1" /> Tier
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8"
+                      onClick={() => { setRenameType({ old: type }); setRenameValue(type); }}
+                      data-testid={`rename-type-${type}`}
+                      title="Rename Service Type"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-8 w-8 text-destructive"
+                      onClick={() => setDeletingType(type)}
+                      data-testid={`delete-type-${type}`}
+                      title="Delete Service Type"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                </div>
+                <div className="divide-y divide-border">
+                  {tiers.map(t => (
+                    <div key={t.id} className="flex items-center justify-between gap-3 p-3" data-testid={`tier-row-${t.id}`}>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-medium">{t.name}</span>
+                          {!t.active && <Badge variant="outline" className="text-[10px]">Inactive</Badge>}
+                        </div>
+                        {t.description && <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{t.description}</p>}
+                      </div>
+                      <div className="text-right font-semibold text-primary">£{Number(t.unit_price ?? 0).toLocaleString()}</div>
+                      <div className="flex items-center gap-1">
+                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => { setEditingTier(t); setTierFormDefaultType(null); setTierFormOpen(true); }} data-testid={`edit-tier-${t.id}`}>
+                          <Pencil className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => setDeletingTier(t)} data-testid={`delete-tier-${t.id}`}>
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+
+      {/* Tier add/edit dialog */}
+      <ProductFormDialog
+        open={tierFormOpen}
+        editing={editingTier}
+        defaultCategory={editingTier?.category ?? tierFormDefaultType ?? null}
+        canEditCategory={!editingTier && !tierFormDefaultType}
+        onClose={() => { setTierFormOpen(false); setEditingTier(null); setTierFormDefaultType(null); }}
+        onSave={saveTier}
+      />
+
+      {/* Add Service Type dialog */}
+      <Dialog open={showAddType} onOpenChange={o => !o && setShowAddType(false)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Service Type</DialogTitle>
+            <DialogDescription>Create a new group of services with at least one tier. You can add more tiers afterwards.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Service Type Name</Label>
+              <Input value={newTypeName} onChange={e => setNewTypeName(e.target.value)} placeholder="e.g. Meet & Greet, Champagne Service" data-testid="input-new-type-name" />
+            </div>
+            <div>
+              <Label>Description (optional)</Label>
+              <Textarea rows={2} value={newTypeDescription} onChange={e => setNewTypeDescription(e.target.value)} placeholder="Shown to operators when picking this service." />
+            </div>
+            <div className="border-t border-border pt-3 space-y-3">
+              <p className="text-xs uppercase tracking-wider text-muted-foreground">First Tier</p>
+              <div>
+                <Label>Tier Name</Label>
+                <Input value={newTypeTierName} onChange={e => setNewTypeTierName(e.target.value)} placeholder="e.g. Silver, Standard, Diamond" data-testid="input-new-tier-name" />
+              </div>
+              <div>
+                <Label>Tier Price (£)</Label>
+                <Input type="number" inputMode="decimal" value={newTypeTierPrice} onChange={e => setNewTypeTierPrice(e.target.value)} placeholder="0" data-testid="input-new-tier-price" />
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setShowAddType(false)}>Cancel</Button>
+            <Button onClick={createServiceType} disabled={busy || !newTypeName.trim() || !newTypeTierName.trim()} data-testid="button-create-type">
+              {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Save className="w-4 h-4 mr-1.5" />}
+              Create
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename Service Type */}
+      <Dialog open={!!renameType} onOpenChange={o => !o && setRenameType(null)}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename Service Type</DialogTitle>
+            <DialogDescription>Renames every tier in "{renameType?.old}" to use the new group name.</DialogDescription>
+          </DialogHeader>
+          <div>
+            <Label>New Name</Label>
+            <Input value={renameValue} onChange={e => setRenameValue(e.target.value)} data-testid="input-rename-type" />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setRenameType(null)}>Cancel</Button>
+            <Button onClick={renameServiceType} disabled={busy || !renameValue.trim()}>
+              {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Save className="w-4 h-4 mr-1.5" />}
+              Rename
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Service Type */}
+      <Dialog open={!!deletingType} onOpenChange={o => !o && setDeletingType(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete "{deletingType}"?</DialogTitle>
+            <DialogDescription>
+              Removes this Service Type and all of its tiers from the catalogue. Existing bookings keep their snapshot pricing.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeletingType(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deletingType && deleteServiceType(deletingType)} disabled={busy}>
+              {busy ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : null}
+              Delete
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Tier */}
+      <Dialog open={!!deletingTier} onOpenChange={o => !o && setDeletingTier(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete tier "{deletingTier?.name}"?</DialogTitle>
+            <DialogDescription>This permanently removes this tier. Existing bookings keep their snapshot pricing.</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDeletingTier(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deletingTier && deleteTier(deletingTier)}>Delete</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </Card>
+  );
 }
 
 // ─── Generic CRUD for product rows ─────────────────────────────────────────

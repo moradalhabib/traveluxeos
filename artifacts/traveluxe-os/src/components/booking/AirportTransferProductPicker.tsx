@@ -51,18 +51,15 @@ type Props = {
 /**
  * Airport Transfer pricing picker.
  *
- * Step 1 — Pick airport (handled by parent; we receive `airportCode`).
- * Step 2 — Vehicle dropdown shows ONLY vehicles that have a price for
- *          the selected airport, with that price displayed inline.
- * Step 3 — Selecting a vehicle reports `vehiclePrice` upward so the
- *          parent can auto-fill Client Price.
- * Step 4 — Additional Services (Meet & Greet etc.) appear as
- *          independent checkboxes; each adds its price to the total.
- * Step 5 — `totalPrice` = vehiclePrice + Σ(selected extras).
- *
- * The parent owns the actual Client Price field — this component just
- * surfaces the auto-calculated total whenever the selection changes,
- * leaving the operator free to override afterwards.
+ *   1. Vehicle dropdown — shows ONLY vehicles with a price for the chosen
+ *      airport, with that price displayed inline.
+ *   2. Additional Services — fully data-driven. Each `category` on the
+ *      products table is treated as a Service Type. Tiers within a type
+ *      are mutually exclusive (radio); a type with a single tier renders
+ *      as a checkbox. New service types and tiers can be added at any
+ *      time via the admin page — no code changes required.
+ *   3. Auto-calculated total = vehicle price + Σ(selected tier prices),
+ *      pushed up to the parent so it can pre-fill Client Price.
  */
 export function AirportTransferProductPicker({
   airportCode,
@@ -90,11 +87,6 @@ export function AirportTransferProductPicker({
         .eq("airport_code", airportCode);
       if (!active) return;
       const rows = (data ?? []) as unknown as VehicleRow[];
-      // Only show rows where:
-      //   - the linked product still exists and is active
-      //   - the product is in the Vehicle category
-      //   - service_types includes Airport Transfer (or is empty/null = legacy = show)
-      //   - the price for this airport is set (> 0)
       const filtered = rows.filter(r =>
         r.products
         && r.products.active
@@ -118,7 +110,7 @@ export function AirportTransferProductPicker({
     return () => { active = false; };
   }, [airportCode]);
 
-  // ─── Load Additional Services available for Airport Transfer ─────────────
+  // ─── Load Additional Services (everything that isn't a vehicle) ──────────
   useEffect(() => {
     let active = true;
     setLoadingExtras(true);
@@ -157,21 +149,22 @@ export function AirportTransferProductPicker({
   );
   const total = vehiclePrice + extrasTotal;
 
-  // Group extras by category for display
-  const extrasByCategory = useMemo(() => {
+  // Group extras by category — each category = one "Service Type"
+  const serviceTypes = useMemo(() => {
     const map = new Map<string, ExtraProduct[]>();
     for (const e of extras) {
       const list = map.get(e.category) ?? [];
       list.push(e);
       map.set(e.category, list);
     }
-    return Array.from(map.entries());
+    return Array.from(map.entries()).map(([type, tiers]) => ({
+      type,
+      tiers: tiers.slice().sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)),
+    }));
   }, [extras]);
 
   // ─── Handlers ─────────────────────────────────────────────────────────────
-  function emit(next: Partial<{ vehicleId: string; extras: TransferExtra[] }>) {
-    const nextVehicleId = next.vehicleId !== undefined ? next.vehicleId : vehicleProductId;
-    const nextExtras = next.extras !== undefined ? next.extras : transferExtras;
+  function emitFromState(nextVehicleId: string, nextExtras: TransferExtra[]) {
     const row = vehicleRows.find(r => r.product_id === nextVehicleId) ?? null;
     const vp = Number(row?.price ?? 0);
     const vn = row?.products?.name ?? "";
@@ -185,17 +178,18 @@ export function AirportTransferProductPicker({
     });
   }
 
-  function toggleExtra(p: ExtraProduct, checked: boolean) {
-    const exists = transferExtras.some(e => e.id === p.id);
-    let nextExtras: TransferExtra[];
-    if (checked && !exists) {
-      nextExtras = [...transferExtras, { id: p.id, name: p.name, price: Number(p.unit_price ?? 0) }];
-    } else if (!checked && exists) {
-      nextExtras = transferExtras.filter(e => e.id !== p.id);
-    } else {
-      return;
-    }
-    emit({ extras: nextExtras });
+  /** Replace the selection for this service type with `tier` (or clear it). */
+  function selectTier(typeTiers: ExtraProduct[], tier: ExtraProduct | null) {
+    const tierIdsInThisType = new Set(typeTiers.map(t => t.id));
+    const without = transferExtras.filter(e => !tierIdsInThisType.has(e.id));
+    const next = tier
+      ? [...without, { id: tier.id, name: tier.name, price: Number(tier.unit_price ?? 0) }]
+      : without;
+    emitFromState(vehicleProductId, next);
+  }
+
+  function setVehicle(id: string) {
+    emitFromState(id, transferExtras);
   }
 
   // ─── Render ───────────────────────────────────────────────────────────────
@@ -223,7 +217,7 @@ export function AirportTransferProductPicker({
         </div>
         <Select
           value={vehicleProductId || "none"}
-          onValueChange={(v) => emit({ vehicleId: v === "none" ? "" : v })}
+          onValueChange={(v) => setVehicle(v === "none" ? "" : v)}
         >
           <SelectTrigger data-testid="select-airport-vehicle">
             <SelectValue placeholder={loadingVehicles ? "Loading vehicles…" : "Select vehicle…"} />
@@ -252,7 +246,7 @@ export function AirportTransferProductPicker({
         )}
       </div>
 
-      {/* Additional services */}
+      {/* Additional services — one block per Service Type */}
       <div className="rounded-md border border-border bg-secondary/20 p-3 space-y-3" data-testid="airport-extras-picker">
         <div className="flex items-center justify-between gap-2">
           <Label className="text-xs uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
@@ -267,40 +261,93 @@ export function AirportTransferProductPicker({
 
         {loadingExtras && <p className="text-[11px] text-muted-foreground">Loading services…</p>}
 
-        {!loadingExtras && extrasByCategory.length === 0 && (
+        {!loadingExtras && serviceTypes.length === 0 && (
           <p className="text-[11px] text-muted-foreground">No additional services configured.</p>
         )}
 
-        {extrasByCategory.map(([cat, list]) => (
-          <div key={cat} className="space-y-1.5">
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/80">{cat}</div>
-            {list.map(p => {
-              const checked = transferExtras.some(e => e.id === p.id);
-              return (
-                <label
-                  key={p.id}
-                  className="flex items-start gap-2 p-2 rounded border border-border/40 bg-background/40 hover:border-primary/30 cursor-pointer transition"
-                  data-testid={`extra-row-${p.id}`}
-                >
+        {serviceTypes.map(({ type, tiers }) => {
+          const selected = transferExtras.find(e => tiers.some(t => t.id === e.id)) ?? null;
+          const sharedDescription = tiers[0]?.description && tiers.every(t => (t.description ?? "") === tiers[0].description)
+            ? tiers[0].description
+            : null;
+
+          if (tiers.length === 1) {
+            // Single-tier service: simple checkbox toggle
+            const t = tiers[0];
+            const checked = !!selected;
+            return (
+              <div key={type} className="rounded border border-border/40 bg-background/40 p-2" data-testid={`service-type-${type}`}>
+                <label className="flex items-start gap-2 cursor-pointer">
                   <Checkbox
                     checked={checked}
-                    onCheckedChange={(c) => toggleExtra(p, c === true)}
+                    onCheckedChange={(c) => selectTier(tiers, c === true ? t : null)}
                     className="mt-0.5"
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-sm font-medium">{p.name}</span>
-                      <span className="text-sm font-semibold text-primary">+£{Number(p.unit_price ?? 0).toLocaleString()}</span>
+                      <span className="text-sm font-medium">{type}</span>
+                      <span className="text-sm font-semibold text-primary">+£{Number(t.unit_price ?? 0).toLocaleString()}</span>
                     </div>
-                    {p.description && (
-                      <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5">{p.description}</p>
-                    )}
+                    {t.description && <p className="text-[11px] text-muted-foreground mt-0.5">{t.description}</p>}
                   </div>
                 </label>
-              );
-            })}
-          </div>
-        ))}
+              </div>
+            );
+          }
+
+          // Multi-tier service: tier name as label, mutually exclusive radios
+          return (
+            <div key={type} className="rounded border border-border/40 bg-background/40 p-2 space-y-1.5" data-testid={`service-type-${type}`}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="text-sm font-medium">{type}</div>
+                {selected && (
+                  <button
+                    type="button"
+                    onClick={() => selectTier(tiers, null)}
+                    className="text-[11px] text-muted-foreground hover:text-foreground underline"
+                    data-testid={`clear-${type}`}
+                  >
+                    Clear
+                  </button>
+                )}
+              </div>
+              {sharedDescription && (
+                <p className="text-[11px] text-muted-foreground -mt-1">{sharedDescription}</p>
+              )}
+              <div className="space-y-1">
+                {tiers.map(t => {
+                  const isSelected = selected?.id === t.id;
+                  return (
+                    <label
+                      key={t.id}
+                      className={`flex items-start gap-2 p-2 rounded border cursor-pointer transition ${
+                        isSelected ? "border-primary/60 bg-primary/5" : "border-border/40 hover:border-primary/30"
+                      }`}
+                      data-testid={`tier-row-${t.id}`}
+                    >
+                      <input
+                        type="radio"
+                        name={`service-type-${type}`}
+                        checked={isSelected}
+                        onChange={() => selectTier(tiers, t)}
+                        className="mt-1 accent-primary"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-medium">{t.name}</span>
+                          <span className="text-sm font-semibold text-primary">+£{Number(t.unit_price ?? 0).toLocaleString()}</span>
+                        </div>
+                        {!sharedDescription && t.description && (
+                          <p className="text-[11px] text-muted-foreground line-clamp-2 mt-0.5">{t.description}</p>
+                        )}
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {/* Live total */}
