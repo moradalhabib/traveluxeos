@@ -1,8 +1,10 @@
 import { useState, useMemo } from "react";
 import {
   useListInvoices, getListInvoicesQueryKey,
-  useGenerateInvoice, useListBookings, getListBookingsQueryKey
+  useGenerateInvoice, useListBookings, getListBookingsQueryKey,
+  useDeleteInvoice,
 } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -10,10 +12,16 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Link } from "wouter";
 import { format } from "date-fns";
-import { AlertTriangle, FileText, Plus, Receipt, Search, X } from "lucide-react";
+import { AlertTriangle, FileText, Plus, Receipt, Search, X, Trash2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 
 export default function Invoices() {
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -26,6 +34,21 @@ export default function Invoices() {
   // Toggled by tapping the amber banner; cleared by the X button.
   const [overdueOnly, setOverdueOnly] = useState(false);
   const { toast } = useToast();
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const canDeleteInvoices = user?.role === "admin" || user?.role === "super_admin";
+
+  const deleteInvoiceMut = useDeleteInvoice({
+    mutation: {
+      onSuccess: (data: any) => {
+        toast({ title: "Invoice deleted", description: data?.invoice_number ? `${data.invoice_number} permanently removed` : "Removed" });
+        queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
+      },
+      onError: (err: any) => {
+        toast({ title: "Delete failed", description: err?.response?.data?.error ?? err?.message ?? "Unknown error", variant: "destructive" });
+      },
+    },
+  });
 
   const { data: invoices, isLoading, refetch } = useListInvoices(
     { query: { enabled: true, queryKey: getListInvoicesQueryKey() } }
@@ -251,38 +274,79 @@ export default function Invoices() {
           filteredInvoices.map((invoice) => {
             const bk = bookingMap[invoice.booking_id];
             return (
-              <Link key={invoice.id} href={`/invoices/${invoice.id}`}>
-                <Card className="border-border hover:border-primary/40 hover:bg-secondary/10 transition-all cursor-pointer bg-card">
-                  <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-                    <div className="flex items-center gap-4 min-w-0">
-                      <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        <Receipt className="w-5 h-5 text-primary" />
-                      </div>
-                      <div className="min-w-0">
-                        <div className="font-bold text-foreground font-mono">{invoice.invoice_number}</div>
-                        <div className="text-sm text-foreground/80 mt-0.5 font-medium truncate">
-                          {bk?.client_name || "—"}
+              <div key={invoice.id} className="relative group">
+                <Link href={`/invoices/${invoice.id}`}>
+                  <Card className="border-border hover:border-primary/40 hover:bg-secondary/10 transition-all cursor-pointer bg-card">
+                    <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-4 min-w-0">
+                        <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <Receipt className="w-5 h-5 text-primary" />
                         </div>
-                        <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
-                          {bk?.tvl_ref && <span className="font-mono">{bk.tvl_ref}</span>}
-                          {bk?.service_type && <span>· {bk.service_type}</span>}
-                          {bk?.price && <span>· £{Number(bk.price).toLocaleString()}</span>}
-                        </div>
-                        {invoice.generated_at && (
-                          <div className="text-xs text-muted-foreground mt-0.5">
-                            Generated {format(new Date(invoice.generated_at), "dd MMM yyyy")}
+                        <div className="min-w-0">
+                          <div className="font-bold text-foreground font-mono">{invoice.invoice_number}</div>
+                          <div className="text-sm text-foreground/80 mt-0.5 font-medium truncate">
+                            {bk?.client_name || "—"}
                           </div>
-                        )}
+                          <div className="text-xs text-muted-foreground mt-0.5 flex items-center gap-2 flex-wrap">
+                            {bk?.tvl_ref && <span className="font-mono">{bk.tvl_ref}</span>}
+                            {bk?.service_type && <span>· {bk.service_type}</span>}
+                            {bk?.price && <span>· £{Number(bk.price).toLocaleString()}</span>}
+                          </div>
+                          {invoice.generated_at && (
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              Generated {format(new Date(invoice.generated_at), "dd MMM yyyy")}
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-center gap-3 ml-0 sm:ml-4 flex-shrink-0">
-                      <Badge variant="outline" className={`${getStatusColor(invoice.status)} text-xs px-3 py-1`}>
-                        {invoice.status}
-                      </Badge>
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
+                      <div className="flex items-center gap-3 ml-0 sm:ml-4 flex-shrink-0">
+                        <Badge variant="outline" className={`${getStatusColor(invoice.status)} text-xs px-3 py-1`}>
+                          {invoice.status}
+                        </Badge>
+                        {/* Spacer reserves room for the absolutely-positioned
+                            trash button so the badge isn't covered. */}
+                        {canDeleteInvoices && <span className="w-9" aria-hidden />}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </Link>
+                {canDeleteInvoices && (
+                  <div className="absolute top-1/2 -translate-y-1/2 right-3 sm:right-4 z-10">
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="icon"
+                          className="h-9 w-9 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/40 bg-card"
+                          title="Delete invoice"
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                          data-testid={`button-delete-invoice-${invoice.id}`}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete invoice {invoice.invoice_number}?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This permanently removes the invoice. The linked booking is not affected. The deletion is logged in the audit trail and broadcast to all staff. This cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Keep invoice</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={() => deleteInvoiceMut.mutate({ id: invoice.id })}
+                            data-testid={`button-confirm-delete-invoice-${invoice.id}`}
+                          >
+                            Delete permanently
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                )}
+              </div>
             );
           })
         ) : (

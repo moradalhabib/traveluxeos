@@ -504,6 +504,12 @@ export type ListDriversParams = {
   status?: string;
 };
 
+export type DeleteInvoice200 = {
+  ok?: boolean;
+  id?: string;
+  invoice_number?: string | null;
+};
+
 export type ListMessagesParams = {
   channel?: string;
   recipient_id?: string;

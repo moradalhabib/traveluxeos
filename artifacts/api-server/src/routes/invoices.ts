@@ -1,5 +1,7 @@
 import { Router } from "express";
 import { supabase, auditLog, getUserFromToken } from "../lib/supabase";
+import { logActivity } from "../lib/activity";
+import { notifyByRoles, STAFF_ROLES } from "../services/notify";
 import {
   sendConfirmationEmail,
   sendPaymentReceiptEmail,
@@ -278,6 +280,63 @@ router.post("/:id/send-email", async (req, res) => {
     `Invoice ${invoice.invoice_number} emailed to ${email}`);
 
   return res.json({ ok: true, sent_to: email, invoice_number: invoice.invoice_number });
+});
+
+// ── Hard delete an invoice ──────────────────────────────────────────────────
+// Admin or Super Admin only. Snapshot is captured into the audit log before
+// deletion (immutable forensic record), an entry is written to the operator
+// activity feed, and an in-app notification is broadcast to all staff so
+// deletions can't happen quietly. The booking the invoice was linked to is
+// untouched — only the invoice row is removed.
+router.delete("/:id", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || !["admin", "super_admin"].includes(user.role)) {
+    return res.status(403).json({ error: "Only Admin or Super Admin can delete invoices" });
+  }
+  const id = req.params.id;
+
+  const { data: inv } = await supabase
+    .from("invoices")
+    .select("*")
+    .eq("id", id)
+    .single();
+  if (!inv) return res.status(404).json({ error: "Invoice not found" });
+
+  const { error: delErr } = await supabase.from("invoices").delete().eq("id", id);
+  if (delErr) return res.status(400).json({ error: delErr.message });
+
+  const summary = `Invoice ${inv.invoice_number ?? id} permanently deleted by ${user.name ?? user.email ?? user.id} (${user.role}). ` +
+    `Booking: ${inv.booking_id ?? "—"} · Amount: £${inv.total_amount ?? inv.amount ?? 0} · Status was: ${inv.status ?? "—"}`;
+
+  await auditLog(
+    "delete_invoice",
+    "invoice",
+    id,
+    user.id,
+    `${summary}\n--- SNAPSHOT ---\n${JSON.stringify(inv)}`,
+  );
+
+  await logActivity({
+    action_type: "invoice_deleted",
+    description: summary,
+    entity_type: "invoice",
+    entity_id: id,
+    entity_label: inv.invoice_number ?? null,
+    operator_id: user.id,
+    operator_name: user.name ?? user.email ?? null,
+  });
+
+  notifyByRoles(STAFF_ROLES, {
+    type: "booking_cancelled",
+    title: "Invoice Deleted",
+    message: `${inv.invoice_number ?? id} — deleted by ${user.name ?? user.email ?? "admin"}`,
+    link: `/invoices`,
+    entityType: "invoice",
+    entityId: id,
+    severity: "warning",
+  }).catch(() => {});
+
+  return res.json({ ok: true, id, invoice_number: inv.invoice_number });
 });
 
 export default router;

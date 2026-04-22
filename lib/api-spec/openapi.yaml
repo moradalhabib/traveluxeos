@@ -690,6 +690,29 @@ paths:
                 items:
                   $ref: "#/components/schemas/Invoice"
 
+  /invoices/{id}:
+    delete:
+      operationId: deleteInvoice
+      tags: [invoices]
+      summary: Permanently delete an invoice (Admin / Super Admin only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Deletion result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                  id: { type: string }
+                  invoice_number: { type: string, nullable: true }
+
   /invoices/generate:
     post:
       operationId: generateInvoice

@@ -1155,6 +1155,19 @@ export const ListInvoicesResponseItem = zod.object({
 export const ListInvoicesResponse = zod.array(ListInvoicesResponseItem);
 
 /**
+ * @summary Permanently delete an invoice (Admin / Super Admin only)
+ */
+export const DeleteInvoiceParams = zod.object({
+  id: zod.coerce.string(),
+});
+
+export const DeleteInvoiceResponse = zod.object({
+  ok: zod.boolean().optional(),
+  id: zod.string().optional(),
+  invoice_number: zod.string().nullish(),
+});
+
+/**
  * @summary Generate an invoice for a booking
  */
 export const GenerateInvoiceBody = zod.object({
