@@ -419,16 +419,23 @@ export default function Finance() {
 
 // ─── Profit Tab (Super Admin only) ──────────────────────────────────────────
 
-const PROFIT_BUCKETS = ["Airport Transfer", "Tour", "Car Rental", "Apartment"] as const;
+// "As Directed" was previously absent here AND in the backend bucket map,
+// so its TVL commission was silently rolled into "Other" (and "Other" only
+// rendered when there was leftover spillover). Adding it as a first-class
+// bucket gives operators visibility on what is actually our top revenue
+// service. Order mirrors the operational priority on the Services page.
+const PROFIT_BUCKETS = ["Airport Transfer", "Tour", "As Directed", "Car Rental", "Apartment"] as const;
 const BUCKET_ICONS: Record<string, any> = {
   "Airport Transfer": Plane,
   "Tour": Map,
+  "As Directed": Clock,
   "Car Rental": Car,
   "Apartment": Home,
 };
 const BUCKET_COLORS: Record<string, string> = {
   "Airport Transfer": "#c9a84c",
   "Tour": "#4c8fc9",
+  "As Directed": "#e0962b",
   "Car Rental": "#7d4cc9",
   "Apartment": "#4cc99e",
   "Other": "#888888",

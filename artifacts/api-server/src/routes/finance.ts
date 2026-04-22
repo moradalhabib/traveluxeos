@@ -173,13 +173,18 @@ router.get("/profit", requireSuperAdmin, async (req, res) => {
     return res.status(isAccessDenied ? 403 : 500).json({ error: error.message });
   }
 
-  // Map service_type → bucket label requested by spec
+  // Map service_type → bucket label requested by spec.
+  // "As Directed" was previously falling through to the generic "Other"
+  // bucket because it has no keyword match — operators flagged it as the
+  // top-revenue service that wasn't appearing on the Profit tab. Adding an
+  // explicit branch surfaces it as its own bucket.
   const bucketFor = (svc: string | null | undefined): string => {
     const s = (svc ?? "").toLowerCase();
-    if (s.includes("airport"))   return "Airport Transfer";
+    if (s.includes("airport"))     return "Airport Transfer";
     if (s.includes("apartment") || s.includes("accommodation")) return "Apartment";
     if (s.includes("rental") || s.includes("car rental"))       return "Car Rental";
-    if (s.includes("tour"))      return "Tour";
+    if (s.includes("as directed") || s === "as directed" || s.includes("directed")) return "As Directed";
+    if (s.includes("tour"))        return "Tour";
     return svc || "Other";
   };
 
@@ -199,6 +204,7 @@ router.get("/profit", requireSuperAdmin, async (req, res) => {
   const summary: Record<string, number> = {
     "Airport Transfer": 0,
     "Tour": 0,
+    "As Directed": 0,
     "Car Rental": 0,
     "Apartment": 0,
   };
