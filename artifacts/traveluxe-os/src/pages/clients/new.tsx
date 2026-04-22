@@ -14,6 +14,7 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useState, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { NATIONALITIES } from "@/lib/nationalities";
 
 const formSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -184,9 +185,20 @@ export default function NewClient() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Nationality</FormLabel>
-                      <FormControl>
-                        <Input placeholder="e.g. British" {...field} />
-                      </FormControl>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
+                        <FormControl>
+                          <SelectTrigger data-testid="select-nationality">
+                            <SelectValue placeholder="Select nationality" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {NATIONALITIES.map((n) => (
+                            <SelectItem key={n.value} value={n.value}>
+                              <span className="mr-2">{n.flag}</span>{n.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                       <FormMessage />
                     </FormItem>
                   )}

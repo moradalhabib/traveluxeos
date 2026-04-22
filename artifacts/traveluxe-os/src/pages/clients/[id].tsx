@@ -13,6 +13,8 @@ import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { NATIONALITIES, nationalityFlag } from "@/lib/nationalities";
 
 const API_BASE = `${import.meta.env.VITE_API_URL ?? ""}/api`;
 
@@ -451,7 +453,11 @@ export default function ClientDetail() {
             </div>
             <div>
               <span className="text-muted-foreground block mb-1 text-xs">Nationality</span>
-              <span className="font-medium">{(client as any).nationality || 'N/A'}</span>
+              <span className="font-medium">
+                {(client as any).nationality
+                  ? <><span className="mr-1.5">{nationalityFlag((client as any).nationality)}</span>{(client as any).nationality}</>
+                  : 'N/A'}
+              </span>
             </div>
             <div>
               <span className="text-muted-foreground block mb-1 text-xs">Client Since</span>
@@ -800,7 +806,16 @@ export default function ClientDetail() {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Nationality</p>
-                <Input value={editNationality} onChange={e => setEditNationality(e.target.value)} placeholder="e.g. British" />
+                <Select value={editNationality || ""} onValueChange={setEditNationality}>
+                  <SelectTrigger><SelectValue placeholder="Select nationality" /></SelectTrigger>
+                  <SelectContent>
+                    {NATIONALITIES.map((n) => (
+                      <SelectItem key={n.value} value={n.value}>
+                        <span className="mr-2">{n.flag}</span>{n.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Language</p>

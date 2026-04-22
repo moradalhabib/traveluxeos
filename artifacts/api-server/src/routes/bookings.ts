@@ -221,7 +221,7 @@ async function fetchDriverSafely(driverId: string | null) {
 
 async function enrichBooking(booking: any) {
   const [{ data: client }, driver, { data: operator }] = await Promise.all([
-    supabase.from("clients").select("name, vip_tier, email").eq("id", booking.client_id).single(),
+    supabase.from("clients").select("name, vip_tier, email, nationality").eq("id", booking.client_id).single(),
     fetchDriverSafely(booking.driver_id),
     supabase.from("users").select("name").eq("id", booking.operator_id).single(),
   ]);
@@ -231,6 +231,7 @@ async function enrichBooking(booking: any) {
     client_name: client?.name ?? null,
     client_vip_tier: client?.vip_tier ?? null,
     client_email: client?.email ?? null,
+    client_nationality: client?.nationality ?? null,
     driver_name: driver?.name ?? null,
     driver_staff_no: driver?.staff_no ?? null,
     driver_vehicle: driver
@@ -333,6 +334,7 @@ router.get("/", async (req, res) => {
     ...b,
     client_name: b.clients?.name ?? null,
     client_vip_tier: b.clients?.vip_tier ?? null,
+    client_nationality: b.clients?.nationality ?? null,
     driver_name: b.drivers?.name ?? null,
     driver_staff_no: b.drivers?.staff_no ?? null,
     driver_vehicle: b.drivers
@@ -353,7 +355,7 @@ const BOOKING_COLUMNS = new Set([
   "destination","flight_number","date_time","passengers","luggage",
   "vehicle_type","nameboard","special_requests","additional_charges",
   "price","tvl_commission","commission_type","payment_status",
-  "payment_method","commission_status","payout_status","source","status",
+  "payment_method","commission_status","payout_status","status",
   "operator_id","driver_id","return_booking_id","is_amended","notes",
   "duration","created_by","updated_at",
   // hotel columns
@@ -373,8 +375,7 @@ const BOOKING_COLUMNS = new Set([
   "client_notified_at","driver_notified_at",
   // Payment-tracking (April 2026 migration B)
   "payment_date","paid_amount","payment_notes",
-  // Booking extensions (April-21 migration): source_other, driver acceptance, completion
-  "source_other",
+  // Booking extensions (April-21 migration): driver acceptance, completion
   "driver_acceptance_status","driver_accepted_at","driver_declined_at","driver_decline_reason",
   "client_satisfied","driver_on_time","completion_notes","completed_at",
 ]);
@@ -400,8 +401,6 @@ const AMENDMENT_FIELD_LABELS: Record<string, string> = {
   tvl_commission: "TVL Commission",
   notes: "Notes",
   special_requests: "Special Requests",
-  source: "Source",
-  source_other: "Source (Other)",
   driver_acceptance_status: "Driver Acceptance",
 };
 
@@ -606,6 +605,7 @@ router.get("/:id", async (req, res) => {
     client_name: booking.clients?.name ?? null,
     client_vip_tier: booking.clients?.vip_tier ?? null,
     client_whatsapp: booking.clients?.whatsapp ?? null,
+    client_nationality: booking.clients?.nationality ?? null,
     driver_name: booking.drivers?.name ?? null,
     driver_staff_no: booking.drivers?.staff_no ?? null,
     driver_vehicle: booking.drivers

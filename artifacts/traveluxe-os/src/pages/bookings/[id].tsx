@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift, Map, Building2, CalendarRange, RotateCcw, ExternalLink, AlertTriangle, CheckCircle2, History } from "lucide-react";
 import { format } from "date-fns";
+import { nationalityFlag } from "@/lib/nationalities";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
@@ -1599,6 +1600,16 @@ export default function BookingDetail() {
               )}
               {booking.client_vip_tier && booking.client_vip_tier !== 'Standard' && (
                 <Badge variant="outline" className={getVipBadgeColor(booking.client_vip_tier)}>{booking.client_vip_tier}</Badge>
+              )}
+              {(booking as any).client_nationality && (
+                <span
+                  className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded border border-border bg-secondary"
+                  title={(booking as any).client_nationality}
+                  data-testid="badge-client-nationality"
+                >
+                  <span className="text-base leading-none">{nationalityFlag((booking as any).client_nationality)}</span>
+                  <span className="text-muted-foreground">{(booking as any).client_nationality}</span>
+                </span>
               )}
             </div>
             {(booking as any).client_email && (

@@ -18,6 +18,7 @@ import { format } from "date-fns";
 import { Label } from "@/components/ui/label";
 import ProductPicker, { type OrderLine } from "@/components/booking/ProductPicker";
 import { SupplierProductPicker } from "@/components/SupplierProductPicker";
+import { NATIONALITIES, nationalityFlag } from "@/lib/nationalities";
 import { FlightLookupCard } from "@/components/booking/FlightLookupCard";
 
 type Phase = "lookup" | "found" | "register" | "booking";
@@ -57,12 +58,10 @@ const bookingSchema = z.object({
   special_requests: z.string().optional(),
   extras: z.string().optional(),
   additional_charges: z.coerce.number().optional(),
-  price: z.coerce.number().optional().default(0),
+  price: z.coerce.number().optional(),
   tvl_commission: z.coerce.number().optional().default(0),
   payment_status: z.string().default("Unpaid"),
   payment_method: z.string().optional(),
-  source: z.string().optional(),
-  source_other: z.string().optional(),
   status: z.string().default("Confirmed"),
   driver_id: z.string().optional(),
   notes: z.string().optional(),
@@ -209,7 +208,7 @@ export default function NewBooking() {
     defaultValues: {
       client_id: "",
       service_type: "Airport Transfer",
-      price: 0,
+      price: undefined,
       tvl_commission: 0,
       status: "Confirmed",
       payment_status: "Unpaid",
@@ -786,8 +785,6 @@ export default function NewBooking() {
       commission_notes: values.commission_notes,
       payment_status: values.payment_status,
       payment_method: values.payment_method,
-      source: values.source,
-      source_other: values.source === "Other" ? (values.source_other ?? null) : null,
       status: values.status,
       driver_id: values.driver_id,
       notes: values.notes,
@@ -1005,7 +1002,10 @@ export default function NewBooking() {
                       <Badge variant="outline" className={getVipColor(foundClient.vip_tier)}>{foundClient.vip_tier}</Badge>
                     </div>
                     {foundClient.nationality && (
-                      <p className="text-sm text-muted-foreground">{foundClient.nationality}</p>
+                      <p className="text-sm text-muted-foreground">
+                        <span className="mr-1.5">{nationalityFlag(foundClient.nationality)}</span>
+                        {foundClient.nationality}
+                      </p>
                     )}
                     {foundClient.email && (
                       <p className="text-xs text-muted-foreground">{foundClient.email}</p>
@@ -1084,7 +1084,16 @@ export default function NewBooking() {
                       <FormField control={editFoundForm.control} name="nationality" render={({ field }) => (
                         <FormItem>
                           <FormLabel>Nationality</FormLabel>
-                          <FormControl><Input placeholder="e.g. UAE" {...field} /></FormControl>
+                          <Select onValueChange={field.onChange} value={field.value || ""}>
+                            <FormControl><SelectTrigger><SelectValue placeholder="Select nationality" /></SelectTrigger></FormControl>
+                            <SelectContent>
+                              {NATIONALITIES.map((n) => (
+                                <SelectItem key={n.value} value={n.value}>
+                                  <span className="mr-2">{n.flag}</span>{n.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -1146,7 +1155,16 @@ export default function NewBooking() {
                       <FormField control={registerForm.control} name="nationality" render={({ field }) => (
                         <FormItem>
                           <FormLabel>Nationality</FormLabel>
-                          <FormControl><Input placeholder="e.g. Saudi" {...field} /></FormControl>
+                          <Select onValueChange={field.onChange} value={field.value || ""}>
+                            <FormControl><SelectTrigger><SelectValue placeholder="Select nationality" /></SelectTrigger></FormControl>
+                            <SelectContent>
+                              {NATIONALITIES.map((n) => (
+                                <SelectItem key={n.value} value={n.value}>
+                                  <span className="mr-2">{n.flag}</span>{n.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                           <FormMessage />
                         </FormItem>
                       )} />
@@ -2352,41 +2370,6 @@ export default function NewBooking() {
                       </div>
                     </div>
                   )}
-
-                  {/* Source — required for marketing intel. "Other" reveals
-                      a free-text input persisted as `source_other`. */}
-                  <div className="grid grid-cols-2 gap-3">
-                    <FormField control={bookingForm.control} name="source" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Source</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value || ""}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-source"><SelectValue placeholder="How did they reach us?" /></SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="WhatsApp Direct">WhatsApp Direct</SelectItem>
-                            <SelectItem value="Snapchat">Snapchat</SelectItem>
-                            <SelectItem value="Returning Client">Returning Client</SelectItem>
-                            <SelectItem value="Hotel Referral">Hotel Referral</SelectItem>
-                            <SelectItem value="Agent Referral">Agent Referral</SelectItem>
-                            <SelectItem value="Other">Other</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
-                    {bookingForm.watch("source") === "Other" && (
-                      <FormField control={bookingForm.control} name="source_other" render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Specify source</FormLabel>
-                          <FormControl>
-                            <Input placeholder="e.g. Concierge introduction" {...field} data-testid="input-source-other" />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
-                    )}
-                  </div>
 
                   <div className="grid grid-cols-2 gap-3">
                     <FormField control={bookingForm.control} name="payment_status" render={({ field }) => (

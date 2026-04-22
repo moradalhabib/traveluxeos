@@ -454,11 +454,11 @@ function ExportTab() {
     setLoading('bookings');
     const { data, error } = await supabase
       .from('bookings')
-      .select('tvl_ref, service_type, status, date_time, pickup, dropoff, destination, flight_number, direction, nameboard, passengers, luggage, vehicle_type, price, tvl_commission, driver_receives, payment_status, payment_method, source, notes, created_at, clients(name, vip_tier), drivers(name)')
+      .select('tvl_ref, service_type, status, date_time, pickup, dropoff, destination, flight_number, direction, nameboard, passengers, luggage, vehicle_type, price, tvl_commission, driver_receives, payment_status, payment_method, notes, created_at, clients(name, vip_tier), drivers(name)')
       .order('date_time', { ascending: false });
     if (error || !data) { toast({ title: 'Export failed', variant: 'destructive' }); setLoading(null); return; }
     const csv = buildCSV(
-      ['Ref', 'Client', 'VIP Tier', 'Service', 'Status', 'Date/Time', 'Pickup', 'Dropoff/Dest', 'Flight', 'Direction', 'Nameboard', 'Pax', 'Luggage', 'Vehicle', 'Price (£)', 'Commission (£)', 'Driver Gets (£)', 'Payment', 'Method', 'Driver', 'Source', 'Notes', 'Created'],
+      ['Ref', 'Client', 'VIP Tier', 'Service', 'Status', 'Date/Time', 'Pickup', 'Dropoff/Dest', 'Flight', 'Direction', 'Nameboard', 'Pax', 'Luggage', 'Vehicle', 'Price (£)', 'Commission (£)', 'Driver Gets (£)', 'Payment', 'Method', 'Driver', 'Notes', 'Created'],
       data.map((b: any) => [
         b.tvl_ref, b.clients?.name || '', b.clients?.vip_tier || '',
         b.service_type, b.status,
@@ -469,7 +469,7 @@ function ExportTab() {
         b.price || 0, b.tvl_commission || 0, b.driver_receives || 0,
         b.payment_status || '', b.payment_method || '',
         b.drivers?.name || '',
-        b.source || '', b.notes || '',
+        b.notes || '',
         b.created_at ? format(new Date(b.created_at), 'dd/MM/yyyy') : ''
       ])
     );
