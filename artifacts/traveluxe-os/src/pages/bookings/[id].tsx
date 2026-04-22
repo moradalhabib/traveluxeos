@@ -1550,8 +1550,10 @@ export default function BookingDetail() {
         </Card>
       )}
 
-      {/* Flight number link (when no live status yet, e.g. before flight tracking begins) */}
-      {!booking.flight_status && booking.flight_number && booking.service_type === "Airport Transfer" && (
+      {/* Flight number link (when no live status yet, e.g. before flight tracking begins).
+          Shown for any service type with a flight number on file — Airport
+          Transfers, Tours, As Directed bookings where the client is flying in. */}
+      {!booking.flight_status && booking.flight_number && (
         <a
           href={`https://www.flightradar24.com/${encodeURIComponent(booking.flight_number.replace(/\s+/g, ""))}`}
           target="_blank"

@@ -1,0 +1,68 @@
+TRAVELUXE OS — New Feature Additions
+Important: Read before starting
+
+Do NOT touch any existing functionality, booking records, or database schema unless explicitly stated
+Add features incrementally and test after each one
+Do not republish until all items are confirmed working
+Flag anything that risks breaking existing functionality before proceeding
+
+
+Feature 1 — Flight Number Field
+Add a flight number input field to all relevant booking types on the new booking form — Airport Transfer, Tour, and As Directed. It should:
+
+Appear in Journey Details section
+Save to the booking record and display on the booking detail page
+Auto-generate a Flightradar24 tracking link next to the flight number on the booking detail page, exactly like it currently does on TVL-0073 with KU101
+Be optional — do not make it mandatory
+
+
+Feature 2 — Client Language / Nationality Flag
+Add a language or nationality indicator to the client record and booking form. It should:
+
+Be selectable when creating or editing a client — a simple dropdown of common nationalities (Kuwait, Saudi Arabia, UAE, Qatar, Bahrain, Oman, Iraq, Jordan, Egypt, UK, Other)
+Display as a small flag emoji or country label on the booking detail page and the driver job sheet
+Purpose is so drivers immediately know if the client is Arabic-speaking without having to check notes
+
+
+Feature 3 — Vehicle Preference Field
+Add a vehicle preference field to the new booking form in the Journey Details section. It should:
+
+Be a free text input — e.g. "Range Rover", "V-Class", "Rolls Royce"
+Display clearly on the booking detail page and driver job sheet
+Be optional
+
+
+Feature 4 — Commission Split Field
+Add a commission split field to the Financials section of the booking form. It should:
+
+Only appear when toggled on — default is hidden, operator enables it per booking
+Fields: Referral Partner name (free text), their commission % or £ amount (operator chooses which), TVL net after split (auto-calculated)
+Display on the booking detail page in the financials section
+Does not affect the main TVL Margin calculation — show it as a sub-line below: "TVL Net after referral: £XXX"
+Do not create a separate module for this — keep it within the booking financials
+
+
+Feature 5 — Supplier Balance Tracker
+Create a new section inside the existing Suppliers module (do not create a new top-level module). For each supplier it should show:
+
+List of all bookings linked to that supplier with their supplier cost
+Total owed to supplier across all active/completed unpaid bookings
+A "Mark as Paid" button per booking or in bulk to record that the supplier has been settled
+A running balance: Total invoiced to supplier vs Total paid to supplier vs Outstanding balance
+Filter by date range
+This is internal only — not shared with the supplier
+
+
+Feature 6 — Driver Job Sheet (Mobile-Friendly)
+Create a mobile-optimised job sheet view accessible from the booking detail page. It should:
+
+Be triggered by a "View Job Sheet" button on the booking detail page
+Open a clean, minimal, full-screen view optimised for a phone screen
+Display in both English and Arabic (Arabic on the same sheet below the English, right-to-left)
+Content to show: Booking reference, Date and time, Service type, Client name, Client nationality flag, Flight number + Flightradar24 link (if applicable), Pickup location, Dropoff location, Passengers, Luggage, Vehicle (from supplier), Special requests and extras, Operator contact (Traveluxe number)
+Do NOT show financials, costs, margins, or any internal data on the job sheet
+Include a "Share" button that generates a clean shareable link or WhatsApp-ready message with the job sheet details
+The existing WhatsApp pre-fill button on the booking detail page stays unchanged — this is a separate addition
+
+
+Do not start all features simultaneously. Complete and confirm each feature one at a time in the order listed above before moving to the next. Start with Feature 1.Sonnet 4.6Adaptive

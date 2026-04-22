@@ -1596,9 +1596,12 @@ export default function NewBooking() {
                         </>
                       );
                     }
-                    // Tour, As Directed → just Date + Time side by side.
+                    // Tour, As Directed → Date + Time + optional Flight No.
+                    // Flight number lets the operator surface a Flightradar24
+                    // link on the booking detail / driver job sheet for clients
+                    // arriving by air who then want a tour or chauffeur day.
                     return (
-                      <div className="grid grid-cols-2 gap-3">
+                      <div className="grid grid-cols-3 gap-3">
                         <div className="space-y-2">
                           <Label>Date</Label>
                           <Input type="date" value={dateVal} onChange={(e) => writeDate(e.target.value)} />
@@ -1607,6 +1610,16 @@ export default function NewBooking() {
                           <Label>Time <span className="text-[10px] text-muted-foreground font-normal">(UK)</span></Label>
                           <Input type="time" value={timeVal} onChange={(e) => writeTime(e.target.value)} />
                         </div>
+                        <FormField control={bookingForm.control} name="flight_number" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              Flight No.
+                              <span className="text-[10px] text-muted-foreground font-normal ml-1">(optional)</span>
+                            </FormLabel>
+                            <FormControl><Input placeholder="BA123" {...field} className="uppercase" /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
                       </div>
                     );
                   })()}
