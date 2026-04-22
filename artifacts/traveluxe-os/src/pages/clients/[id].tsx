@@ -249,8 +249,22 @@ export default function ClientDetail() {
   const tierCfg = TIER_CONFIG[tier];
   const TierIcon = tierCfg.icon;
   const progress = nextTierProgress(totalBookings, totalSpent, tier);
-  const clientSince = (client as any).created_at ? new Date((client as any).created_at) : null;
-  const monthsActive = clientSince ? Math.max(0, differenceInMonths(new Date(), clientSince)) : 0;
+  // Imported (Odoo) clients have no created_at. Fall back to the date of
+  // their earliest booking so the "Since" tile and durations still make sense.
+  const createdAtDate = (client as any).created_at ? new Date((client as any).created_at) : null;
+  const earliestBookingDate = (() => {
+    const bks = ((client as any).bookings ?? []).filter((b: any) => b.date_time);
+    if (bks.length === 0) return null;
+    const sorted = [...bks].sort(
+      (a: any, b: any) => new Date(a.date_time).getTime() - new Date(b.date_time).getTime(),
+    );
+    return new Date(sorted[0].date_time);
+  })();
+  const clientSince = createdAtDate ?? earliestBookingDate;
+  const sinceFromBooking = !createdAtDate && !!earliestBookingDate;
+  // For imported clients we don't show a months counter (the count would
+  // misrepresent "duration as a Traveluxe client"); we just show "Since …".
+  const monthsActive = createdAtDate ? Math.max(0, differenceInMonths(new Date(), createdAtDate)) : 0;
 
   return (
     <div className="space-y-5 max-w-4xl mx-auto">
@@ -320,7 +334,11 @@ export default function ClientDetail() {
         </div>
         <div className="rounded-xl border border-border bg-card p-4 text-center">
           <div className="text-sm font-bold text-foreground">
-            {clientSince ? `${monthsActive}mo` : '—'}
+            {sinceFromBooking
+              ? format(clientSince!, 'MMM yyyy')
+              : clientSince
+                ? `${monthsActive}mo`
+                : '—'}
           </div>
           <div className="text-xs text-muted-foreground mt-1">
             {clientSince ? `Since ${format(clientSince, 'MMM yyyy')}` : 'Client Since'}
@@ -446,22 +464,31 @@ export default function ClientDetail() {
           <CardTitle className="text-base">Client Details</CardTitle>
         </CardHeader>
         <CardContent className="pt-0">
-          <div className="grid grid-cols-2 gap-x-6 gap-y-4 text-sm">
-            <div>
+          {/* Stack on mobile so the (long) email never collides with the
+              flag emoji + nationality on the same row. On sm+ we keep the
+              two-column layout. Each value gets its own clear line. */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4 text-sm">
+            <div className="min-w-0">
               <span className="text-muted-foreground block mb-1 text-xs">Email</span>
-              <span className="font-medium">{(client as any).email || 'N/A'}</span>
+              <span className="font-medium block break-all">{(client as any).email || 'N/A'}</span>
             </div>
-            <div>
+            <div className="min-w-0">
               <span className="text-muted-foreground block mb-1 text-xs">Nationality</span>
-              <span className="font-medium">
+              <span className="font-medium inline-flex items-center gap-1.5">
                 {(client as any).nationality
-                  ? <><span className="mr-1.5">{nationalityFlag((client as any).nationality)}</span>{(client as any).nationality}</>
+                  ? <><span aria-hidden="true">{nationalityFlag((client as any).nationality)}</span><span>{(client as any).nationality}</span></>
                   : 'N/A'}
               </span>
             </div>
-            <div>
+            <div className="min-w-0">
               <span className="text-muted-foreground block mb-1 text-xs">Client Since</span>
-              <span className="font-medium">{(client as any).created_at ? format(new Date((client as any).created_at), 'PPP') : 'N/A'}</span>
+              <span className="font-medium">
+                {(client as any).created_at
+                  ? format(new Date((client as any).created_at), 'PPP')
+                  : earliestBookingDate
+                    ? `${format(earliestBookingDate, 'MMM yyyy')} (first booking)`
+                    : 'N/A'}
+              </span>
             </div>
             <div>
               <span className="text-muted-foreground block mb-1 text-xs">Status</span>

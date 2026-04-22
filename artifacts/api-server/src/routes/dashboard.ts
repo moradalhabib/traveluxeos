@@ -479,31 +479,46 @@ router.get("/forecast", async (_req, res) => {
 
   let revenue_next_7 = 0;
   let revenue_next_30 = 0;
+  let count_next_7 = 0;
+  let count_next_30 = 0;
   const byServiceType: Record<string, number> = {};
-  const byDayMap: Record<string, { date: string; revenue: number; jobs: number }> = {};
+  // Frontend expects each by_day row to carry a `count` (not `jobs`) and a
+  // `revenue`, so we use the same keys here. Initialising every day in the
+  // 30-day window prevents NaN downstream when reducing/summing.
+  const byDayMap: Record<string, { date: string; revenue: number; count: number }> = {};
 
   for (let i = 0; i < 30; i++) {
     const d = new Date(startOfToday);
     d.setDate(d.getDate() + i);
     const key = d.toISOString().split("T")[0];
-    byDayMap[key] = { date: key, revenue: 0, jobs: 0 };
+    byDayMap[key] = { date: key, revenue: 0, count: 0 };
   }
 
   (rows ?? []).forEach((b: any) => {
     const fare = fareOf(b);
     revenue_next_30 += fare;
+    count_next_30 += 1;
     const t = new Date(b.date_time).getTime();
-    if (t < end7.getTime()) revenue_next_7 += fare;
+    if (t < end7.getTime()) {
+      revenue_next_7 += fare;
+      count_next_7 += 1;
+    }
     const st = b.service_type ?? "Other";
     byServiceType[st] = (byServiceType[st] ?? 0) + fare;
     const key = new Date(b.date_time).toISOString().split("T")[0];
     if (byDayMap[key]) {
       byDayMap[key].revenue += fare;
-      byDayMap[key].jobs += 1;
+      byDayMap[key].count += 1;
     }
   });
 
   return res.json({
+    // New canonical keys consumed by the Intel module's Revenue Forecast tile.
+    next_7_days_revenue: revenue_next_7,
+    next_30_days_revenue: revenue_next_30,
+    next_7_days_count: count_next_7,
+    next_30_days_count: count_next_30,
+    // Legacy aliases — kept so any older client build keeps working.
     revenue_next_7,
     revenue_next_30,
     by_service_type: Object.entries(byServiceType)
