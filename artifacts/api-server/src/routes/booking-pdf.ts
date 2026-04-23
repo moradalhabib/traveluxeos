@@ -362,6 +362,204 @@ export function buildPdf(
   });
 }
 
+// ── Driver Job Sheet PDF ───────────────────────────────────────────────────
+// Mirrors the on-screen Job Sheet (artifacts/traveluxe-os/src/pages/bookings/
+// JobSheet.tsx). Strictly NO financials — drivers print/share this via
+// WhatsApp and operators sometimes hand-print it. When the booking has extra
+// vehicles whose pickup/drop-off/time deviate from the parent route, each
+// car's leg is rendered explicitly so the wrong driver doesn't show up at
+// the wrong pickup.
+export function buildJobSheetPdf(
+  b: any,
+  client: any,
+  driver: any,
+  vehicleLegs: VehicleLeg[] = [],
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "A4", margin: 50, bufferPages: true });
+    const chunks: Buffer[] = [];
+    doc.on("data", (c: Buffer) => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    doc.rect(0, 0, doc.page.width, doc.page.height).fill(COLOR_BG);
+    doc.rect(0, 0, doc.page.width, 6).fill(COLOR_GOLD);
+
+    // Brand header
+    doc.fillColor(COLOR_GOLD).font("Helvetica-Bold").fontSize(24)
+      .text("TRAVELUXE", 50, 50, { continued: true })
+      .fillColor(COLOR_TEXT).text(" LONDON");
+    doc.fillColor(COLOR_MUTED).font("Helvetica").fontSize(9)
+      .text("Driver Job Sheet · For driver use only", 50, 80);
+
+    // Reference panel
+    const refX = doc.page.width - 200, refY = 50;
+    doc.roundedRect(refX, refY, 150, 56, 4).fill(COLOR_PANEL);
+    doc.fillColor(COLOR_MUTED).fontSize(8).text("BOOKING REFERENCE", refX + 12, refY + 8);
+    doc.fillColor(COLOR_GOLD).font("Helvetica-Bold").fontSize(16)
+      .text(b.tvl_ref ?? "—", refX + 12, refY + 22);
+    doc.fillColor(COLOR_MUTED).font("Helvetica").fontSize(8)
+      .text(`Issued ${new Date().toLocaleDateString("en-GB")}`, refX + 12, refY + 44);
+
+    doc.fillColor(COLOR_TEXT).font("Helvetica-Bold").fontSize(20)
+      .text("Driver Job Sheet", 50, 130);
+    doc.moveTo(50, 160).lineTo(doc.page.width - 50, 160).strokeColor(COLOR_GOLD).lineWidth(0.6).stroke();
+
+    let y = 180;
+
+    // Confidential notice — same wording as the on-screen sheet.
+    doc.fillColor(COLOR_MUTED).font("Helvetica-Oblique").fontSize(8)
+      .text("For driver use only — do not share with clients.", 50, y, {
+        width: doc.page.width - 100, align: "center",
+      });
+    y += 18;
+
+    // ── Booking detail rows (NO pricing, NO payment) ──────────────────
+    const isAccom = b.service_type === "Hotel" || b.service_type === "Apartment";
+    const rows: Array<[string, string]> = [];
+    rows.push(["Service", b.service_type ?? "—"]);
+    if (!isAccom) {
+      rows.push(["Date & Time", fmtDateTime(b.date_time)]);
+      if (b.flight_number) rows.push(["Flight", b.flight_number]);
+      if (b.pickup)        rows.push(["Pickup", b.pickup]);
+      if (b.dropoff || b.destination) {
+        rows.push([b.destination ? "Destination" : "Drop-off", b.dropoff || b.destination]);
+      }
+      if (b.passengers != null) rows.push(["Passengers", String(b.passengers)]);
+      if (b.luggage != null)    rows.push(["Luggage", String(b.luggage)]);
+      const vehLine = [b.vehicle_model, b.vehicle_year ? `(${b.vehicle_year})` : null, b.plate ? `· ${b.plate}` : null]
+        .filter(Boolean).join(" ");
+      if (vehLine) rows.push(["Assigned Vehicle", vehLine]);
+      else if (b.vehicle_type) rows.push(["Preferred Vehicle", b.vehicle_type]);
+      rows.push(["Driver", driver?.name ?? b.driver_name ?? "—"]);
+      if (b.nameboard) rows.push(["Meet & Greet Board", `"${b.nameboard}"`]);
+    } else {
+      if (b.hotel_name)     rows.push(["Hotel", b.hotel_name]);
+      if (b.property_name)  rows.push(["Property", b.property_name]);
+      if (b.check_in_date)  rows.push(["Check-in", fmtDate(b.check_in_date)]);
+      if (b.check_out_date) rows.push(["Check-out", fmtDate(b.check_out_date)]);
+    }
+    if (b.client_name ?? client?.name) rows.push(["Client", b.client_name ?? client?.name]);
+
+    const rowH = 22;
+    const panelTop = y;
+    const panelH = rows.length * rowH + 16;
+    doc.roundedRect(50, panelTop, doc.page.width - 100, panelH, 6).fill(COLOR_PANEL);
+    y = panelTop + 12;
+    for (const [label, value] of rows) {
+      doc.fillColor(COLOR_MUTED).font("Helvetica").fontSize(9)
+        .text(label.toUpperCase(), 64, y, { width: 130 });
+      doc.fillColor(COLOR_TEXT).font("Helvetica-Bold").fontSize(11)
+        .text(value, 200, y - 1, { width: doc.page.width - 250 });
+      y += rowH;
+    }
+    y = panelTop + panelH + 18;
+
+    // ── Per-vehicle routes (multi-car bookings only) ───────────────────
+    // Same shape as the booking confirmation PDF: header line uses the
+    // "X of N cars on different routes" framing so drivers and operators
+    // see consistent language across screen + print + WhatsApp.
+    const overrideLegs = vehicleLegs.filter(v => v.is_override);
+    if (!isAccom && vehicleLegs.length > 1) {
+      const estH = 40 + vehicleLegs.length * 70;
+      if (y + estH > doc.page.height - 80) {
+        doc.addPage();
+        doc.rect(0, 0, doc.page.width, doc.page.height).fill(COLOR_BG);
+        doc.rect(0, 0, doc.page.width, 6).fill(COLOR_GOLD);
+        y = 60;
+      }
+
+      doc.fillColor(COLOR_GOLD).font("Helvetica-Bold").fontSize(11)
+        .text(`DRIVERS (${vehicleLegs.length})`, 50, y);
+      y += 16;
+
+      if (overrideLegs.length > 0) {
+        doc.fillColor(COLOR_MUTED).font("Helvetica-Oblique").fontSize(9)
+          .text(
+            `${overrideLegs.length} of ${vehicleLegs.length} cars on different routes — see per-leg pickup & time below.`,
+            50, y, { width: doc.page.width - 100 },
+          );
+        y += 16;
+      }
+
+      const legW = doc.page.width - 100;
+      const legsTop = y;
+      doc.roundedRect(50, legsTop, legW, vehicleLegs.length * 70 + 12, 6).fill(COLOR_PANEL);
+      let ly = legsTop + 12;
+
+      for (const leg of vehicleLegs) {
+        const heading = `Car #${leg.car_no}` +
+          (leg.driver_name ? ` · ${leg.driver_name}` : " · Unassigned") +
+          (leg.vehicle_type ? ` · ${leg.vehicle_type}` : "");
+        doc.fillColor(COLOR_GOLD).font("Helvetica-Bold").fontSize(10)
+          .text(heading, 64, ly, { width: legW - 28 });
+        ly += 14;
+
+        if (leg.is_override) {
+          // Fall back to parent values for any field that wasn't overridden,
+          // so each leg reads as a complete pickup instruction.
+          const pickup  = leg.pickup  ?? b.pickup  ?? "—";
+          const dropoff = leg.dropoff ?? b.dropoff ?? b.destination ?? "—";
+          const when    = leg.date_time ?? b.date_time;
+
+          doc.fillColor(COLOR_MUTED).font("Helvetica").fontSize(9)
+            .text("Pickup:", 64, ly, { width: 60, continued: true })
+            .fillColor(COLOR_TEXT).font("Helvetica-Bold")
+            .text(` ${pickup}`, { width: legW - 80 });
+          ly = doc.y + 2;
+          doc.fillColor(COLOR_MUTED).font("Helvetica").fontSize(9)
+            .text("Drop-off:", 64, ly, { width: 60, continued: true })
+            .fillColor(COLOR_TEXT).font("Helvetica-Bold")
+            .text(` ${dropoff}`, { width: legW - 80 });
+          ly = doc.y + 2;
+          if (when) {
+            doc.fillColor(COLOR_MUTED).font("Helvetica").fontSize(9)
+              .text("Pickup time:", 64, ly, { width: 70, continued: true })
+              .fillColor(COLOR_TEXT).font("Helvetica-Bold")
+              .text(` ${fmtDateTime(when)}`, { width: legW - 90 });
+            ly = doc.y + 2;
+          }
+        } else {
+          doc.fillColor(COLOR_MUTED).font("Helvetica-Oblique").fontSize(9)
+            .text("Same route as primary booking above.", 64, ly, { width: legW - 28 });
+          ly = doc.y + 2;
+        }
+        ly += 8;
+      }
+      y = legsTop + vehicleLegs.length * 70 + 12 + 14;
+    }
+
+    // ── Notes & special requests ──────────────────────────────────────
+    const notes = b.special_requests || b.notes;
+    if (notes) {
+      if (y > doc.page.height - 140) {
+        doc.addPage();
+        doc.rect(0, 0, doc.page.width, doc.page.height).fill(COLOR_BG);
+        doc.rect(0, 0, doc.page.width, 6).fill(COLOR_GOLD);
+        y = 60;
+      }
+      doc.fillColor(COLOR_GOLD).font("Helvetica-Bold").fontSize(11)
+        .text("NOTES & SPECIAL REQUESTS", 50, y);
+      y += 16;
+      const nTop = y;
+      doc.roundedRect(50, nTop, doc.page.width - 100, 0, 6); // placeholder
+      doc.fillColor(COLOR_TEXT).font("Helvetica").fontSize(10)
+        .text(String(notes), 64, nTop + 8, { width: doc.page.width - 128 });
+      y = doc.y + 12;
+    }
+
+    // Stamp page numbers across all pages.
+    const range = doc.bufferedPageRange();
+    const total = range.count;
+    for (let i = 0; i < total; i++) {
+      doc.switchToPage(i);
+      paintChrome(doc, i + 1, total);
+    }
+
+    doc.end();
+  });
+}
+
 // ── Receipt PDF ────────────────────────────────────────────────────────────
 // Compact one-page receipt for paid (or partially paid) bookings. Sent as a
 // stand-alone document independently of the booking confirmation.
@@ -460,6 +658,76 @@ export function buildReceiptPdf(b: any, client: any): Promise<Buffer> {
     doc.end();
   });
 }
+
+router.get("/:id/job-sheet.pdf", async (req: Request, res: Response) => {
+  const { id } = req.params;
+
+  const { data: b, error } = await supabase
+    .from("bookings").select("*").eq("id", id).single();
+  if (error || !b) {
+    console.warn("[job-sheet-pdf] booking lookup failed", id, error?.message);
+    res.status(404).json({ error: "Booking not found" });
+    return;
+  }
+
+  let client: any = null;
+  if ((b as any).client_id) {
+    const { data } = await supabase
+      .from("clients")
+      .select("name, vip_tier, email, whatsapp, nationality")
+      .eq("id", (b as any).client_id)
+      .maybeSingle();
+    client = data;
+  }
+
+  let driver: any = null;
+  if ((b as any).driver_id) {
+    const { data } = await supabase
+      .from("drivers").select("*").eq("id", (b as any).driver_id).maybeSingle();
+    driver = data;
+  }
+
+  // Same multi-vehicle roster shape as the confirmation PDF route — keeps
+  // "X of N cars on different routes" totals in sync across both documents.
+  const { data: vrows } = await supabase
+    .from("booking_vehicles")
+    .select("driver_id, vehicle_type, pickup, dropoff, date_time, drivers(name), created_at")
+    .eq("booking_id", id)
+    .order("created_at", { ascending: true });
+
+  const vehicleLegs: VehicleLeg[] = [];
+  vehicleLegs.push({
+    car_no: 1,
+    driver_name: driver?.name ?? (b as any).driver_name ?? null,
+    vehicle_type: (b as any).vehicle_type ?? null,
+    pickup: (b as any).pickup ?? null,
+    dropoff: (b as any).dropoff ?? (b as any).destination ?? null,
+    date_time: (b as any).date_time ?? null,
+    is_override: false,
+  });
+  (vrows ?? []).forEach((row: any, idx: number) => {
+    vehicleLegs.push({
+      car_no: idx + 2,
+      driver_name: row?.drivers?.name ?? null,
+      vehicle_type: row?.vehicle_type ?? null,
+      pickup: row?.pickup ?? null,
+      dropoff: row?.dropoff ?? null,
+      date_time: row?.date_time ?? null,
+      is_override: !!(row?.pickup || row?.dropoff || row?.date_time),
+    });
+  });
+
+  try {
+    const buf = await buildJobSheetPdf(b, client, driver, vehicleLegs);
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `inline; filename="traveluxe-jobsheet-${b.tvl_ref ?? id}.pdf"`);
+    res.setHeader("Cache-Control", "no-store");
+    res.end(buf);
+  } catch (e: any) {
+    console.error("[job-sheet-pdf]", e?.message);
+    res.status(500).json({ error: "Failed to render job sheet PDF" });
+  }
+});
 
 router.get("/:id/receipt.pdf", async (req: Request, res: Response) => {
   const { id } = req.params;

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   ArrowLeft, Languages, Share2, MapPin, Calendar, Clock,
   Plane, Users, Briefcase, Car, FileText, Hash, AlertCircle, Pencil,
+  FileDown, Map as MapIcon,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { format } from "date-fns";
@@ -66,6 +67,8 @@ const T: Record<Lang, Record<string, string>> = {
     legPickup: "Pickup",
     legDropoff: "Drop-off",
     legTime: "Pickup time",
+    routesHint: "cars on different routes",
+    pdf: "PDF",
   },
   ar: {
     title: "ورقة مهمة السائق",
@@ -101,6 +104,8 @@ const T: Record<Lang, Record<string, string>> = {
     legPickup: "نقطة الانطلاق",
     legDropoff: "نقطة الوصول",
     legTime: "وقت الانطلاق",
+    routesHint: "سيارات على مسارات مختلفة",
+    pdf: "PDF",
   },
 };
 
@@ -326,6 +331,37 @@ export default function JobSheet() {
                 </Button>
               </Link>
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              title={t.pdf}
+              data-testid="btn-jobsheet-pdf"
+              onClick={async () => {
+                try {
+                  const { data: { session } } = await supabase.auth.getSession();
+                  const token = session?.access_token;
+                  const res = await fetch(`/api/bookings/${id}/job-sheet.pdf`, {
+                    headers: token ? { Authorization: `Bearer ${token}` } : {},
+                  });
+                  if (!res.ok) throw new Error(await res.text());
+                  const blob = await res.blob();
+                  const url = URL.createObjectURL(blob);
+                  const a = document.createElement("a");
+                  a.href = url;
+                  a.download = `traveluxe-jobsheet-${booking?.tvl_ref ?? id}.pdf`;
+                  document.body.appendChild(a);
+                  a.click();
+                  a.remove();
+                  setTimeout(() => URL.revokeObjectURL(url), 1000);
+                } catch (e: any) {
+                  toast.error(isAr ? "فشل إنشاء PDF" : "PDF failed", {
+                    description: e?.message ?? (isAr ? "تعذر إنشاء الملف" : "Could not generate PDF"),
+                  });
+                }
+              }}
+            >
+              <FileDown className="w-3.5 h-3.5" />
+            </Button>
             <Button variant="outline" size="sm" onClick={() => setLang(isAr ? "en" : "ar")}
               data-testid="btn-jobsheet-lang">
               <Languages className="w-3.5 h-3.5 mr-1" /> {t.switchLang}
@@ -424,6 +460,26 @@ export default function JobSheet() {
               <div className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
                 <Users className="w-3 h-3" /> {t.drivers} ({extras.length + 1})
               </div>
+
+              {/* "X of N cars on different routes" framing — mirrors the
+                  hint shown on the booking detail page so drivers and
+                  operators see consistent language across both surfaces. */}
+              {(() => {
+                const overrides = extras.filter(e => e.pickup || e.dropoff || e.date_time).length;
+                if (overrides === 0) return null;
+                const totalCars = extras.length + 1;
+                return (
+                  <div
+                    className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 flex items-center gap-2 text-xs"
+                    data-testid="jobsheet-routes-hint"
+                  >
+                    <MapIcon className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+                    <span className="font-semibold text-amber-300">
+                      {overrides} {isAr ? "من" : "of"} {totalCars} {t.routesHint}
+                    </span>
+                  </div>
+                );
+              })()}
 
               {/* Car #1 — primary driver from the booking record */}
               <div className="rounded-md border border-border/60 bg-background/50 p-3 space-y-1">
