@@ -829,6 +829,17 @@ function SupplierProductsSection({
                       </Button>
                     </div>
                   </div>
+                  {/* Per-product activity feed — surfaces add/edit/remove
+                      audit rows for this specific supplier_product so the
+                      operator doesn't have to leave the supplier page to
+                      see who last touched it. */}
+                  <ActivityPanel
+                    entityType="supplier_product"
+                    entityId={p.id}
+                    title="Product activity"
+                    description="Recent changes to this product."
+                    limit={10}
+                  />
                 </div>
               ) : (
                 <div className="flex items-center justify-between gap-3">

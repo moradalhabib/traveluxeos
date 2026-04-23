@@ -6,13 +6,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { format } from "date-fns";
-import { CheckCircle2, Send, AlertCircle } from "lucide-react";
+import { CheckCircle2, Send, AlertCircle, History } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
+import { ActivityPanel } from "@/components/activity/ActivityPanel";
 
 export default function Messages() {
   const { user } = useAuth();
   const [messageText, setMessageText] = useState("");
+  // Per-task expanded activity feed. Tasks have no standalone detail page,
+  // so we let the operator open the audit history inline from the task
+  // card here. Mirrors the per-product activity drawer on supplier detail.
+  const [openActivityId, setOpenActivityId] = useState<string | null>(null);
 
   const { data: messages, isLoading: msgLoading, refetch: refetchMsgs } = useListMessages(
     { channel: "team" }, 
@@ -115,19 +120,41 @@ export default function Messages() {
             {tasksLoading ? (
               [...Array(4)].map((_, i) => <Skeleton key={i} className="h-20" />)
             ) : tasks?.filter(t => !t.completed).map((task) => (
-              <div key={task.id} className="p-3 border border-border rounded-lg bg-background/50 flex items-start gap-3">
-                <button onClick={() => handleCompleteTask(task.id)} className="mt-1 text-muted-foreground hover:text-green-500 transition-colors">
-                  <CheckCircle2 className="w-5 h-5" />
-                </button>
-                <div className="flex-1">
-                  <div className="font-medium text-sm text-foreground">{task.title}</div>
-                  <div className="flex justify-between items-center mt-2">
-                    <span className="text-xs text-muted-foreground">{task.assigned_to_name}</span>
-                    <Badge variant="outline" className={`text-[10px] py-0 px-1.5 ${getPriorityColor(task.priority)}`}>
-                      {task.priority}
-                    </Badge>
+              <div key={task.id} className="p-3 border border-border rounded-lg bg-background/50 space-y-2">
+                <div className="flex items-start gap-3">
+                  <button onClick={() => handleCompleteTask(task.id)} className="mt-1 text-muted-foreground hover:text-green-500 transition-colors">
+                    <CheckCircle2 className="w-5 h-5" />
+                  </button>
+                  <div className="flex-1">
+                    <div className="font-medium text-sm text-foreground">{task.title}</div>
+                    <div className="flex justify-between items-center mt-2">
+                      <span className="text-xs text-muted-foreground">{task.assigned_to_name}</span>
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="outline" className={`text-[10px] py-0 px-1.5 ${getPriorityColor(task.priority)}`}>
+                          {task.priority}
+                        </Badge>
+                        <button
+                          type="button"
+                          onClick={() => setOpenActivityId(openActivityId === task.id ? null : task.id)}
+                          className="text-[10px] text-muted-foreground hover:text-primary inline-flex items-center gap-1"
+                          data-testid={`btn-task-activity-${task.id}`}
+                        >
+                          <History className="w-3 h-3" />
+                          {openActivityId === task.id ? "Hide" : "Activity"}
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
+                {openActivityId === task.id && (
+                  <ActivityPanel
+                    entityType="task"
+                    entityId={task.id}
+                    title="Task activity"
+                    description="Assignments and completions for this task."
+                    limit={10}
+                  />
+                )}
               </div>
             ))}
             {tasks?.filter(t => !t.completed).length === 0 && (

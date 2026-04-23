@@ -18,6 +18,9 @@ import {
   Merge,
   AlertTriangle,
   Send,
+  ArrowRight,
+  ClipboardList,
+  PackagePlus,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { fmtLondon } from "@/lib/datetime";
@@ -123,6 +126,24 @@ const ACTION_META: Partial<Record<ActivityEntityType, Record<string, Meta>>> = {
     create_supplier_product: { label: "Added product", icon: <Plus className={ICON_CLASS} />, tone: "create" },
     update_supplier_product: { label: "Updated product", icon: <Pencil className={ICON_CLASS} />, tone: "update" },
     delete_supplier_product: { label: "Removed product", icon: <Trash2 className={ICON_CLASS} />, tone: "delete" },
+  },
+  // Audit rows for supplier products are written with entity_type="supplier_product",
+  // so they need their own map — without this, every product change on a
+  // standalone product view would fall through to the generic humaniser.
+  supplier_product: {
+    create_supplier_product: { label: "Added product", icon: <PackagePlus className={ICON_CLASS} />, tone: "create" },
+    update_supplier_product: { label: "Updated product", icon: <Pencil className={ICON_CLASS} />, tone: "update" },
+    delete_supplier_product: { label: "Removed product", icon: <Trash2 className={ICON_CLASS} />, tone: "delete" },
+  },
+  request: {
+    create_request: { label: "Created request", icon: <Plus className={ICON_CLASS} />, tone: "create" },
+    update_request: { label: "Updated request", icon: <Pencil className={ICON_CLASS} />, tone: "update" },
+    delete_request: { label: "Deleted request", icon: <Trash2 className={ICON_CLASS} />, tone: "delete" },
+    convert_request: { label: "Converted to booking", icon: <ArrowRight className={ICON_CLASS} />, tone: "success" },
+  },
+  task: {
+    create_task: { label: "Task assigned", icon: <ClipboardList className={ICON_CLASS} />, tone: "create" },
+    complete_task: { label: "Task completed", icon: <CheckCircle2 className={ICON_CLASS} />, tone: "success" },
   },
 };
 
