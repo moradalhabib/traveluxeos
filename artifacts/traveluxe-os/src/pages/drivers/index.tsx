@@ -3,7 +3,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, MessageSquare, Star, Car, RefreshCw, Loader2, CheckSquare, X } from "lucide-react";
+import { Search, Plus, MessageSquare, Car, RefreshCw, Loader2, CheckSquare, X } from "lucide-react";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -288,17 +288,9 @@ export default function Drivers() {
                 </Badge>
               </div>
 
-              <div className="mt-auto grid grid-cols-2 gap-2 text-sm text-muted-foreground mb-4">
-                <div>
-                  <span className="block text-xs uppercase opacity-70">Total Jobs</span>
-                  <span className="font-medium text-foreground">{driver.total_jobs || 0}</span>
-                </div>
-                <div>
-                  <span className="block text-xs uppercase opacity-70">Rating</span>
-                  <span className="font-medium text-primary flex items-center gap-1">
-                    {driver.avg_rating?.toFixed(1) || "0.0"} <Star className="w-3 h-3 fill-primary" />
-                  </span>
-                </div>
+              <div className="mt-auto text-sm text-muted-foreground mb-4">
+                <span className="block text-xs uppercase opacity-70">Total Jobs</span>
+                <span className="font-medium text-foreground">{driver.total_jobs || 0}</span>
               </div>
 
               {!bulk.selectMode && (

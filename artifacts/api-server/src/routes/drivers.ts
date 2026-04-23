@@ -259,16 +259,23 @@ router.put("/:id", async (req, res) => {
 
 router.get("/:id/financial-summary", async (req, res) => {
   const driverId = req.params.id;
+  // New TVL stack launched 20-Apr-2026; pre-cutoff Odoo bookings shouldn't
+  // appear in the live driver financial picture.
+  const STATS_CUTOFF_ISO = "2026-04-20T00:00:00Z";
 
   const [{ data: bookings }, { data: settlements }] = await Promise.all([
     supabase
       .from("bookings")
       .select("price, additional_charges, tvl_commission, status, payment_method, commission_status")
-      .eq("driver_id", driverId),
+      .eq("driver_id", driverId)
+      .gte("date_time", STATS_CUTOFF_ISO),
     supabase
       .from("commission_settlements")
       .select("total_amount")
-      .eq("driver_id", driverId),
+      .eq("driver_id", driverId)
+      // Align settlement scope with booking scope so the "settled" total
+      // can never exceed the cutoff-gated "generated" total.
+      .gte("settled_at", STATS_CUTOFF_ISO),
   ]);
 
   const activeBookings = (bookings ?? []).filter((b: any) => b.status !== "Cancelled");

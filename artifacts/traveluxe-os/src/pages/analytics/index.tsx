@@ -86,15 +86,21 @@ export default function Analytics() {
 
   // Wrapped in react-query so queryClient.invalidateQueries() (fired by
   // every bulk-delete handler) refreshes the Intel page immediately.
+  // New TVL stack launched 20-Apr-2026; Intel rolls up only post-cutoff data
+  // so headline totals match Finance/Profit. Without this clamp the page
+  // shows the full year including the legacy Odoo import (where the wrong
+  // £17,100 / 100 bookings number was coming from).
+  const STATS_CUTOFF_ISO = "2026-04-20T00:00:00";
   const bookingsQuery = useQuery<Booking[]>({
     queryKey: ["analytics-bookings", selectedYear],
     queryFn: async () => {
       const yearStart = `${selectedYear}-01-01T00:00:00`;
       const yearEnd   = `${selectedYear}-12-31T23:59:59`;
+      const effectiveStart = yearStart < STATS_CUTOFF_ISO ? STATS_CUTOFF_ISO : yearStart;
       const { data } = await supabase
         .from("bookings")
         .select("id, service_type, price, date_time, status, client_id, clients(name)")
-        .gte("date_time", yearStart)
+        .gte("date_time", effectiveStart)
         .lte("date_time", yearEnd)
         .not("status", "eq", "Cancelled")
         .order("date_time", { ascending: true });
@@ -280,22 +286,24 @@ export default function Analytics() {
                 <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Next 30 Days</div>
                 <div className="space-y-0.5 max-h-[400px] overflow-y-auto">
                   {forecast.by_day.map(d => {
-                    const isOpen = d.count === 0;
+                    // Empty days are normal — show them muted, not red. Red
+                    // is reserved for actual problems (cancellation spikes,
+                    // overdue payouts), not "no jobs booked yet".
+                    const isEmpty = d.count === 0;
                     return (
                       <div
                         key={d.date}
                         data-testid={`row-forecast-day-${d.date}`}
-                        className={`flex items-center justify-between text-xs px-3 py-2 rounded-lg ${isOpen ? "bg-destructive/10 text-destructive" : ""}`}
+                        className={`flex items-center justify-between text-xs px-3 py-2 rounded-lg ${isEmpty ? "bg-muted/20" : ""}`}
                       >
-                        <span className="font-medium">{format(parseISO(d.date), "EEE dd MMM")}</span>
+                        <span className={`font-medium ${isEmpty ? "text-muted-foreground" : ""}`}>{format(parseISO(d.date), "EEE dd MMM")}</span>
                         <div className="flex items-center gap-3">
-                          <span className={isOpen ? "text-destructive" : "text-muted-foreground"}>
+                          <span className="text-muted-foreground">
                             {d.count} job{d.count !== 1 ? "s" : ""}
                           </span>
-                          <span className={`font-semibold w-20 text-right ${isOpen ? "text-destructive" : "text-foreground"}`}>
+                          <span className={`font-semibold w-20 text-right ${isEmpty ? "text-muted-foreground" : "text-foreground"}`}>
                             {d.revenue > 0 ? `£${d.revenue.toLocaleString()}` : "—"}
                           </span>
-                          {isOpen && <span className="text-[10px] uppercase tracking-wider font-bold">Open day</span>}
                         </div>
                       </div>
                     );

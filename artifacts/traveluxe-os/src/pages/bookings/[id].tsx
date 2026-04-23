@@ -957,7 +957,16 @@ export default function BookingDetail() {
 
   const handleCancel = () => {
     cancelBooking.mutate({ id, data: { reason: cancelReason, cancellation_fee: cancelFee } }, {
-      onSuccess: () => { toast({ title: "Booking cancelled" }); setIsCancelOpen(false); refetch(); }
+      onSuccess: () => {
+        toast({ title: "Booking cancelled" });
+        setIsCancelOpen(false);
+        refetch();
+        // Cancelling a booking removes it from headline KPIs across Intel,
+        // Finance, Profit, Drivers, Follow-ups and the Dashboard. Sweep
+        // every cached query so every page re-derives from the new truth
+        // instead of showing stale revenue/booking counts.
+        qc.invalidateQueries();
+      }
     });
   };
 

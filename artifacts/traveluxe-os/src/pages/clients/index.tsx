@@ -21,11 +21,20 @@ export default function Clients() {
   const isResidenceManager = user?.role === "residence_manager";
   const canBulkDelete = user?.role === "admin" || user?.role === "super_admin";
   const [search, setSearch] = useState("");
+  // Operators want to instantly slice the directory by VIP tier so they
+  // can find their high-value patrons without scrolling. The chip strip
+  // below maps to the existing vip_tier query param the API already
+  // supports — no backend changes needed.
+  const [tierFilter, setTierFilter] = useState<string>("all");
   const bulk = useBulkSelect();
 
+  const listParams = {
+    search: search || undefined,
+    vip_tier: tierFilter !== "all" ? tierFilter : undefined,
+  };
   const { data: clientsRaw, isLoading } = useListClients(
-    { search: search || undefined },
-    { query: { enabled: true, queryKey: getListClientsQueryKey({ search: search || undefined }) } }
+    listParams,
+    { query: { enabled: true, queryKey: getListClientsQueryKey(listParams) } }
   );
 
   // Fix 3 — default Most Recent first across all list pages.
@@ -34,6 +43,14 @@ export default function Clients() {
     const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
     return tb - ta;
   });
+
+  const TIER_FILTERS: { value: string; label: string }[] = [
+    { value: "all",      label: "All" },
+    { value: "Standard", label: "Standard" },
+    { value: "VIP",      label: "VIP" },
+    { value: "VVIP",     label: "VVIP" },
+    { value: "Platinum", label: "Platinum" },
+  ];
 
   const getVipBadgeColor = (tier: string) => {
     switch (tier) {
@@ -114,12 +131,35 @@ export default function Clients() {
 
       <div className="relative">
         <Search className="absolute left-3 top-3.5 h-5 w-5 text-muted-foreground" />
-        <Input 
-          placeholder="Search clients by name, WhatsApp, or email..." 
+        <Input
+          placeholder="Search clients by name, WhatsApp, or email..."
           className="pl-10 h-12 text-lg border-primary/20 bg-card"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
+      </div>
+
+      {/* VIP tier filter chips — instant slice into Standard / VIP / VVIP /
+          Platinum so operators can find their high-value patrons fast. */}
+      <div className="flex flex-wrap gap-2">
+        {TIER_FILTERS.map(t => {
+          const active = tierFilter === t.value;
+          return (
+            <button
+              key={t.value}
+              type="button"
+              onClick={() => setTierFilter(t.value)}
+              data-testid={`chip-tier-${t.value.toLowerCase()}`}
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
+                active
+                  ? "bg-primary text-primary-foreground border-primary shadow-[0_0_10px_rgba(201,168,76,0.25)]"
+                  : "bg-card text-muted-foreground border-border hover:text-foreground hover:border-primary/40"
+              }`}
+            >
+              {t.label}
+            </button>
+          );
+        })}
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

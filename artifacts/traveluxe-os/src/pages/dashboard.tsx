@@ -419,7 +419,6 @@ export default function Dashboard() {
                     <span className="font-medium text-sm">{driver.name}</span>
                     <div className="flex gap-3 text-xs text-muted-foreground">
                       <span>{driver.total_jobs} jobs</span>
-                      <span className="text-primary">{driver.avg_rating.toFixed(1)} ★</span>
                     </div>
                   </div>
                 ))}

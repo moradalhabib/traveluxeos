@@ -169,16 +169,29 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
     return session?.access_token ?? "";
   };
 
-  const buildPayload = (d: DraftRow) => ({
-    booking_id: bookingId,
-    driver_id: d.driver_id || null,
-    vehicle_type: d.vehicle_type || null,
-    client_share: Number(d.client_share) || 0,
-    cost_to_company: Number(d.cost_to_company) || 0,
-    driver_receives: Number(d.driver_receives) || 0,
-    tvl_commission: Number(d.tvl_commission) || 0,
-    notes: d.notes || null,
-  });
+  // Operators only enter two numbers per extra car: the Cost (what the client
+  // pays for this leg — flows into the booking's invoice/total) and the TVL
+  // Commission (what TVL keeps). Everything else is derived so the existing
+  // commissions/payouts pipeline keeps working untouched:
+  //   client_share     = cost   (added to the client's bill)
+  //   cost_to_company  = cost   (TVL has to fund the whole leg)
+  //   driver_receives  = cost − commission
+  //   tvl_commission   = commission
+  const buildPayload = (d: DraftRow) => {
+    const cost = Number(d.cost_to_company) || 0;
+    const commission = Number(d.tvl_commission) || 0;
+    const driverPay = Math.max(0, cost - commission);
+    return {
+      booking_id: bookingId,
+      driver_id: d.driver_id || null,
+      vehicle_type: d.vehicle_type || null,
+      client_share: cost,
+      cost_to_company: cost,
+      driver_receives: driverPay,
+      tvl_commission: commission,
+      notes: d.notes || null,
+    };
+  };
 
   const saveRow = async (idx: number) => {
     const d = drafts[idx];
@@ -475,7 +488,11 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
                     <SelectTrigger className="h-9" data-testid={`roster-driver-${idx}`}>
                       <SelectValue placeholder="Unassigned" />
                     </SelectTrigger>
-                    <SelectContent>
+                    {/* Long driver lists need to be scrollable — without a
+                        max-height the popover can extend past the viewport
+                        and the operator can't reach lower drivers on a
+                        phone. */}
+                    <SelectContent className="max-h-[300px] overflow-y-auto">
                       <SelectItem value="unassigned">Unassigned</SelectItem>
                       {(drivers as any[] | undefined)?.map((driver: any) => (
                         <SelectItem key={driver.id} value={driver.id}>
@@ -497,22 +514,15 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
                 </div>
               </div>
 
+              {/* Simplified to two numbers per operator request:
+                  Cost = what the client pays for this leg (added to invoice)
+                  TVL Commission = what TVL keeps. Driver pay derives as
+                  (Cost − Commission) on save, so the existing payout +
+                  commissions pages keep working. The live preview below
+                  shows what the driver will actually receive. */}
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="text-xs font-medium">Client share £</label>
-                  <Input
-                    className="h-9"
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    placeholder="0.00"
-                    disabled={locked}
-                    value={d.client_share}
-                    onChange={(e) => updateDraft(idx, { client_share: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-medium">Cost to TVL £</label>
+                  <label className="text-xs font-medium">Cost £ <span className="text-muted-foreground font-normal">(adds to client invoice)</span></label>
                   <Input
                     className="h-9"
                     type="number"
@@ -522,22 +532,7 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
                     disabled={locked}
                     value={d.cost_to_company}
                     onChange={(e) => updateDraft(idx, { cost_to_company: e.target.value })}
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="text-xs font-medium">Driver pay £</label>
-                  <Input
-                    className="h-9"
-                    type="number"
-                    inputMode="decimal"
-                    step="0.01"
-                    placeholder="0.00"
-                    disabled={locked}
-                    value={d.driver_receives}
-                    onChange={(e) => updateDraft(idx, { driver_receives: e.target.value })}
+                    data-testid={`roster-cost-${idx}`}
                   />
                 </div>
                 <div>
@@ -551,8 +546,13 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
                     disabled={locked}
                     value={d.tvl_commission}
                     onChange={(e) => updateDraft(idx, { tvl_commission: e.target.value })}
+                    data-testid={`roster-commission-${idx}`}
                   />
                 </div>
+              </div>
+
+              <div className="text-[11px] text-muted-foreground">
+                Driver pay (auto): £{Math.max(0, (Number(d.cost_to_company) || 0) - (Number(d.tvl_commission) || 0)).toFixed(2)}
               </div>
 
               <div>

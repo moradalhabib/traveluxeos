@@ -230,7 +230,7 @@ export function Shell({ children }: { children: ReactNode }) {
             <div className="w-8 h-8 rounded bg-primary flex items-center justify-center">
               <span className="text-primary-foreground font-bold text-xl">T</span>
             </div>
-            <span className="font-bold text-lg text-foreground tracking-wide uppercase">TRAVELUXE OS</span>
+            <span className="font-bold text-base text-foreground tracking-wide uppercase whitespace-nowrap">TRAVELUXE OS</span>
           </div>
           <NotificationBell />
         </div>

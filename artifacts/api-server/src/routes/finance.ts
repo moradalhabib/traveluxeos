@@ -23,8 +23,18 @@ function requireSuperAdmin(req: any, res: any, next: any) {
   return next();
 }
 
+// New TVL ops launched 20-Apr-2026; everything before that is legacy Odoo
+// data and must not appear in headline finance figures.
+const STATS_CUTOFF_ISO = "2026-04-20T00:00:00Z";
+
 router.get("/summary", async (req, res) => {
   const { date_from, date_to, service_type, operator_id } = req.query;
+
+  // Always clamp the lower bound to the stats cutoff. If the operator picks
+  // an earlier date_from we still won't return pre-cutoff revenue.
+  const effectiveFrom = date_from && new Date(String(date_from)) > new Date(STATS_CUTOFF_ISO)
+    ? String(date_from)
+    : STATS_CUTOFF_ISO;
 
   let query = supabase
     .from("bookings")
@@ -38,9 +48,9 @@ router.get("/summary", async (req, res) => {
       drivers(id, name),
       users!bookings_operator_id_fkey(name)
     `)
-    .neq("status", "Cancelled");
+    .neq("status", "Cancelled")
+    .gte("date_time", effectiveFrom);
 
-  if (date_from) query = query.gte("date_time", String(date_from));
   if (date_to) query = query.lte("date_time", String(date_to));
   if (service_type) query = query.eq("service_type", String(service_type));
   if (operator_id) query = query.eq("operator_id", String(operator_id));
@@ -58,21 +68,42 @@ router.get("/summary", async (req, res) => {
     users: undefined,
   }));
 
-  const total_revenue = bookings.reduce((s, b) => s + (b.price ?? 0) + (b.additional_charges ?? 0), 0);
-  const total_commission = bookings.reduce((s, b) => s + (b.tvl_commission ?? 0), 0);
-  const total_driver_payouts = bookings.reduce((s, b) => s + (b.driver_receives ?? 0), 0);
+  // Pull every additional-vehicle row tied to this booking set so multi-car
+  // jobs report the FULL client-paid revenue + commissions instead of just
+  // the primary leg. Cancelled-booking rows are already excluded above.
+  const bookingIds = bookings.map(b => b.id);
+  let extraVehicles: any[] = [];
+  if (bookingIds.length > 0) {
+    const { data: bv } = await supabase
+      .from("booking_vehicles")
+      .select("booking_id, client_share, tvl_commission, driver_receives")
+      .in("booking_id", bookingIds);
+    extraVehicles = bv ?? [];
+  }
+  const extras_revenue = extraVehicles.reduce((s, v) => s + (Number(v.client_share) || 0), 0);
+  const extras_commission = extraVehicles.reduce((s, v) => s + (Number(v.tvl_commission) || 0), 0);
+  const extras_payouts = extraVehicles.reduce((s, v) => s + (Number(v.driver_receives) || 0), 0);
+
+  const total_revenue =
+    bookings.reduce((s, b) => s + (b.price ?? 0) + (b.additional_charges ?? 0), 0) + extras_revenue;
+  const total_commission =
+    bookings.reduce((s, b) => s + (b.tvl_commission ?? 0), 0) + extras_commission;
+  const total_driver_payouts =
+    bookings.reduce((s, b) => s + (b.driver_receives ?? 0), 0) + extras_payouts;
 
   // Outstanding client payments
   const outstanding_payments = bookings
     .filter(b => b.payment_status === "Unpaid" || b.payment_status === "Partial")
     .sort((a, b) => new Date(a.date_time ?? 0).getTime() - new Date(b.date_time ?? 0).getTime());
 
-  // Cancellation fees
+  // Cancellation fees — gated by the same era cutoff so legacy Odoo
+  // cancellations don't reappear in TVL-stack finance totals.
   const { data: cancelledBookings } = await supabase
     .from("bookings")
     .select("cancellation_fee")
     .eq("status", "Cancelled")
-    .gt("cancellation_fee", 0);
+    .gt("cancellation_fee", 0)
+    .gte("date_time", effectiveFrom);
   const cancellation_fees = (cancelledBookings ?? []).reduce((s: number, b: any) => s + (b.cancellation_fee ?? 0), 0);
 
   // Revenue breakdown by service type

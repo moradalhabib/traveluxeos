@@ -3,15 +3,23 @@ import { supabase } from "../lib/supabase";
 
 const router = Router();
 
+// Operations launched on the new TVL stack on 20-Apr-2026. Anything before
+// that date came from the legacy Odoo import and is not part of the live
+// numbers operators want to see — gate every aggregation by this cutoff so
+// stale historical revenue/booking counts don't leak into headline KPIs.
+const STATS_CUTOFF_ISO = "2026-04-20T00:00:00Z";
+const clampStart = (d: Date) => {
+  const cutoff = new Date(STATS_CUTOFF_ISO);
+  return d < cutoff ? cutoff : d;
+};
+
 router.get("/summary", async (_req, res) => {
   const now = new Date();
-  const todayStart = new Date(now);
-  todayStart.setHours(0, 0, 0, 0);
-  const weekStart = new Date(now);
-  weekStart.setDate(now.getDate() - 7);
-  const monthStart = new Date(now);
-  monthStart.setDate(1);
-  monthStart.setHours(0, 0, 0, 0);
+  const todayStart = clampStart(new Date(new Date(now).setHours(0, 0, 0, 0)));
+  const weekStartRaw = new Date(now); weekStartRaw.setDate(now.getDate() - 7);
+  const weekStart = clampStart(weekStartRaw);
+  const monthStartRaw = new Date(now); monthStartRaw.setDate(1); monthStartRaw.setHours(0, 0, 0, 0);
+  const monthStart = clampStart(monthStartRaw);
 
   const [
     { data: todayBookings },
@@ -34,8 +42,8 @@ router.get("/summary", async (_req, res) => {
     supabase.from("bookings").select("id, tvl_ref").in("status", ["Pending", "Confirmed"]).is("driver_id", null),
     supabase.from("bookings").select("id, tvl_ref").in("payment_status", ["Unpaid", "Partial"]).neq("status", "Cancelled"),
     supabase.from("bookings").select("driver_id, tvl_commission, payment_method, commission_status, date_time").eq("payment_method", "Cash").eq("commission_status", "Outstanding").neq("status", "Cancelled"),
-    supabase.from("bookings").select("client_id, price, additional_charges").neq("status", "Cancelled"),
-    supabase.from("bookings").select("driver_id").neq("status", "Cancelled"),
+    supabase.from("bookings").select("client_id, price, additional_charges").neq("status", "Cancelled").gte("date_time", STATS_CUTOFF_ISO),
+    supabase.from("bookings").select("driver_id").neq("status", "Cancelled").gte("date_time", STATS_CUTOFF_ISO),
     supabase.from("bookings").select("id").gte("date_time", todayStart.toISOString()).not("status", "in", '("Cancelled","Completed")'),
     supabase.from("invoices").select("id").not("status", "in", '("Paid","Cancelled")'),
     supabase.from("bookings").select("commission_amount, arrangement_fee_status").in("service_type", ["Hotel", "Apartment"]).gt("commission_amount", 0).neq("status", "Cancelled"),
@@ -153,23 +161,12 @@ router.get("/summary", async (_req, res) => {
     .select("id, name")
     .in("id", topDriverIds.length > 0 ? topDriverIds : ["00000000-0000-0000-0000-000000000000"]);
 
-  const { data: ratingsData } = await supabase
-    .from("driver_ratings")
-    .select("driver_id, rating")
-    .in("driver_id", topDriverIds.length > 0 ? topDriverIds : ["00000000-0000-0000-0000-000000000000"]);
-
-  const ratingMap: Record<string, { sum: number; count: number }> = {};
-  (ratingsData ?? []).forEach((r: any) => {
-    if (!ratingMap[r.driver_id]) ratingMap[r.driver_id] = { sum: 0, count: 0 };
-    ratingMap[r.driver_id].sum += r.rating;
-    ratingMap[r.driver_id].count++;
-  });
-
+  // Driver ratings have been removed from the product per repeated operator
+  // requests — top drivers are ranked purely by job count now.
   const topDrivers = (topDriversData ?? []).map(d => ({
     id: d.id,
     name: d.name,
     total_jobs: driverJobMap[d.id] ?? 0,
-    avg_rating: ratingMap[d.id] ? ratingMap[d.id].sum / ratingMap[d.id].count : 0,
   })).sort((a, b) => b.total_jobs - a.total_jobs);
 
   // Booking source breakdown

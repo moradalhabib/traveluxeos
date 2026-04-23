@@ -159,6 +159,12 @@ router.get("/stats", async (req, res) => {
   const today = todayStr();
   const weekStart = new Date();
   weekStart.setDate(weekStart.getDate() - 7);
+  // Stats only count work done on the new TVL stack (launched 20-Apr-2026) —
+  // pre-cutoff completions from the legacy Odoo import shouldn't show as
+  // "done this week".
+  const STATS_CUTOFF_ISO = "2026-04-20T00:00:00Z";
+  const cutoff = new Date(STATS_CUTOFF_ISO);
+  const effectiveStart = weekStart < cutoff ? cutoff : weekStart;
 
   const [
     { count: pendingCount },
@@ -171,7 +177,7 @@ router.get("/stats", async (req, res) => {
       .eq("status", "pending").lt("due_date", today),
     supabase.from("follow_ups").select("status")
       .in("status", ["done", "booked_return", "no_response"])
-      .gte("completed_at", weekStart.toISOString()),
+      .gte("completed_at", effectiveStart.toISOString()),
   ]);
 
   const totalCompleted = completedThisWeek?.length ?? 0;
