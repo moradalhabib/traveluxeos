@@ -322,16 +322,16 @@ export default function Invoices() {
             testId="filter-invoices-status"
           />
         </div>
-
-        {(() => {
-          const SOURCE_LABELS: Record<string, string> = { new: "New", imported: "Imported (Odoo)", all: "All" };
-          const chips: ActiveFilter[] = [];
-          if (sourceFilter !== "new") chips.push({ key: "source", label: "Source", value: SOURCE_LABELS[sourceFilter] ?? sourceFilter, onClear: () => setSourceFilter("new") });
-          if (statusFilter !== "all") chips.push({ key: "status", label: "Status", value: statusFilter, onClear: () => setStatusFilter("all") });
-          if (overdueOnly) chips.push({ key: "show", label: "Show", value: "Overdue only", onClear: () => setOverdueOnly(false) });
-          return <ActiveFilterChips filters={chips} onClearAll={() => { setSourceFilter("new"); setStatusFilter("all"); setOverdueOnly(false); }} />;
-        })()}
       </div>
+
+      {(() => {
+        const SOURCE_LABELS: Record<string, string> = { new: "New", imported: "Imported (Odoo)", all: "All" };
+        const chips: ActiveFilter[] = [];
+        if (sourceFilter !== "new") chips.push({ key: "source", label: "Source", value: SOURCE_LABELS[sourceFilter] ?? sourceFilter, onClear: () => setSourceFilter("new") });
+        if (statusFilter !== "all") chips.push({ key: "status", label: "Status", value: statusFilter, onClear: () => setStatusFilter("all") });
+        if (overdueOnly) chips.push({ key: "show", label: "Show", value: "Overdue only", onClear: () => setOverdueOnly(false) });
+        return <ActiveFilterChips filters={chips} onClearAll={() => { setSourceFilter("new"); setStatusFilter("all"); setOverdueOnly(false); }} />;
+      })()}
 
       {/* Invoice list */}
       <div className="space-y-3">

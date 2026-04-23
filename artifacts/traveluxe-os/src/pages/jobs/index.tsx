@@ -277,17 +277,6 @@ export default function Jobs() {
         </div>
       )}
 
-      {statusFilter && (
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="border-primary/40 text-primary bg-primary/10 gap-1.5 py-1">
-            Showing only: {statusFilter}
-          </Badge>
-          <Button variant="ghost" size="sm" className="text-muted-foreground gap-1 h-8" onClick={() => setLocation("/jobs")}>
-            <X className="w-3.5 h-3.5" /> Clear
-          </Button>
-        </div>
-      )}
-
       {!statusFilter && (
         <div className="flex flex-wrap gap-2 items-center">
           <FilterDropdown
@@ -315,12 +304,28 @@ export default function Jobs() {
         </div>
       )}
 
-      {!statusFilter && (() => {
+      {(() => {
+        // Single canonical chip row covering every active filter on this page.
+        // `statusFilter` is URL-driven (deep links from the dashboard land
+        // here with ?status=…); clearing it strips the query param.
+        // `timeFilter` and `unassignedOnly` are local state set via the
+        // dropdowns above. We render the chip row whenever any of those are
+        // non-default so the user always has a one-tap "back to default" path.
         const TIME_LABELS: Record<string, string> = { today: "Today", tomorrow: "Tomorrow", this_week: "This Week", all: "All Upcoming" };
         const chips: ActiveFilter[] = [];
+        if (statusFilter) chips.push({ key: "status", label: "Status", value: statusFilter, onClear: () => setLocation("/jobs") });
         if (timeFilter !== "all") chips.push({ key: "time", label: "Time", value: TIME_LABELS[timeFilter] ?? timeFilter, onClear: () => setTimeFilter("all") });
         if (unassignedOnly) chips.push({ key: "unassigned", label: "Show", value: "Unassigned only", onClear: () => setUnassignedOnly(false) });
-        return <ActiveFilterChips filters={chips} onClearAll={() => { setTimeFilter("all"); setUnassignedOnly(false); }} />;
+        return (
+          <ActiveFilterChips
+            filters={chips}
+            onClearAll={() => {
+              setTimeFilter("all");
+              setUnassignedOnly(false);
+              if (statusFilter) setLocation("/jobs");
+            }}
+          />
+        );
       })()}
 
       {/* Job cards grouped by date */}
