@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Link } from "wouter";
-import { Car, Sparkles, Plus } from "lucide-react";
+import { Car, Sparkles, Plus, ChevronDown } from "lucide-react";
 
 export type TransferExtra = { id: string; name: string; price: number };
 
@@ -71,6 +71,16 @@ export function AirportTransferProductPicker({
   const [extras, setExtras] = useState<ExtraProduct[]>([]);
   const [loadingVehicles, setLoadingVehicles] = useState(false);
   const [loadingExtras, setLoadingExtras] = useState(false);
+  // Each Additional Service category collapses by default. Tap a header to
+  // expand. Categories with a current selection auto-open so the picked tier
+  // stays visible.
+  const [openTypes, setOpenTypes] = useState<Set<string>>(new Set());
+  const toggleType = (type: string) =>
+    setOpenTypes(prev => {
+      const next = new Set(prev);
+      next.has(type) ? next.delete(type) : next.add(type);
+      return next;
+    });
 
   // ─── Load vehicles available at this airport (joined with their per-airport price) ───
   useEffect(() => {
@@ -295,24 +305,50 @@ export function AirportTransferProductPicker({
             );
           }
 
-          // Multi-tier service: tier name as label, mutually exclusive radios
+          // Multi-tier service: collapsible — header summarises selection,
+          // body shows mutually-exclusive tier radios when expanded. Auto-open
+          // if a tier is currently selected so the user always sees their pick.
+          const isOpen = openTypes.has(type) || !!selected;
           return (
-            <div key={type} className="rounded border border-border/40 bg-background/40 p-2 space-y-1.5" data-testid={`service-type-${type}`}>
-              <div className="flex items-center justify-between gap-2">
-                <div className="text-sm font-medium">{type}</div>
-                {selected && (
+            <div key={type} className="rounded border border-border/40 bg-background/40 overflow-hidden" data-testid={`service-type-${type}`}>
+              <button
+                type="button"
+                onClick={() => toggleType(type)}
+                className="w-full flex items-center justify-between gap-2 p-2 text-left hover:bg-muted/40 transition-colors"
+                data-testid={`toggle-${type}`}
+                aria-expanded={isOpen}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <ChevronDown className={`w-4 h-4 shrink-0 text-muted-foreground transition-transform ${isOpen ? "" : "-rotate-90"}`} />
+                  <span className="text-sm font-medium truncate">{type}</span>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {selected ? (
+                    <>
+                      <span className="text-[11px] text-muted-foreground truncate max-w-[140px]">{selected.name}</span>
+                      <span className="text-sm font-semibold text-primary tabular-nums">+£{Number(selected.price ?? 0).toLocaleString()}</span>
+                    </>
+                  ) : (
+                    <span className="text-[11px] text-muted-foreground">{tiers.length} options</span>
+                  )}
+                </div>
+              </button>
+              {isOpen && (
+              <div className="px-2 pb-2 space-y-1.5">
+              {selected && (
+                <div className="flex justify-end -mt-1">
                   <button
                     type="button"
-                    onClick={() => selectTier(tiers, null)}
+                    onClick={(e) => { e.stopPropagation(); selectTier(tiers, null); }}
                     className="text-[11px] text-muted-foreground hover:text-foreground underline"
                     data-testid={`clear-${type}`}
                   >
                     Clear
                   </button>
-                )}
-              </div>
+                </div>
+              )}
               {sharedDescription && (
-                <p className="text-[11px] text-muted-foreground -mt-1">{sharedDescription}</p>
+                <p className="text-[11px] text-muted-foreground">{sharedDescription}</p>
               )}
               <div className="space-y-1">
                 {tiers.map(t => {
@@ -345,6 +381,8 @@ export function AirportTransferProductPicker({
                   );
                 })}
               </div>
+              </div>
+              )}
             </div>
           );
         })}
