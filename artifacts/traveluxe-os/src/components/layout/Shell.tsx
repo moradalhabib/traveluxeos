@@ -429,14 +429,40 @@ export function Shell({ children }: { children: ReactNode }) {
                     <X className="w-5 h-5" />
                   </button>
                 </div>
+                {/*
+                  Sign Out lives INSIDE the user identity card now (icon
+                  button on the right). The previous full-width destructive
+                  button at the bottom of the sheet sat right where your
+                  thumb naturally rests when reaching for the bottom nav,
+                  so it kept getting hit by accident. Tucking it into the
+                  identity card moves it well away from any reflex tap and
+                  also makes contextual sense — it acts on the signed-in
+                  user shown in the same card. A confirm dialog is added
+                  so even an accidental tap on the icon doesn't drop you
+                  straight to the login screen.
+                */}
                 <div className="mx-5 mb-4 p-3 rounded-xl bg-secondary/50 flex items-center gap-3">
                   <div className="w-9 h-9 rounded-full bg-primary/20 flex items-center justify-center text-primary font-bold uppercase">
                     {user.name.charAt(0)}
                   </div>
-                  <div>
-                    <p className="text-sm font-semibold text-foreground">{user.name}</p>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-foreground truncate">{user.name}</p>
                     <p className="text-xs text-muted-foreground">{formatRole(user.role)}</p>
                   </div>
+                  <button
+                    onClick={() => {
+                      if (window.confirm("Sign out of Traveluxe OS?")) {
+                        logout();
+                        setMoreOpen(false);
+                      }
+                    }}
+                    className="shrink-0 w-9 h-9 rounded-lg border border-destructive/30 text-destructive hover:bg-destructive/10 flex items-center justify-center transition-colors"
+                    title="Sign out"
+                    aria-label="Sign out"
+                    data-testid="button-sign-out"
+                  >
+                    <LogOut className="w-4 h-4" />
+                  </button>
                 </div>
                 <div className="px-5 pb-3">
                   <button
@@ -468,15 +494,12 @@ export function Shell({ children }: { children: ReactNode }) {
                     );
                   })}
                 </div>
-                <div className="px-5 pb-6">
-                  <button
-                    onClick={() => { logout(); setMoreOpen(false); }}
-                    className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border border-destructive/30 text-destructive text-sm font-medium hover:bg-destructive/10 transition-colors"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    Sign Out
-                  </button>
-                </div>
+                {/*
+                  Bottom Sign Out button removed — moved up into the user
+                  identity card to prevent accidental taps next to the
+                  bottom nav.
+                */}
+                <div className="pb-4" />
               </div>
             </>
           )}
