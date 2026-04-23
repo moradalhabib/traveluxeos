@@ -19,9 +19,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Link } from "wouter";
 import { format } from "date-fns";
-import { AlertTriangle, FileText, Plus, Receipt, Search, X, Trash2 } from "lucide-react";
+import { AlertTriangle, FileText, Plus, Receipt, Search, X, Trash2, CheckSquare } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { useBulkSelect } from "@/hooks/use-bulk-select";
+import { BulkActionBar } from "@/components/bulk-action-bar";
+import { supabase } from "@/lib/supabase";
 
 export default function Invoices() {
   const [generateOpen, setGenerateOpen] = useState(false);
@@ -37,6 +40,30 @@ export default function Invoices() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const canDeleteInvoices = user?.role === "admin" || user?.role === "super_admin";
+  const bulk = useBulkSelect();
+
+  const handleBulkDelete = async () => {
+    const ids = bulk.ids;
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const results = await Promise.allSettled(
+      ids.map(id => fetch(`/api/invoices/${id}`, {
+        method: "DELETE",
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      }).then(r => { if (!r.ok) throw new Error(String(r.status)); }))
+    );
+    const ok = results.filter(r => r.status === "fulfilled").length;
+    const fail = results.length - ok;
+    toast({
+      title: fail === 0 ? "Invoices deleted" : `${ok} deleted, ${fail} failed`,
+      description: fail === 0 ? `${ok} invoice${ok === 1 ? "" : "s"} permanently removed` : "Some deletions failed",
+      variant: fail === 0 ? undefined : "destructive",
+    });
+    queryClient.invalidateQueries({
+      predicate: (q) => Array.isArray(q.queryKey) && typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/api/invoices"),
+    });
+    bulk.exitSelectMode();
+  };
 
   const deleteInvoiceMut = useDeleteInvoice({
     mutation: {
@@ -170,13 +197,28 @@ export default function Invoices() {
             {filteredInvoices.length} of {invoices?.length || 0} invoices
           </p>
         </div>
-        <Button
-          className="w-full sm:w-auto h-12 shadow-[0_0_10px_rgba(201,168,76,0.2)]"
-          onClick={() => setGenerateOpen(true)}
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          Generate Invoice
-        </Button>
+        <div className="flex gap-2 w-full sm:w-auto">
+          {canDeleteInvoices && (
+            bulk.selectMode ? (
+              <Button variant="outline" onClick={bulk.exitSelectMode} className="h-12 flex-1 sm:flex-initial" data-testid="button-cancel-select">
+                <X className="w-4 h-4 mr-2" /> Cancel
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={bulk.enterSelectMode} className="h-12 flex-1 sm:flex-initial" data-testid="button-select-mode">
+                <CheckSquare className="w-4 h-4 mr-2" /> Select
+              </Button>
+            )
+          )}
+          {!bulk.selectMode && (
+            <Button
+              className="h-12 flex-1 sm:flex-initial shadow-[0_0_10px_rgba(201,168,76,0.2)]"
+              onClick={() => setGenerateOpen(true)}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Generate Invoice
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Overdue-unpaid in-app reminder.
@@ -275,15 +317,24 @@ export default function Invoices() {
         ) : filteredInvoices.length > 0 ? (
           filteredInvoices.map((invoice) => {
             const bk = bookingMap[invoice.booking_id];
-            return (
-              <div key={invoice.id} className="relative group">
-                <Link href={`/invoices/${invoice.id}`}>
-                  <Card className="border-border hover:border-primary/40 hover:bg-secondary/10 transition-all cursor-pointer bg-card">
+            const selected = bulk.isSelected(invoice.id);
+            const cardBody = (
+              <Card className={`border-border transition-all bg-card ${
+                bulk.selectMode
+                  ? (selected ? "ring-2 ring-primary border-primary cursor-pointer" : "hover:border-primary/40 cursor-pointer")
+                  : "hover:border-primary/40 hover:bg-secondary/10 cursor-pointer"
+              }`}>
                     <CardContent className="p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                       <div className="flex items-center gap-4 min-w-0">
-                        <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                          <Receipt className="w-5 h-5 text-primary" />
-                        </div>
+                        {bulk.selectMode ? (
+                          <div className={`w-11 h-11 rounded-full border-2 flex items-center justify-center flex-shrink-0 ${selected ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                            {selected && <CheckSquare className="w-5 h-5 text-primary-foreground" />}
+                          </div>
+                        ) : (
+                          <div className="w-11 h-11 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                            <Receipt className="w-5 h-5 text-primary" />
+                          </div>
+                        )}
                         <div className="min-w-0">
                           <div className="font-bold text-foreground font-mono">{invoice.invoice_number}</div>
                           <div className="text-sm text-foreground/80 mt-0.5 font-medium truncate">
@@ -307,12 +358,21 @@ export default function Invoices() {
                         </Badge>
                         {/* Spacer reserves room for the absolutely-positioned
                             trash button so the badge isn't covered. */}
-                        {canDeleteInvoices && <span className="w-9" aria-hidden />}
+                        {canDeleteInvoices && !bulk.selectMode && <span className="w-9" aria-hidden />}
                       </div>
                     </CardContent>
                   </Card>
-                </Link>
-                {canDeleteInvoices && (
+            );
+            return (
+              <div key={invoice.id} className="relative group">
+                {bulk.selectMode ? (
+                  <button type="button" onClick={() => bulk.toggle(invoice.id)} className="block w-full text-left" data-testid={`select-invoice-${invoice.id}`}>
+                    {cardBody}
+                  </button>
+                ) : (
+                  <Link href={`/invoices/${invoice.id}`}>{cardBody}</Link>
+                )}
+                {canDeleteInvoices && !bulk.selectMode && (
                   <div className="absolute top-1/2 -translate-y-1/2 right-3 sm:right-4 z-10">
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
@@ -414,6 +474,13 @@ export default function Invoices() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BulkActionBar
+        count={bulk.count}
+        noun="invoice"
+        onClear={bulk.clear}
+        onDelete={handleBulkDelete}
+      />
     </div>
   );
 }
