@@ -346,13 +346,14 @@ export default function Commissions() {
             "Settlement History") fit without overlapping. Allow whitespace to
             wrap to two lines on the very narrowest viewports rather than
             clipping. */}
-        <TabsList className="grid w-full grid-cols-3 max-w-[680px] h-auto">
+        <TabsList className="grid w-full grid-cols-3 h-auto gap-1">
           <TabsTrigger
             value="outstanding"
             data-testid="tab-outstanding"
-            className="text-[11px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-2"
+            className="text-[11px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-1 min-w-0"
           >
-            Owed to TVL
+            <span className="sm:hidden">TVL</span>
+            <span className="hidden sm:inline">Owed to TVL</span>
             {owedToTvlDrivers.length > 0 && (
               <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-amber-400 inline-block" />
             )}
@@ -360,9 +361,10 @@ export default function Commissions() {
           <TabsTrigger
             value="payouts"
             data-testid="tab-payouts"
-            className="text-[11px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-2"
+            className="text-[11px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-1 min-w-0"
           >
-            Owed to Drivers
+            <span className="sm:hidden">Drivers</span>
+            <span className="hidden sm:inline">Owed to Drivers</span>
             {owedToDriverDrivers.length > 0 && (
               <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-green-400 inline-block" />
             )}
@@ -370,7 +372,7 @@ export default function Commissions() {
           <TabsTrigger
             value="history"
             data-testid="tab-history"
-            className="text-[11px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-2"
+            className="text-[11px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-1 min-w-0"
           >
             <span className="sm:hidden">History</span>
             <span className="hidden sm:inline">Settlement History</span>

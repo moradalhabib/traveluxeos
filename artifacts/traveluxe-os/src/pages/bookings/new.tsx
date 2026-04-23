@@ -259,9 +259,10 @@ export default function NewBooking() {
   const isHotel = serviceType === "Hotel";
   const isAsDirected = serviceType === "As Directed";
   const isCarRental = serviceType === "Car Rental";
+  const isAirportTransfer = serviceType === "Airport Transfer";
   const needsCommission = isHotel || isAccommodation;
   // Service types that benefit from a third-party Supplier link
-  const needsSupplier = isCarRental || isAsDirected || isAccommodation || isHotel || isTourType;
+  const needsSupplier = isCarRental || isAsDirected || isAccommodation || isHotel || isTourType || isAirportTransfer;
   const needsCostBreakdown = isCarRental || isAsDirected;
 
   // ─── Car Rental cost breakdown (live) ────────────────────────────────────
@@ -1333,6 +1334,7 @@ export default function NewBooking() {
                         : isAccommodation ? "Apartment"
                         : isHotel ? "Hotel"
                         : isTourType ? "Tour Operator"
+                        : isAirportTransfer ? "Airport Transfer"
                         : null;
                       const filtered = filterCat
                         ? supplierList.filter((s: any) => s.category === filterCat || s.category === "Other")

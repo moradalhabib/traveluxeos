@@ -18,7 +18,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 
 const CATEGORIES = [
-  "Car Rental", "Hotel", "Apartment", "Tour Operator",
+  "Airport Transfer", "Car Rental", "Hotel", "Apartment", "Tour Operator",
   "Restaurant", "Concierge", "Yacht", "Helicopter", "Other",
 ];
 

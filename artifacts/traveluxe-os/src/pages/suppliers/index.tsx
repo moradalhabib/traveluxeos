@@ -14,7 +14,7 @@ import { Building2, Plus, Phone, Mail, MessageCircle, Search as SearchIcon, MapP
 import { toast } from "sonner";
 
 const CATEGORIES = [
-  "Car Rental", "Hotel", "Apartment", "Tour Operator",
+  "Airport Transfer", "Car Rental", "Hotel", "Apartment", "Tour Operator",
   "Restaurant", "Concierge", "Yacht", "Helicopter", "Other",
 ];
 

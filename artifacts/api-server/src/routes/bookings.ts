@@ -1478,6 +1478,41 @@ router.post("/:id/return", async (req, res) => {
   await auditLog("create_return_journey", "booking", returnBooking.id, user?.id ?? null,
     `Return journey ${returnBooking.tvl_ref} created from ${original.tvl_ref}`);
 
+  // Bell notification — return-journey creation is operationally a "new
+  // booking" event and was previously skipped, leaving staff blind to
+  // returns spawned from follow-ups. Mirrors the main POST / flow.
+  {
+    const { data: enriched } = await supabase
+      .from("bookings")
+      .select("id, tvl_ref, service_type, date_time, clients(name)")
+      .eq("id", returnBooking.id)
+      .single();
+    const lbl = bookingShortLabel({
+      ...enriched,
+      client_name: (enriched as any)?.clients?.name,
+    });
+    notifyByRoles(STAFF_ROLES, {
+      type: "booking_new",
+      title: "New Booking (Return)",
+      message: `${lbl.ref} · ${lbl.name} · ${lbl.svc}${lbl.when ? " · " + lbl.when : ""}`,
+      link: `/bookings/${returnBooking.id}`,
+      entityType: "booking",
+      entityId: returnBooking.id,
+      severity: "info",
+    }).catch(() => {});
+    if (returnBooking.operator_id && returnBooking.operator_id !== user?.id) {
+      notifyUser(returnBooking.operator_id, {
+        type: "job_assigned",
+        title: "New Job Assigned to You",
+        message: `${lbl.ref} · ${lbl.name}${lbl.when ? " · " + lbl.when : ""}`,
+        link: `/bookings/${returnBooking.id}`,
+        entityType: "booking",
+        entityId: returnBooking.id,
+        severity: "info",
+      }).catch(() => {});
+    }
+  }
+
   return res.status(201).json(returnBooking);
 });
 
