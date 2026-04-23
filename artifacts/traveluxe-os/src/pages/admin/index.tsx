@@ -2254,14 +2254,46 @@ export default function Admin() {
                 {logsLoading ? (
                   [...Array(5)].map((_, i) => <Skeleton key={i} className="h-16" />)
                 ) : logs?.map((log) => {
-                  // Detail strings carry an optional " before=…" / " after=…"
-                  // JSON payload appended by the audit helpers. Split it off
-                  // so the human-readable summary stays one tidy line and
-                  // the raw before/after JSON is tucked behind a toggle.
-                  const raw = (log as any).detail ?? "";
-                  const m = typeof raw === "string" ? raw.match(/\s(before|after)=/) : null;
-                  const summary = m ? raw.slice(0, m.index!).trim() : raw;
-                  const diff = m ? raw.slice(m.index!).trim() : "";
+                  // Detail strings carry an optional payload appended by the
+                  // audit helpers in one of three formats:
+                  //   1. " before={…} after={…}"   — update diffs
+                  //   2. "\n--- SNAPSHOT ---\n{…}" — full row snapshot on delete
+                  //   3. trailing "{…}" JSON blob — legacy
+                  // Split the human-readable summary from the raw payload so
+                  // the summary stays one tidy line and the JSON is tucked
+                  // behind a "Show full details" toggle.
+                  const raw = typeof (log as any).detail === "string" ? (log as any).detail : "";
+                  let summary = raw;
+                  let diff = "";
+                  const snapIdx = raw.indexOf("--- SNAPSHOT ---");
+                  const beforeAfterMatch = raw.match(/\s(before|after)=/);
+                  if (snapIdx >= 0) {
+                    summary = raw.slice(0, snapIdx).replace(/\s*$/, "").trim();
+                    diff = raw.slice(snapIdx).trim();
+                  } else if (beforeAfterMatch) {
+                    summary = raw.slice(0, beforeAfterMatch.index!).trim();
+                    diff = raw.slice(beforeAfterMatch.index!).trim();
+                  } else {
+                    // Trailing JSON blob — split on the first "{" if the rest
+                    // parses as JSON, otherwise leave the whole string as summary.
+                    const braceIdx = raw.indexOf("{");
+                    if (braceIdx > 0) {
+                      const tail = raw.slice(braceIdx);
+                      try { JSON.parse(tail); diff = tail; summary = raw.slice(0, braceIdx).trim(); }
+                      catch { /* not JSON, keep as summary */ }
+                    }
+                  }
+                  // Pretty-print JSON inside the diff if possible.
+                  let prettyDiff = diff;
+                  if (diff) {
+                    const firstBrace = diff.indexOf("{");
+                    if (firstBrace >= 0) {
+                      const head = diff.slice(0, firstBrace);
+                      const tail = diff.slice(firstBrace);
+                      try { prettyDiff = head + JSON.stringify(JSON.parse(tail), null, 2); }
+                      catch { /* leave as-is */ }
+                    }
+                  }
                   return (
                     <div key={log.id} className="p-3 border border-border rounded-xl bg-background/50 text-sm">
                       <div className="flex items-center justify-between mb-1">
@@ -2273,10 +2305,10 @@ export default function Admin() {
                         <span className="text-xs text-muted-foreground">{format(new Date(log.created_at), "dd MMM · HH:mm")}</span>
                       </div>
                       {summary && <p className="text-xs text-muted-foreground mt-1">{summary}</p>}
-                      {diff && (
+                      {prettyDiff && (
                         <details className="mt-2">
-                          <summary className="text-[11px] text-primary cursor-pointer select-none hover:underline">Show full diff</summary>
-                          <pre className="mt-1 text-[11px] text-muted-foreground bg-muted/30 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all">{diff}</pre>
+                          <summary className="text-[11px] text-primary cursor-pointer select-none hover:underline">Show full details</summary>
+                          <pre className="mt-1 text-[11px] text-muted-foreground bg-muted/30 rounded p-2 overflow-x-auto whitespace-pre-wrap break-all max-h-96 overflow-y-auto">{prettyDiff}</pre>
                         </details>
                       )}
                     </div>
