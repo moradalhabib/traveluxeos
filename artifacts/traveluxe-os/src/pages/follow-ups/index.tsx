@@ -18,6 +18,7 @@ import {
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { format, formatDistanceToNow } from "date-fns";
 import { getVipPillClass } from "@/lib/vip";
 import * as XLSX from "xlsx";
@@ -433,6 +434,15 @@ export default function FollowUps() {
             testId="filter-followups-sort"
           />
         </div>
+
+        {(() => {
+          const STATUS_LABELS: Record<string, string> = { pending: "Pending", all: "All", done: "Done", booked_return: "Return Booked", no_response: "No Response" };
+          const DATE_LABELS: Record<string, string> = { all: "All dates", today: "Today", overdue: "Overdue", this_week: "This week" };
+          const chips: ActiveFilter[] = [];
+          if (statusFilter !== "pending") chips.push({ key: "status", label: "Status", value: STATUS_LABELS[statusFilter] ?? statusFilter, onClear: () => setStatusFilter("pending") });
+          if (dateFilter !== "all") chips.push({ key: "date", label: "Date", value: DATE_LABELS[dateFilter] ?? dateFilter, onClear: () => setDateFilter("all") });
+          return <ActiveFilterChips filters={chips} onClearAll={() => { setStatusFilter("pending"); setDateFilter("all"); }} />;
+        })()}
 
         {/* Search */}
         <Input

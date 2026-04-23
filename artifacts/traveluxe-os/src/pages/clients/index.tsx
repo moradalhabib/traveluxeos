@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Search, Plus, MessageSquare, CheckSquare, Square, X } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -148,6 +149,15 @@ export default function Clients() {
         options={TIER_FILTERS.map((t) => ({ value: t.value, label: t.label }))}
         testId="filter-clients-tier"
       />
+
+      {(() => {
+        const chips: ActiveFilter[] = [];
+        if (tierFilter !== "all") {
+          const lbl = TIER_FILTERS.find((t) => t.value === tierFilter)?.label ?? tierFilter;
+          chips.push({ key: "tier", label: "VIP Tier", value: lbl, onClear: () => setTierFilter("all") });
+        }
+        return <ActiveFilterChips filters={chips} onClearAll={() => setTierFilter("all")} />;
+      })()}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading ? (

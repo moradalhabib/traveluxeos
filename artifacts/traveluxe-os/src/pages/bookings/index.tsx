@@ -19,6 +19,7 @@ import { Link, useSearch } from "wouter";
 import { format, startOfDay, isBefore } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { useAuth } from "@/hooks/use-auth";
 
 // Sort + Group controls (Fix 3). Default sort is Most Recent (created_at desc)
@@ -331,6 +332,15 @@ export default function Bookings() {
           />
         </div>
       </div>
+
+      {(() => {
+        const chips: ActiveFilter[] = [];
+        if (isSuperAdmin && !isResidenceManager && source !== "active") {
+          chips.push({ key: "source", label: "Source", value: "Imported (Odoo)", onClear: () => setSource("active") });
+        }
+        if (status !== "") chips.push({ key: "status", label: "Status", value: status, onClear: () => setStatus("") });
+        return <ActiveFilterChips filters={chips} onClearAll={() => { if (isSuperAdmin && !isResidenceManager) setSource("active"); setStatus(""); }} />;
+      })()}
 
       {/* Grid (grouped) */}
       {isLoading ? (

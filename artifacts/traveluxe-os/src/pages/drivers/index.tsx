@@ -8,6 +8,7 @@ import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -221,6 +222,12 @@ export default function Drivers() {
         options={STATUS_FILTERS.map((s) => ({ value: s, label: s }))}
         testId="filter-drivers-status"
       />
+
+      {(() => {
+        const chips: ActiveFilter[] = [];
+        if (statusFilter !== "All") chips.push({ key: "status", label: "Status", value: statusFilter, onClear: () => setStatusFilter("All") });
+        return <ActiveFilterChips filters={chips} onClearAll={() => setStatusFilter("All")} />;
+      })()}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading ? (

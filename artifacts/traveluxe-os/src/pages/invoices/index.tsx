@@ -12,6 +12,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 // `Select` is still used by the "Generate invoice" dialog further down the
 // page; the inline status filter has been replaced with FilterDropdown so the
 // header chrome matches every other list page.
@@ -321,6 +322,15 @@ export default function Invoices() {
             testId="filter-invoices-status"
           />
         </div>
+
+        {(() => {
+          const SOURCE_LABELS: Record<string, string> = { new: "New", imported: "Imported (Odoo)", all: "All" };
+          const chips: ActiveFilter[] = [];
+          if (sourceFilter !== "new") chips.push({ key: "source", label: "Source", value: SOURCE_LABELS[sourceFilter] ?? sourceFilter, onClear: () => setSourceFilter("new") });
+          if (statusFilter !== "all") chips.push({ key: "status", label: "Status", value: statusFilter, onClear: () => setStatusFilter("all") });
+          if (overdueOnly) chips.push({ key: "show", label: "Show", value: "Overdue only", onClear: () => setOverdueOnly(false) });
+          return <ActiveFilterChips filters={chips} onClearAll={() => { setSourceFilter("new"); setStatusFilter("all"); setOverdueOnly(false); }} />;
+        })()}
       </div>
 
       {/* Invoice list */}

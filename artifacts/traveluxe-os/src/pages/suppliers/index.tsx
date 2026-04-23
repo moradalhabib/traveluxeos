@@ -13,6 +13,7 @@ import {
 import { Label } from "@/components/ui/label";
 import { Building2, Plus, Phone, Mail, MessageCircle, Search as SearchIcon, MapPin, Star, CheckSquare, X as XIcon } from "lucide-react";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
@@ -226,6 +227,13 @@ export default function SuppliersList() {
           />
         </div>
       </div>
+
+      {(() => {
+        const chips: ActiveFilter[] = [];
+        if (category !== "all") chips.push({ key: "category", label: "Category", value: category, onClear: () => setCategory("all") });
+        if (showInactive) chips.push({ key: "show", label: "Show", value: "Including inactive", onClear: () => setShowInactive(false) });
+        return <ActiveFilterChips filters={chips} onClearAll={() => { setCategory("all"); setShowInactive(false); }} />;
+      })()}
 
       {/* Grid */}
       {loading ? (

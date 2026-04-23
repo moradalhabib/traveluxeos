@@ -12,6 +12,7 @@ import { useLocation, useSearch, Link } from "wouter";
 import { format, isToday, isTomorrow, startOfDay, endOfDay, addDays, isBefore, isAfter } from "date-fns";
 import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCircle } from "lucide-react";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { getVipBadgeColor } from "@/lib/vip";
@@ -313,6 +314,14 @@ export default function Jobs() {
           />
         </div>
       )}
+
+      {!statusFilter && (() => {
+        const TIME_LABELS: Record<string, string> = { today: "Today", tomorrow: "Tomorrow", this_week: "This Week", all: "All Upcoming" };
+        const chips: ActiveFilter[] = [];
+        if (timeFilter !== "all") chips.push({ key: "time", label: "Time", value: TIME_LABELS[timeFilter] ?? timeFilter, onClear: () => setTimeFilter("all") });
+        if (unassignedOnly) chips.push({ key: "unassigned", label: "Show", value: "Unassigned only", onClear: () => setUnassignedOnly(false) });
+        return <ActiveFilterChips filters={chips} onClearAll={() => { setTimeFilter("all"); setUnassignedOnly(false); }} />;
+      })()}
 
       {/* Job cards grouped by date */}
       <div className="space-y-6">

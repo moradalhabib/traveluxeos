@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import {
   useListRequests, PRIORITY_STYLES, STATUS_STYLES,
   type RequestStatus, type RequestPriority, type RequestServiceType,
@@ -152,6 +153,13 @@ export default function Requests() {
             testId="filter-requests-sort"
           />
         </div>
+
+        {(() => {
+          const chips: ActiveFilter[] = [];
+          if (status !== "") chips.push({ key: "status", label: "Status", value: status, onClear: () => setStatus("") });
+          if (priority !== "") chips.push({ key: "priority", label: "Priority", value: priority, onClear: () => setPriority("") });
+          return <ActiveFilterChips filters={chips} onClearAll={() => { setStatus(""); setPriority(""); }} />;
+        })()}
 
         <div className="relative flex-1 min-w-[220px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
