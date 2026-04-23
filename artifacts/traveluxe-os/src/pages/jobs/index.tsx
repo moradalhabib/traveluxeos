@@ -545,6 +545,17 @@ export default function Jobs() {
             // and so on. The booking-vehicles table doesn't store leg_index,
             // so we derive it from the array order (created_at-sorted by API).
             const carNo = idx + 2;
+            // Per-leg pickup time falls back to the parent booking's time
+            // when ops hasn't set one explicitly. When set explicitly, we
+            // also compute the offset from the parent so the daily roster
+            // shows that this car actually picks up later/earlier.
+            const legTimeIso = v.date_time ?? job.date_time ?? null;
+            const legTime = legTimeIso ? new Date(legTimeIso) : null;
+            const parentTime = job.date_time ? new Date(job.date_time) : null;
+            const offsetMin =
+              v.date_time && parentTime && legTime
+                ? Math.round((legTime.getTime() - parentTime.getTime()) / 60000)
+                : 0;
             return (
               <Card
                 key={`${job.id}-veh-${v.id}`}
@@ -558,9 +569,37 @@ export default function Jobs() {
                       <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
                         Car {carNo} · {job.tvl_ref}
                       </span>
+                      <Badge
+                        variant="outline"
+                        className="text-[9px] py-0 px-1.5 bg-primary/10 text-primary border-primary/30 uppercase tracking-wide"
+                        data-testid={`badge-extra-car-${v.id}`}
+                      >
+                        Extra car
+                      </Badge>
                       <Badge variant="outline" className="text-[9px] py-0 px-1.5 bg-secondary/40 text-foreground border-border">
                         {v.vehicle_type ?? "—"}
                       </Badge>
+                      {legTime && (
+                        <span
+                          className={`flex items-center gap-1 font-semibold ${
+                            offsetMin !== 0 ? "text-amber-400" : "text-foreground"
+                          }`}
+                          data-testid={`extra-vehicle-time-${v.id}`}
+                          title={
+                            offsetMin !== 0 && parentTime
+                              ? `Picks up ${offsetMin > 0 ? `${offsetMin} min after` : `${Math.abs(offsetMin)} min before`} Car 1 (${format(parentTime, "HH:mm")})`
+                              : "Same pickup time as Car 1"
+                          }
+                        >
+                          <Clock className="w-3 h-3" />
+                          {format(legTime, "HH:mm")}
+                          {offsetMin !== 0 && (
+                            <span className="text-[9px] font-normal">
+                              ({offsetMin > 0 ? `+${offsetMin}` : offsetMin}m)
+                            </span>
+                          )}
+                        </span>
+                      )}
                       <span className="text-muted-foreground truncate">
                         {(v.pickup ?? job.pickup) || "—"} → {(v.dropoff ?? (job as any).dropoff ?? (job as any).destination) || "—"}
                       </span>

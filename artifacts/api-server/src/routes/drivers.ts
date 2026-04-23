@@ -158,7 +158,7 @@ router.get("/:id", async (req, res) => {
       .eq("driver_id", req.params.id)
       .order("date_time", { ascending: false }),
     supabase.from("booking_vehicles")
-      .select("id, booking_id, vehicle_type, client_share, tvl_commission, driver_receives, commission_status, payout_status, bookings(id, tvl_ref, date_time, status, payment_method, clients(name))")
+      .select("id, booking_id, vehicle_type, client_share, tvl_commission, driver_receives, commission_status, payout_status, date_time, pickup, dropoff, bookings(id, tvl_ref, date_time, status, payment_method, clients(name))")
       .eq("driver_id", req.params.id),
     // Historical attribution: a booking that USED to belong to this driver
     // (later re-assigned away) still appears in their settlement / payout
@@ -214,7 +214,12 @@ router.get("/:id", async (req, res) => {
       booking_id: v.booking_id,
       booking_vehicle_id: v.id,
       tvl_ref: v.bookings?.tvl_ref ?? null,
-      date: v.bookings?.date_time ?? null,
+      // Per-leg date_time (when the operator set one for this car) takes
+      // priority over the parent booking's pickup time, so the driver
+      // sees the actual time they're driving — not the time car #1 left.
+      date: v.date_time ?? v.bookings?.date_time ?? null,
+      leg_date_time: v.date_time ?? null,
+      parent_date_time: v.bookings?.date_time ?? null,
       client_name: v.bookings?.clients?.name ?? null,
       total_fare: Number(v.client_share) || 0,
       tvl_commission: Number(v.tvl_commission) || 0,
@@ -302,7 +307,15 @@ router.get("/:id", async (req, res) => {
     .map((v: any) => ({
       id: v.bookings.id,
       tvl_ref: v.bookings.tvl_ref,
-      date_time: v.bookings.date_time,
+      // Effective per-leg pickup time: when the operator set a date_time
+      // on this booking_vehicles row, surface THAT here — not the parent
+      // booking's time — so the driver's roster shows when they actually
+      // pick up, even if car #1 left 90 minutes earlier.
+      date_time: v.date_time ?? v.bookings.date_time,
+      leg_date_time: v.date_time ?? null,
+      parent_date_time: v.bookings.date_time ?? null,
+      pickup: v.pickup ?? null,
+      dropoff: v.dropoff ?? null,
       status: v.bookings.status,
       payment_method: v.bookings.payment_method,
       client_name: v.bookings?.clients?.name ?? null,

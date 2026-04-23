@@ -618,19 +618,67 @@ export default function DriverDetail() {
                       </div>
                     </div>
                     <div className="space-y-2">
-                      {month.entries.map((entry: any, idx: number) => (
+                      {month.entries.map((entry: any, idx: number) => {
+                        const isExtra = entry.role === "extra";
+                        // When the operator set a per-leg date_time on the
+                        // extra car, surface it (and flag the offset from
+                        // the parent booking's pickup) so the driver knows
+                        // their actual roster time, not car #1's time.
+                        const legTime = entry.leg_date_time
+                          ? new Date(entry.leg_date_time)
+                          : null;
+                        const parentTime = entry.parent_date_time
+                          ? new Date(entry.parent_date_time)
+                          : null;
+                        const offsetMin =
+                          isExtra && legTime && parentTime
+                            ? Math.round(
+                                (legTime.getTime() - parentTime.getTime()) / 60000
+                              )
+                            : 0;
+                        return (
                         <Link
                           key={idx}
                           href={entry.booking_id ? `/bookings/${entry.booking_id}` : "#"}
                         >
                           <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center p-3 rounded-lg border border-border bg-background/50 gap-2 hover:border-primary/40 hover:bg-secondary/10 transition-colors cursor-pointer">
                             <div>
-                              <div className="font-medium font-mono text-xs text-primary hover:underline">
+                              <div className="font-medium font-mono text-xs text-primary hover:underline flex items-center gap-2 flex-wrap">
                                 {entry.tvl_ref}
+                                {isExtra && (
+                                  <Badge
+                                    variant="outline"
+                                    className="text-[9px] py-0 px-1.5 bg-primary/10 text-primary border-primary/30 uppercase tracking-wide"
+                                    data-testid={`badge-extra-car-${entry.booking_vehicle_id ?? idx}`}
+                                  >
+                                    Extra car
+                                  </Badge>
+                                )}
+                                {entry.vehicle_type && (
+                                  <span className="text-[10px] text-muted-foreground font-sans normal-case">
+                                    {entry.vehicle_type}
+                                  </span>
+                                )}
                               </div>
                               <div className="text-sm">{entry.client_name || "Booking"}</div>
-                              <div className="text-xs text-muted-foreground">
-                                {entry.date ? format(new Date(entry.date), "PP") : ""}
+                              <div className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
+                                {entry.date ? (
+                                  <span>
+                                    {format(new Date(entry.date), "PP")}
+                                    {" · "}
+                                    <span className="font-medium text-foreground">
+                                      {format(new Date(entry.date), "HH:mm")}
+                                    </span>
+                                  </span>
+                                ) : null}
+                                {isExtra && offsetMin !== 0 && (
+                                  <span
+                                    className="text-[10px] text-amber-500"
+                                    title={`Parent booking pickup ${parentTime ? format(parentTime, "HH:mm") : ""}`}
+                                  >
+                                    ({offsetMin > 0 ? `+${offsetMin}` : offsetMin} min vs Car 1)
+                                  </span>
+                                )}
                               </div>
                             </div>
                             <div className="text-right flex flex-row sm:flex-col justify-between sm:justify-start items-center sm:items-end gap-2">
@@ -651,7 +699,8 @@ export default function DriverDetail() {
                             </div>
                           </div>
                         </Link>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 );
