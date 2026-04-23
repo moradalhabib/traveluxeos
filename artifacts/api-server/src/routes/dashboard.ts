@@ -33,7 +33,7 @@ router.get("/summary", async (_req, res) => {
     supabase.from("bookings").select("id").eq("status", "Active"),
     supabase.from("bookings").select("id, tvl_ref").in("status", ["Pending", "Confirmed"]).is("driver_id", null),
     supabase.from("bookings").select("id, tvl_ref").in("payment_status", ["Unpaid", "Partial"]).neq("status", "Cancelled"),
-    supabase.from("bookings").select("driver_id, tvl_commission, payment_method, commission_status, date_time").eq("payment_method", "Cash").eq("commission_status", "Outstanding"),
+    supabase.from("bookings").select("driver_id, tvl_commission, payment_method, commission_status, date_time").eq("payment_method", "Cash").eq("commission_status", "Outstanding").neq("status", "Cancelled"),
     supabase.from("bookings").select("client_id, price, additional_charges").neq("status", "Cancelled"),
     supabase.from("bookings").select("driver_id").neq("status", "Cancelled"),
     supabase.from("bookings").select("id").gte("date_time", todayStart.toISOString()).not("status", "in", '("Cancelled","Completed")'),
