@@ -6,9 +6,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import {
-  ArrowLeft, Languages, Share2, Phone, MapPin, Calendar, Clock,
-  Plane, Users, Briefcase, Car, FileText, Hash, AlertCircle,
+  ArrowLeft, Languages, Share2, MapPin, Calendar, Clock,
+  Plane, Users, Briefcase, Car, FileText, Hash, AlertCircle, Pencil,
 } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
 import { format } from "date-fns";
 import { toast } from "sonner";
 
@@ -108,6 +109,8 @@ export default function JobSheet() {
   });
   const t = T[lang];
   const isAr = lang === "ar";
+  const { user } = useAuth();
+  const canEdit = user?.role === "operator" || user?.role === "admin" || user?.role === "super_admin";
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -138,6 +141,17 @@ export default function JobSheet() {
     }
   }, [booking, lang]);
 
+  // Split date and time so the driver can scan each at a glance — the time
+  // is what matters most (when to be at pickup) so we render it largest.
+  const dateOnly = useMemo(() => {
+    if (!booking?.date_time) return null;
+    try { return format(new Date(booking.date_time), "EEE d MMM yyyy"); } catch { return null; }
+  }, [booking]);
+  const timeOnly = useMemo(() => {
+    if (!booking?.date_time) return null;
+    try { return format(new Date(booking.date_time), "HH:mm"); } catch { return null; }
+  }, [booking]);
+
   // Build a plain-text version for WhatsApp share. We deliberately respect
   // the current language so the driver receives the message in the same
   // language they're viewing the sheet in.
@@ -159,8 +173,10 @@ export default function JobSheet() {
     push(t.passengers, booking.passengers != null ? String(booking.passengers) : null);
     push(t.luggage, booking.luggage != null ? String(booking.luggage) : null);
     push(t.vehicle, [booking.vehicle_model, booking.plate].filter(Boolean).join(" · ") || booking.vehicle_type);
+    // Client phone deliberately omitted — driver/client coordination is
+    // handled by the operator. Only the client's name + nameboard are shared
+    // so the driver can identify their pax at pickup.
     push(t.client, booking.client_name);
-    push(t.whatsapp, booking.client_whatsapp);
     push(t.nameboard, booking.nameboard);
     push(t.notes, booking.special_requests || booking.notes);
     return lines.join("\n");
@@ -223,6 +239,14 @@ export default function JobSheet() {
           </Link>
           <div className="text-sm font-bold text-foreground truncate">{t.title}</div>
           <div className="flex items-center gap-1">
+            {canEdit && (
+              <Link href={`/bookings/${id}`}>
+                <Button variant="outline" size="sm" title={isAr ? "تعديل" : "Edit booking"}
+                  data-testid="btn-jobsheet-edit">
+                  <Pencil className="w-3.5 h-3.5" />
+                </Button>
+              </Link>
+            )}
             <Button variant="outline" size="sm" onClick={() => setLang(isAr ? "en" : "ar")}
               data-testid="btn-jobsheet-lang">
               <Languages className="w-3.5 h-3.5 mr-1" /> {t.switchLang}
@@ -237,9 +261,9 @@ export default function JobSheet() {
           {t.confidential}
         </div>
 
-        {/* Reference + service + status */}
+        {/* Reference + service + prominent date/time */}
         <Card className="bg-card border-primary/30">
-          <CardContent className="p-4 space-y-2">
+          <CardContent className="p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Hash className="w-4 h-4 text-primary" />
@@ -247,10 +271,29 @@ export default function JobSheet() {
               </div>
               <Badge variant="outline" className="text-xs">{booking.service_type}</Badge>
             </div>
-            {formatted && (
-              <div className="flex items-center gap-2 text-sm">
-                <Calendar className="w-4 h-4 text-muted-foreground" />
-                <span className="font-semibold">{formatted}</span>
+            {(dateOnly || timeOnly) && (
+              <div className="rounded-lg bg-primary/10 border border-primary/30 px-4 py-3 flex items-center justify-between gap-4"
+                data-testid="jobsheet-when">
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1">
+                    <Calendar className="w-3 h-3" /> {t.when}
+                  </div>
+                  <div className="text-base font-bold text-foreground mt-0.5 leading-tight">{dateOnly}</div>
+                </div>
+                {timeOnly && (
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1 justify-end">
+                      <Clock className="w-3 h-3" /> {isAr ? "الوقت" : "Pickup"}
+                    </div>
+                    <div className="text-2xl font-extrabold tabular-nums text-primary mt-0.5 leading-tight">{timeOnly}</div>
+                  </div>
+                )}
+              </div>
+            )}
+            {isAsDirected && booking.check_out_date && (
+              <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+                <Clock className="w-3.5 h-3.5" />
+                {isAr ? "حتى" : "Until"} {format(new Date(booking.check_out_date), "EEE d MMM yyyy 'at' HH:mm")}
               </div>
             )}
           </CardContent>
@@ -267,10 +310,6 @@ export default function JobSheet() {
             )}
             {booking.flight_number && (
               <Field icon={Plane} label={t.flight} value={booking.flight_number} />
-            )}
-            {isAsDirected && booking.check_out_date && (
-              <Field icon={Clock} label={t.when}
-                value={`${formatted} → ${format(new Date(booking.check_out_date), "EEE d MMM")}`} />
             )}
           </CardContent>
         </Card>
@@ -296,21 +335,11 @@ export default function JobSheet() {
           </CardContent>
         </Card>
 
-        {/* Client contact */}
-        {(booking.client_name || booking.client_whatsapp || booking.nameboard) && (
+        {/* Client identity (NO phone — operator coordinates driver↔client) */}
+        {(booking.client_name || booking.nameboard) && (
           <Card className="bg-card border-border">
             <CardContent className="p-4 space-y-3">
               <Field icon={Users} label={t.client} value={booking.client_name || t.none} />
-              {booking.client_whatsapp && (
-                <a
-                  href={`https://wa.me/${booking.client_whatsapp.replace(/[^\d+]/g, "").replace(/^\+/, "")}`}
-                  target="_blank" rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-sm text-emerald-400 font-medium hover:underline"
-                  data-testid="link-jobsheet-client-wa"
-                >
-                  <Phone className="w-4 h-4" /> {booking.client_whatsapp}
-                </a>
-              )}
               {booking.nameboard && (
                 <Field icon={FileText} label={t.nameboard} value={booking.nameboard} highlight />
               )}

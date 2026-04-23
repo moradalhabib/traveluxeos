@@ -695,11 +695,29 @@ router.get("/:id", async (req, res) => {
 
   if (error || !booking) return res.status(404).json({ error: "Booking not found" });
 
+  // PostgREST embed: be explicit about which FK we mean. audit_log has
+  // operator_id → users(id); without the !operator_id hint, the join can
+  // silently return null for users (which is why the UI fell back to "System").
   const { data: auditEntries } = await db
     .from("audit_log")
-    .select("*, users(name)")
+    .select("*, users!operator_id(name, email)")
     .eq("entity_id", req.params.id)
     .order("created_at", { ascending: false });
+
+  // Defensive fallback: if the embed didn't hydrate (FK metadata missing on
+  // older Supabase projects), fetch the names in a second pass keyed by the
+  // operator_id so the audit log never shows "System" for a real user action.
+  const missingIds = (auditEntries ?? [])
+    .filter((a: any) => a.operator_id && !a.users)
+    .map((a: any) => a.operator_id as string);
+  let nameMap: Record<string, { name: string | null; email: string | null }> = {};
+  if (missingIds.length > 0) {
+    const { data: usersRows } = await db
+      .from("users")
+      .select("id, name, email")
+      .in("id", Array.from(new Set(missingIds)));
+    for (const u of usersRows ?? []) nameMap[u.id] = { name: u.name ?? null, email: u.email ?? null };
+  }
 
   const { data: invoice } = await supabase
     .from("invoices")
@@ -722,11 +740,14 @@ router.get("/:id", async (req, res) => {
     }
   }
 
-  const enrichedAudit = (auditEntries ?? []).map((a: any) => ({
-    ...a,
-    operator_name: a.users?.name ?? null,
-    users: undefined,
-  }));
+  const enrichedAudit = (auditEntries ?? []).map((a: any) => {
+    const fallback = a.operator_id ? nameMap[a.operator_id] : null;
+    return {
+      ...a,
+      operator_name: a.users?.name ?? fallback?.name ?? a.users?.email ?? fallback?.email ?? null,
+      users: undefined,
+    };
+  });
 
   return res.json({
     ...booking,
