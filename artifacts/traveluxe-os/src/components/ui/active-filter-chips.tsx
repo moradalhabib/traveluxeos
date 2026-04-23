@@ -39,7 +39,7 @@ export function ActiveFilterChips({ filters, onClearAll, className }: Props) {
           <X className="h-3 w-3 text-muted-foreground" />
         </button>
       ))}
-      {onClearAll && filters.length > 1 && (
+      {onClearAll && filters.length >= 1 && (
         <button
           type="button"
           onClick={onClearAll}
