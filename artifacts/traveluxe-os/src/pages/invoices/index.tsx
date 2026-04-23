@@ -321,7 +321,6 @@ export default function Invoices() {
                           size="icon"
                           className="h-9 w-9 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/40 bg-card"
                           title="Delete invoice"
-                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
                           data-testid={`button-delete-invoice-${invoice.id}`}
                         >
                           <Trash2 className="w-4 h-4" />
