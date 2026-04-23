@@ -289,9 +289,47 @@ export function bookingConfirmationHtml(
 // ─────────────────────────────────────────────────────────────────────────────
 // PAYMENT RECEIPT
 // ─────────────────────────────────────────────────────────────────────────────
-export function paymentReceiptHtml(booking: any, invoiceNumber?: string): string {
+export function paymentReceiptHtml(
+  booking: any,
+  invoiceNumber?: string,
+  vehicleLegs: EmailVehicleLeg[] = [],
+): string {
   const clientName = booking.client_name || booking.clients?.name || "Valued Guest";
   const firstName = esc(clientName.split(" ")[0]);
+
+  // Same per-vehicle block as the confirmation email — only renders for
+  // transport bookings with extra cars whose pickup, drop-off, or pickup
+  // time differs from the parent route. Matches PDF + WhatsApp wording.
+  const isTransport =
+    booking.service_type === "Airport Transfer" ||
+    booking.service_type === "As Directed" ||
+    booking.service_type === "Tour" ||
+    booking.service_type === "Car Rental";
+  const overrideLegs = vehicleLegs.filter(v => v.is_override);
+  const perVehicleSection = isTransport && overrideLegs.length > 0 ? `
+    <div class="section-title">Per-Vehicle Routes</div>
+    <p style="font-size:13px;color:#666;margin:0 0 10px">
+      ${overrideLegs.length} of ${vehicleLegs.length} cars on this booking picked up at a different location or time.
+    </p>
+    ${overrideLegs.map(leg => {
+      const heading = `Car #${leg.car_no}` +
+        (leg.driver_name ? ` &middot; ${esc(leg.driver_name)}` : "") +
+        (leg.vehicle_type ? ` &middot; ${esc(leg.vehicle_type)}` : "");
+      const pickup  = leg.pickup  ?? booking.pickup  ?? "—";
+      const dropoff = leg.dropoff ?? booking.dropoff ?? booking.destination ?? "—";
+      const when    = leg.date_time ?? booking.date_time;
+      return `
+        <div style="border:1px solid #e2dccd;border-radius:6px;padding:12px 14px;margin-bottom:10px;background:#f9f6ef">
+          <div style="font-weight:700;color:${BRAND_GOLD};font-size:13px;margin-bottom:6px">${heading}</div>
+          <table class="detail-grid" style="margin:0">
+            ${row("Pickup", esc(String(pickup)))}
+            ${row("Drop-off", esc(String(dropoff)))}
+            ${when ? row("Pickup time", formatDateTime(when)) : ""}
+          </table>
+        </div>
+      `;
+    }).join("")}
+  ` : "";
 
   const content = `
     <div class="greeting">Dear ${firstName},</div>
@@ -310,6 +348,8 @@ export function paymentReceiptHtml(booking: any, invoiceNumber?: string): string
       ${row("Payment Date", formatDate(new Date().toISOString()))}
       ${invoiceNumber ? row("Invoice", esc(invoiceNumber)) : ""}
     </table>
+
+    ${perVehicleSection}
 
     <div class="price-box">
       <div class="price-label">Amount Received</div>

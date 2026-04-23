@@ -19,6 +19,7 @@ import {
   useRequest, useUpdateRequest, useDeleteRequest, useConvertRequest,
   PRIORITY_STYLES, STATUS_STYLES,
 } from "@/lib/requests-api";
+import { ActivityPanel } from "@/components/activity/ActivityPanel";
 
 const SERVICE_TYPES = ["Airport Transfer","Tour","Car Rental","Apartment","Hotel","Other"];
 const PRIORITIES = ["Low","Medium","High","Urgent"];
@@ -248,6 +249,18 @@ export default function RequestDetail() {
             </Button>
           </CardContent>
         </Card>
+      )}
+
+      {/* Activity feed — same component used on client/driver/booking
+          detail pages so operators see status changes, edits, and
+          conversion history for this request in one place. */}
+      {id && (
+        <ActivityPanel
+          entityType="request"
+          entityId={id}
+          title="Activity"
+          description="Status changes, edits, and conversions for this request."
+        />
       )}
     </div>
   );

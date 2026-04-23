@@ -1,7 +1,7 @@
 import { useParams, useLocation, Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import {
-  useGetBooking, getGetBookingQueryKey,
+  useGetBooking, getGetBookingQueryKey, getGetDashboardSummaryQueryKey,
   useUpdateBookingStatus, useCancelBooking,
   useAddWaitingTime, useGenerateInvoice, useRateDriver,
   useUpdateBooking, useListDrivers, getListDriversQueryKey,
@@ -2238,12 +2238,28 @@ export default function BookingDetail() {
         <SupplierCostCard
           booking={booking}
           onSaved={() => {
-            // Broad invalidation: supplier-cost edits also affect the
-            // bookings list, audit log, invoice totals, and dashboard
-            // KPIs. Narrow keying here was leaving stale numbers on
-            // sibling tabs/pages — match the rest of this screen and
-            // invalidate everything.
-            qc.invalidateQueries();
+            // Targeted invalidation — supplier cost changes affect the
+            // current booking detail, the bookings list, finance/invoice
+            // totals, commission summaries, and the dashboard KPIs.
+            // Use the orval-generated query-key helpers so we match the
+            // exact keys react-query uses (string-prefix matches don't
+            // work; tanstack matches array elements by deep-equal).
+            qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
+            qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+            // List/summary endpoints take params, so invalidate every
+            // variation by matching on the URL prefix (first key element).
+            const prefixes = [
+              "/api/bookings",
+              "/api/invoices",
+              "/api/commissions",
+              "/api/audit-log",
+              "/api/finance/summary",
+            ];
+            qc.invalidateQueries({
+              predicate: (q) =>
+                typeof q.queryKey[0] === "string" &&
+                prefixes.some((p) => (q.queryKey[0] as string).startsWith(p)),
+            });
           }}
         />
       )}

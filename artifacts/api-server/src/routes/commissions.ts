@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { supabase, auditLog, getUserFromToken } from "../lib/supabase";
+import { supabase, auditLog, getUserFromToken, getServiceRoleClient } from "../lib/supabase";
 import { logActivity } from "../lib/activity";
 
 const router = Router();
@@ -739,49 +739,46 @@ router.delete("/settlements/:id", async (req, res) => {
     return res.status(403).json({ error: "Only Admin or Super Admin can unwind a settlement." });
   }
 
-  const { data: sett, error: fetchErr } = await supabase
+  // Look up driver name first (for audit copy) — the RPC itself returns
+  // counts + driver_id but not the joined name, and we want to keep the
+  // human-readable summary identical to the previous JS path.
+  const { data: sett } = await supabase
     .from("commission_settlements")
-    .select("id, driver_id, total_amount, booking_ids, booking_vehicle_ids, drivers(name)")
+    .select("id, drivers(name)")
     .eq("id", req.params.id)
     .single();
-  if (fetchErr || !sett) return res.status(404).json({ error: "Settlement not found." });
+  const drvName = (sett as any)?.drivers?.name ?? "driver";
 
-  const bookingIds: string[] = Array.isArray((sett as any).booking_ids) ? (sett as any).booking_ids : [];
-  const vehicleIds: string[] = Array.isArray((sett as any).booking_vehicle_ids) ? (sett as any).booking_vehicle_ids : [];
-
-  if (bookingIds.length > 0) {
-    const { error: bkErr } = await supabase
-      .from("bookings")
-      .update({ commission_status: "Outstanding" })
-      .in("id", bookingIds);
-    if (bkErr) return res.status(500).json({ error: `Failed to revert bookings: ${bkErr.message}` });
+  // Atomic unwind — single Postgres function call wraps "revert booking
+  // statuses + revert vehicle statuses + delete ledger row" in one
+  // transaction. Closes the race window where a concurrent re-settle
+  // between status-revert and DELETE could leave bookings tagged against
+  // two ledger rows.
+  // Use the service-role client because the RPC's EXECUTE grant is
+  // restricted to service_role only (see migration-unwind-functions.sql).
+  // The Express route already admin-gates the caller above.
+  const sr = getServiceRoleClient();
+  if (!sr) {
+    return res.status(500).json({ error: "Service role client unavailable — set SUPABASE_SERVICE_ROLE_KEY." });
   }
-  if (vehicleIds.length > 0) {
-    const { error: vehErr } = await supabase
-      .from("booking_vehicles")
-      .update({ commission_status: "Outstanding" })
-      .in("id", vehicleIds);
-    if (vehErr) {
-      if (bookingIds.length > 0) {
-        await supabase.from("bookings").update({ commission_status: "Settled" }).in("id", bookingIds);
-      }
-      return res.status(500).json({ error: `Failed to revert vehicles: ${vehErr.message}` });
+  const { data: result, error: rpcErr } = await sr.rpc(
+    "unwind_commission_settlement",
+    { p_settlement_id: req.params.id },
+  );
+  if (rpcErr) {
+    if (rpcErr.code === "P0002" || /not_found/i.test(rpcErr.message)) {
+      return res.status(404).json({ error: "Settlement not found." });
     }
+    return res.status(500).json({ error: `Failed to unwind settlement: ${rpcErr.message}` });
   }
+  const row = Array.isArray(result) ? result[0] : result;
+  const revertedBookings = Number(row?.reverted_bookings ?? 0);
+  const revertedVehicles = Number(row?.reverted_vehicles ?? 0);
+  const totalAmount = row?.total_amount ?? 0;
+  const driverId = row?.driver_id ?? null;
 
-  const { error: delErr } = await supabase
-    .from("commission_settlements")
-    .delete()
-    .eq("id", req.params.id);
-  if (delErr) {
-    if (bookingIds.length > 0) await supabase.from("bookings").update({ commission_status: "Settled" }).in("id", bookingIds);
-    if (vehicleIds.length > 0) await supabase.from("booking_vehicles").update({ commission_status: "Settled" }).in("id", vehicleIds);
-    return res.status(500).json({ error: `Failed to delete settlement: ${delErr.message}` });
-  }
-
-  const drvName = (sett as any).drivers?.name ?? "driver";
-  const summary = `Settlement £${(sett as any).total_amount} for ${drvName} unwound — ${bookingIds.length + vehicleIds.length} legs reverted to Outstanding.`;
-  await auditLog("commission_unwound", "driver", (sett as any).driver_id, user.id, summary);
+  const summary = `Settlement £${totalAmount} for ${drvName} unwound — ${revertedBookings + revertedVehicles} legs reverted to Outstanding.`;
+  await auditLog("commission_unwound", "driver", driverId, user.id, summary);
   await logActivity({
     action_type: "settlement_created",
     description: `UNWOUND: ${summary}`,
@@ -792,7 +789,7 @@ router.delete("/settlements/:id", async (req, res) => {
     operator_name: user.name ?? null,
   });
 
-  return res.json({ ok: true, reverted_bookings: bookingIds.length, reverted_vehicles: vehicleIds.length });
+  return res.json({ ok: true, reverted_bookings: revertedBookings, reverted_vehicles: revertedVehicles });
 });
 
 // ── Unwind a payout (admin only) ─────────────────────────────────────────
@@ -802,47 +799,39 @@ router.delete("/payouts/:id", async (req, res) => {
     return res.status(403).json({ error: "Only Admin or Super Admin can unwind a payout." });
   }
 
-  const { data: pay, error: fetchErr } = await supabase
+  // Pre-fetch driver name for audit copy; the RPC returns counts + ids.
+  const { data: pay } = await supabase
     .from("driver_payouts")
-    .select("id, driver_id, total_amount, booking_ids, booking_vehicle_ids, drivers(name)")
+    .select("id, drivers(name)")
     .eq("id", req.params.id)
     .single();
-  if (fetchErr || !pay) return res.status(404).json({ error: "Payout not found." });
+  const drvName = (pay as any)?.drivers?.name ?? "driver";
 
-  const bookingIds: string[] = Array.isArray((pay as any).booking_ids) ? (pay as any).booking_ids : [];
-  const vehicleIds: string[] = Array.isArray((pay as any).booking_vehicle_ids) ? (pay as any).booking_vehicle_ids : [];
-
-  if (bookingIds.length > 0) {
-    const { error: bkErr } = await supabase
-      .from("bookings")
-      .update({ payout_status: "Pending" })
-      .in("id", bookingIds);
-    if (bkErr) return res.status(500).json({ error: `Failed to revert bookings: ${bkErr.message}` });
+  // Atomic unwind via Postgres function — same race-safety reasoning as
+  // /settlements/:id above.
+  // Service-role client — see /settlements/:id above.
+  const sr = getServiceRoleClient();
+  if (!sr) {
+    return res.status(500).json({ error: "Service role client unavailable — set SUPABASE_SERVICE_ROLE_KEY." });
   }
-  if (vehicleIds.length > 0) {
-    const { error: vehErr } = await supabase
-      .from("booking_vehicles")
-      .update({ payout_status: "Pending" })
-      .in("id", vehicleIds);
-    if (vehErr) {
-      if (bookingIds.length > 0) await supabase.from("bookings").update({ payout_status: "Paid" }).in("id", bookingIds);
-      return res.status(500).json({ error: `Failed to revert vehicles: ${vehErr.message}` });
+  const { data: result, error: rpcErr } = await sr.rpc(
+    "unwind_driver_payout",
+    { p_payout_id: req.params.id },
+  );
+  if (rpcErr) {
+    if (rpcErr.code === "P0002" || /not_found/i.test(rpcErr.message)) {
+      return res.status(404).json({ error: "Payout not found." });
     }
+    return res.status(500).json({ error: `Failed to unwind payout: ${rpcErr.message}` });
   }
+  const row = Array.isArray(result) ? result[0] : result;
+  const revertedBookings = Number(row?.reverted_bookings ?? 0);
+  const revertedVehicles = Number(row?.reverted_vehicles ?? 0);
+  const totalAmount = row?.total_amount ?? 0;
+  const driverId = row?.driver_id ?? null;
 
-  const { error: delErr } = await supabase
-    .from("driver_payouts")
-    .delete()
-    .eq("id", req.params.id);
-  if (delErr) {
-    if (bookingIds.length > 0) await supabase.from("bookings").update({ payout_status: "Paid" }).in("id", bookingIds);
-    if (vehicleIds.length > 0) await supabase.from("booking_vehicles").update({ payout_status: "Paid" }).in("id", vehicleIds);
-    return res.status(500).json({ error: `Failed to delete payout: ${delErr.message}` });
-  }
-
-  const drvName = (pay as any).drivers?.name ?? "driver";
-  const summary = `Payout £${(pay as any).total_amount} for ${drvName} unwound — ${bookingIds.length + vehicleIds.length} legs reverted to Pending.`;
-  await auditLog("payout_unwound", "driver", (pay as any).driver_id, user.id, summary);
+  const summary = `Payout £${totalAmount} for ${drvName} unwound — ${revertedBookings + revertedVehicles} legs reverted to Pending.`;
+  await auditLog("payout_unwound", "driver", driverId, user.id, summary);
   await logActivity({
     action_type: "payout_created",
     description: `UNWOUND: ${summary}`,
@@ -853,7 +842,7 @@ router.delete("/payouts/:id", async (req, res) => {
     operator_name: user.name ?? null,
   });
 
-  return res.json({ ok: true, reverted_bookings: bookingIds.length, reverted_vehicles: vehicleIds.length });
+  return res.json({ ok: true, reverted_bookings: revertedBookings, reverted_vehicles: revertedVehicles });
 });
 
 // Mark a hotel/apartment arrangement fee as collected

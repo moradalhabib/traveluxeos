@@ -39,7 +39,9 @@ export type ActivityEntityType =
   | "driver"
   | "invoice"
   | "supplier"
-  | "supplier_product";
+  | "supplier_product"
+  | "request"
+  | "task";
 
 interface Props {
   entityType: ActivityEntityType;

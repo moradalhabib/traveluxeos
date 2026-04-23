@@ -136,14 +136,23 @@ function shape(row: any) {
 }
 
 router.get("/", async (req, res) => {
-  const { booking_id, driver_id } = req.query;
+  const { booking_id, booking_ids, driver_id } = req.query;
 
   let query = supabase
     .from("booking_vehicles")
     .select(SELECT_FIELDS)
     .order("created_at", { ascending: true });
 
-  if (booking_id) query = query.eq("booking_id", String(booking_id));
+  if (booking_id) {
+    query = query.eq("booking_id", String(booking_id));
+  } else if (booking_ids) {
+    // Comma-separated list — used by the Jobs board to fetch only the
+    // extra cars for the bookings currently visible, instead of a full
+    // table scan on every page mount.
+    const ids = String(booking_ids).split(",").map(s => s.trim()).filter(Boolean);
+    if (ids.length === 0) return res.json([]);
+    query = query.in("booking_id", ids);
+  }
   if (driver_id) query = query.eq("driver_id", String(driver_id));
 
   const { data, error } = await query;

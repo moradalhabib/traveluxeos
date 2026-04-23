@@ -54,18 +54,25 @@ export default function Jobs() {
     return m;
   }, [drivers]);
 
-  // Multi-vehicle bookings: pull every booking_vehicles row across the
-  // estate so each parent card can render its extra cars as sub-rows.
-  // Without this the jobs board only showed the primary driver/vehicle and
-  // operators were missing the second car on a transfer.
+  // Multi-vehicle bookings: pull only the booking_vehicles rows for the
+  // bookings currently visible on the board (avoids a full-table scan on
+  // every page mount). Falls back to an empty list when there are no
+  // bookings yet so the query stays disabled.
+  const visibleBookingIds = useMemo(
+    () => (bookings ?? []).map((b: any) => b.id).filter(Boolean),
+    [bookings],
+  );
+  const visibleIdsKey = visibleBookingIds.join(",");
   const { data: allVehicles } = useQuery<any[]>({
-    queryKey: ["jobs:booking-vehicles:all"],
+    queryKey: ["jobs:booking-vehicles", visibleIdsKey],
+    enabled: visibleBookingIds.length > 0,
     queryFn: async () => {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token ?? "";
-      const r = await fetch("/api/booking-vehicles", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const r = await fetch(
+        `/api/booking-vehicles?booking_ids=${encodeURIComponent(visibleIdsKey)}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
       if (!r.ok) return [];
       return r.json();
     },

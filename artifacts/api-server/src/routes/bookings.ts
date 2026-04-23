@@ -393,19 +393,13 @@ async function autoGenerateInvoice(bookingId: string, userId: string | null): Pr
   return data.invoice_number;
 }
 
-// Exported so invoices.ts can fire the same canonical pipeline (de-dup,
-// structured logging, booking_email_log row) instead of bypassing it with a
-// raw sendEmail call. Both routes must end up writing the same audit trail.
-export async function sendConfirmationEmail(
+// Shared helper — both confirmation and payment-receipt emails want the
+// same per-vehicle leg list so the client sees consistent "which car
+// collects you where" wording across the journey. Failure is non-fatal.
+async function loadVehicleLegsForEmail(
   booking: any,
-  invoiceNumber: string | null,
-  opts: { triggeredBy?: string | null; force?: boolean; triggerSource?: "auto" | "manual" } = {}
-) {
-  // Multi-vehicle roster lookup — when extra cars on this booking have a
-  // pickup, drop-off, or pickup time of their own, the email will include
-  // a "Per-Vehicle Routes" section so the client knows which car collects
-  // them where. Failure here is non-fatal: we still send the standard email.
-  let vehicleLegs: import("../templates/emailTemplates").EmailVehicleLeg[] = [];
+): Promise<import("../templates/emailTemplates").EmailVehicleLeg[]> {
+  const legs: import("../templates/emailTemplates").EmailVehicleLeg[] = [];
   try {
     const { data: vrows } = await supabase
       .from("booking_vehicles")
@@ -413,7 +407,7 @@ export async function sendConfirmationEmail(
       .eq("booking_id", booking.id)
       .order("created_at", { ascending: true });
     if (Array.isArray(vrows) && vrows.length > 0) {
-      vehicleLegs.push({
+      legs.push({
         car_no: 1,
         driver_name: booking.driver_name ?? null,
         vehicle_type: booking.vehicle_type ?? null,
@@ -423,9 +417,9 @@ export async function sendConfirmationEmail(
         is_override: false,
       });
       vrows.forEach((row: any, idx: number) => {
-        vehicleLegs.push({
+        legs.push({
           car_no: idx + 2,
-          driver_name: row?.drivers?.name ?? null,
+          driver_name: (row as any)?.drivers?.name ?? null,
           vehicle_type: row?.vehicle_type ?? null,
           pickup: row?.pickup ?? null,
           dropoff: row?.dropoff ?? null,
@@ -435,8 +429,20 @@ export async function sendConfirmationEmail(
       });
     }
   } catch (e) {
-    console.warn("[sendConfirmationEmail] vehicle roster lookup failed", e);
+    console.warn("[loadVehicleLegsForEmail] roster lookup failed", e);
   }
+  return legs;
+}
+
+// Exported so invoices.ts can fire the same canonical pipeline (de-dup,
+// structured logging, booking_email_log row) instead of bypassing it with a
+// raw sendEmail call. Both routes must end up writing the same audit trail.
+export async function sendConfirmationEmail(
+  booking: any,
+  invoiceNumber: string | null,
+  opts: { triggeredBy?: string | null; force?: boolean; triggerSource?: "auto" | "manual" } = {}
+) {
+  const vehicleLegs = await loadVehicleLegsForEmail(booking);
 
   return sendBookingEmail({
     bookingId: booking.id,
@@ -458,13 +464,17 @@ export async function sendPaymentReceiptEmail(
   const { data: inv } = await supabase.from("invoices").select("invoice_number").eq("booking_id", booking.id).single();
   // Build the invoice / receipt PDF as an attachment per the operator spec.
   const pdf = await buildReceiptAttachment(booking);
+  // Mirror the per-leg routes block from the confirmation email so a
+  // multi-car booking's receipt also reminds the client which car
+  // collected them where (matches PDF + WhatsApp wording).
+  const vehicleLegs = await loadVehicleLegsForEmail(booking);
   return sendBookingEmail({
     bookingId: booking.id,
     tvlRef: booking.tvl_ref ?? null,
     kind: "payment_receipt",
     to: booking.client_email,
     subject: `Payment Confirmed — ${booking.tvl_ref ?? ""} — Thank You`,
-    html: paymentReceiptHtml(booking, inv?.invoice_number ?? undefined),
+    html: paymentReceiptHtml(booking, inv?.invoice_number ?? undefined, vehicleLegs),
     attachments: pdf ? [pdf] : undefined,
     triggeredBy: opts.triggeredBy ?? null,
     triggerSource: opts.triggerSource ?? "auto",
