@@ -200,16 +200,34 @@ async function buildConfirmationAttachment(booking: any): Promise<{ filename: st
 //     migration-followup-unique.sql will reject any racing duplicate insert
 //     with a "duplicate key" error, which we swallow.
 async function autoCreateFollowUp(bookingId: string, booking: any) {
-  if (booking.service_type !== "Airport Transfer" || booking.direction !== "Arrival") return;
+  // Auto-create a follow-up for any service type once the booking is paid /
+  // completed. Each service gets a sensible "check in with the client" gap
+  // tuned to its lifecycle:
+  //   • Airport Transfer (Arrival): +3 days — original behaviour, gives the
+  //     client a few days on the ground before we ping them about a return.
+  //   • Airport Transfer (Departure): +1 day — confirm safe arrival home.
+  //   • Tour: +1 day after the tour end (date_to) — feedback while it's fresh.
+  //   • Hotel / Apartment: +1 day after checkout (date_to).
+  //   • Car Rental / As Directed / anything else: +3 days from the pickup.
+  // Keep the early return for any booking we don't want to chase (none today,
+  // but easy to short-circuit by service type if needed).
   const { data: existing } = await supabase
     .from("follow_ups")
     .select("id")
     .eq("booking_id", bookingId)
     .maybeSingle();
   if (existing) return;
-  const base = booking.date_time ? new Date(booking.date_time) : new Date();
+
+  const svc = booking.service_type;
+  const dir = booking.direction;
+  const baseIso = booking.date_to || booking.date_time;
+  const base = baseIso ? new Date(baseIso) : new Date();
   const due = new Date(base);
-  due.setDate(due.getDate() + 3);
+  let offsetDays = 3;
+  if (svc === "Airport Transfer" && dir === "Departure") offsetDays = 1;
+  else if (svc === "Tour") offsetDays = 1;
+  else if (svc === "Hotel" || svc === "Apartment") offsetDays = 1;
+  due.setDate(due.getDate() + offsetDays);
   const { error } = await supabase.from("follow_ups").insert({
     booking_id: bookingId,
     client_id: booking.client_id ?? null,
@@ -219,6 +237,103 @@ async function autoCreateFollowUp(bookingId: string, booking: any) {
   });
   if (error && !/duplicate key|unique/i.test(error.message)) {
     console.error("[FollowUp] insert failed:", error.message);
+  }
+}
+
+// ── Settled-commission cancel warning ────────────────────────────────────
+// When a booking is cancelled AFTER its driver commission was already
+// settled (or paid out), the financial ledger is now out of step with the
+// live booking state. We can't auto-unwind silently — that would corrupt
+// finance history — so instead we surface a loud warning: an audit row,
+// an activity entry, and an admin in-app notification. An admin can then
+// open Commissions and reverse the settlement manually.
+async function warnIfBookingPreviouslySettled(
+  bookingId: string,
+  bookingRef: string | null,
+  userId: string | null,
+): Promise<void> {
+  try {
+    // Step 1: gather every booking_vehicles.id under this booking — the
+    // extra cars may have been settled / paid out independently of the
+    // primary booking, so we need to hit BOTH the booking_ids array and
+    // the booking_vehicle_ids array on the ledger tables.
+    const { data: vehRows } = await supabase
+      .from("booking_vehicles")
+      .select("id")
+      .eq("booking_id", bookingId);
+    const vehIds = (vehRows ?? []).map((r: any) => r.id).filter(Boolean);
+
+    // Step 2: look in commission_settlements (cash) and driver_payouts
+    // (bank/card) for any entry that references this booking either via
+    // booking_ids OR booking_vehicle_ids.
+    const queries: any[] = [
+      supabase
+        .from("commission_settlements")
+        .select("id, total_amount, settled_at, drivers(name)")
+        .contains("booking_ids", [bookingId])
+        .limit(5),
+      supabase
+        .from("driver_payouts")
+        .select("id, total_amount, paid_at, drivers(name)")
+        .contains("booking_ids", [bookingId])
+        .limit(5),
+    ];
+    if (vehIds.length > 0) {
+      queries.push(
+        supabase
+          .from("commission_settlements")
+          .select("id, total_amount, settled_at, drivers(name)")
+          .overlaps("booking_vehicle_ids", vehIds)
+          .limit(5),
+        supabase
+          .from("driver_payouts")
+          .select("id, total_amount, paid_at, drivers(name)")
+          .overlaps("booking_vehicle_ids", vehIds)
+          .limit(5),
+      );
+    }
+    const results = await Promise.all(queries);
+    const settMap = new Map<string, any>();
+    const payMap = new Map<string, any>();
+    // Index 0 + 2 = settlements, 1 + 3 = payouts. De-dupe by id so we
+    // don't double-warn when a single ledger row covers both arrays.
+    [results[0]?.data, results[2]?.data].forEach(arr =>
+      (arr ?? []).forEach((r: any) => settMap.set(r.id, r)));
+    [results[1]?.data, results[3]?.data].forEach(arr =>
+      (arr ?? []).forEach((r: any) => payMap.set(r.id, r)));
+    const settHits = [...settMap.values()];
+    const payHits = [...payMap.values()];
+    if (settHits.length === 0 && payHits.length === 0) return;
+
+    const parts: string[] = [];
+    for (const s of settHits) {
+      parts.push(`settlement ${s.id} (£${s.total_amount} to ${s.drivers?.name ?? "driver"})`);
+    }
+    for (const p of payHits) {
+      parts.push(`payout ${p.id} (£${p.total_amount} to ${p.drivers?.name ?? "driver"})`);
+    }
+    const summary = `Booking ${bookingRef ?? bookingId} cancelled but driver finance was already settled — ${parts.join("; ")}. Admin must reverse manually on the Commissions page.`;
+    await auditLog("cancel_after_settled", "booking", bookingId, userId, summary);
+    await logActivity({
+      action_type: "booking_cancelled",
+      description: summary,
+      entity_type: "booking",
+      entity_id: bookingId,
+      entity_label: bookingRef ?? null,
+      operator_id: userId,
+    });
+    notifyByRoles(ADMIN_ROLES, {
+      type: "booking_cancelled",
+      title: "Cancelled — driver already paid",
+      message: summary.slice(0, 200),
+      link: `/commissions`,
+      entityType: "booking",
+      entityId: bookingId,
+      severity: "warning",
+      dedupeKey: `cancel_after_settled:${bookingId}`,
+    }).catch(() => {});
+  } catch (e: any) {
+    console.error("[warnIfBookingPreviouslySettled] failed:", e?.message);
   }
 }
 
@@ -982,6 +1097,31 @@ router.put("/:id", async (req, res) => {
     notifyDriverAssigned(req.params.id).catch(() => {});
   }
 
+  // ── Invoice total_amount sync ──────────────────────────────────────────
+  // The invoice snapshots the billable amount at generation. When the
+  // operator edits the booking's price / additional_charges later, the
+  // linked invoice's total_amount must follow so the dashboard "invoice
+  // total" tile and finance reports stay accurate. Skip when the invoice
+  // is already Paid (locked ledger) or Cancelled.
+  {
+    const priceChanged = "price" in body && Number(body.price ?? 0) !== Number(prev?.price ?? 0);
+    const chargesChanged = "additional_charges" in body && Number(body.additional_charges ?? 0) !== Number(prev?.additional_charges ?? 0);
+    if (priceChanged || chargesChanged) {
+      const newTotal = Number(updated.price ?? 0) + Number(updated.additional_charges ?? 0);
+      const { error: invSyncErr } = await supabase
+        .from("invoices")
+        .update({ total_amount: newTotal })
+        .eq("booking_id", req.params.id)
+        .not("status", "in", "(Paid,Cancelled)");
+      if (invSyncErr) {
+        console.error("[Booking→Invoice total sync] failed:", invSyncErr.message);
+      } else {
+        await auditLog("update_invoice_total", "invoice", req.params.id, user?.id ?? null,
+          `Invoice total re-snapped to £${newTotal} after booking ${updated.tvl_ref} price edit`);
+      }
+    }
+  }
+
   // ── Amendment auto-log ──────────────────────────────────────────────────
   // Diff the patch body against the previous row and emit one
   // booking_amendments entry per changed field. Special-case rows are
@@ -1074,6 +1214,9 @@ router.put("/:id", async (req, res) => {
       // every operator. ADMIN_ROLES + explicit notifyUser keeps the alert
       // useful without spamming the whole staff list.
       if (body.status === "Cancelled") {
+        // If the driver was already settled / paid out for this booking,
+        // raise a separate alert so an admin can reverse the ledger entry.
+        warnIfBookingPreviouslySettled(req.params.id, updated.tvl_ref ?? null, user?.id ?? null).catch(() => {});
         notifyByRoles(ADMIN_ROLES, {
           type: "booking_cancelled",
           title: "Booking Cancelled",
@@ -1335,6 +1478,9 @@ router.post("/:id/cancel", async (req, res) => {
 
   await auditLog("cancel_booking", "booking", req.params.id, user?.id ?? null,
     `Booking ${data.tvl_ref} cancelled. Reason: ${reason}`);
+
+  // Same settled-commission warning as the PUT path.
+  warnIfBookingPreviouslySettled(req.params.id, data.tvl_ref ?? null, user?.id ?? null).catch(() => {});
 
   await logActivity({
     action_type: "booking_cancelled",

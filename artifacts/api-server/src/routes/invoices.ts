@@ -175,7 +175,16 @@ router.post("/generate", async (req, res) => {
 
   if (!booking_id) return res.status(400).json({ error: "booking_id is required" });
 
-  // Check if invoice already exists
+  // Snapshot the booking's billable amount at generation time so the invoice
+  // has a real total_amount (tile/finance reports were showing £0 before
+  // because the column was never populated).
+  const { data: bk } = await supabase
+    .from("bookings")
+    .select("price, additional_charges")
+    .eq("id", booking_id)
+    .single();
+  const total = Number(bk?.price ?? 0) + Number(bk?.additional_charges ?? 0);
+
   const { data: existing } = await supabase
     .from("invoices")
     .select("*")
@@ -183,19 +192,24 @@ router.post("/generate", async (req, res) => {
     .single();
 
   if (existing) {
+    // Back-fill total_amount on legacy/imported invoices that never got it.
+    if (!existing.total_amount && total > 0) {
+      await supabase.from("invoices").update({ total_amount: total }).eq("id", existing.id);
+      existing.total_amount = total;
+    }
     return res.json(existing);
   }
 
   const { data, error } = await supabase
     .from("invoices")
-    .insert({ booking_id, generated_by: user?.id ?? null, status: "Generated" })
+    .insert({ booking_id, generated_by: user?.id ?? null, status: "Generated", total_amount: total })
     .select()
     .single();
 
   if (error) return res.status(400).json({ error: error.message });
 
   await auditLog("generate_invoice", "invoice", data.id, user?.id ?? null,
-    `Invoice ${data.invoice_number} generated for booking ${booking_id}`);
+    `Invoice ${data.invoice_number} generated for booking ${booking_id} (£${total})`);
 
   return res.status(201).json(data);
 });

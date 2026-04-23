@@ -2237,7 +2237,14 @@ export default function BookingDetail() {
       {!isResidenceManager && ((booking as any).supplier_id || svc === "Car Rental" || svc === "As Directed") && (
         <SupplierCostCard
           booking={booking}
-          onSaved={() => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) })}
+          onSaved={() => {
+            // Broad invalidation: supplier-cost edits also affect the
+            // bookings list, audit log, invoice totals, and dashboard
+            // KPIs. Narrow keying here was leaving stale numbers on
+            // sibling tabs/pages — match the rest of this screen and
+            // invalidate everything.
+            qc.invalidateQueries();
+          }}
         />
       )}
 

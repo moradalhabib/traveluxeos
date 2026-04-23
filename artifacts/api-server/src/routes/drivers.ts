@@ -142,6 +142,8 @@ router.get("/:id", async (req, res) => {
     { data: ratings },
     { data: commissionData },
     { data: extraVehicleRows },
+    { data: histSettlements },
+    { data: histPayouts },
   ] = await Promise.all([
     supabase.from("bookings")
       .select("*, clients(name)")
@@ -157,6 +159,17 @@ router.get("/:id", async (req, res) => {
       .order("date_time", { ascending: false }),
     supabase.from("booking_vehicles")
       .select("id, booking_id, vehicle_type, client_share, tvl_commission, driver_receives, commission_status, payout_status, bookings(id, tvl_ref, date_time, status, payment_method, clients(name))")
+      .eq("driver_id", req.params.id),
+    // Historical attribution: a booking that USED to belong to this driver
+    // (later re-assigned away) still appears in their settlement / payout
+    // ledger. Pull the booking_ids and booking_vehicle_ids referenced by
+    // any settlement / payout for this driver so we can merge in the
+    // legacy ledger lines that the live driver_id query would miss.
+    supabase.from("commission_settlements")
+      .select("booking_ids, booking_vehicle_ids")
+      .eq("driver_id", req.params.id),
+    supabase.from("driver_payouts")
+      .select("booking_ids, booking_vehicle_ids")
       .eq("driver_id", req.params.id),
   ]);
 
@@ -213,7 +226,70 @@ router.get("/:id", async (req, res) => {
       role: "extra" as const,
     }));
 
-  const commissionLedger = [...primaryLedger, ...extraLedger]
+  // Merge in historical bookings/vehicles (driver was settled/paid out for
+  // them but the live driver_id has since been changed). Skip anything
+  // already covered by the primary or extra ledger above.
+  const livePrimaryIds = new Set(primaryLedger.map((r: any) => r.booking_id));
+  const liveExtraVehIds = new Set(extraLedger.map((r: any) => r.booking_vehicle_id).filter(Boolean));
+  const histBookingIds = new Set<string>();
+  const histVehicleIds = new Set<string>();
+  for (const row of [...(histSettlements ?? []), ...(histPayouts ?? [])]) {
+    for (const id of (row as any).booking_ids ?? []) {
+      if (id && !livePrimaryIds.has(id)) histBookingIds.add(id);
+    }
+    for (const id of (row as any).booking_vehicle_ids ?? []) {
+      if (id && !liveExtraVehIds.has(id)) histVehicleIds.add(id);
+    }
+  }
+
+  let historicalLedger: any[] = [];
+  if (histBookingIds.size > 0 || histVehicleIds.size > 0) {
+    const [{ data: histBks }, { data: histVehs }] = await Promise.all([
+      histBookingIds.size > 0
+        ? supabase.from("bookings")
+            .select("id, tvl_ref, date_time, price, additional_charges, tvl_commission, driver_receives, payment_method, commission_status, payout_status, clients(name)")
+            .in("id", [...histBookingIds])
+        : Promise.resolve({ data: [] as any[] }),
+      histVehicleIds.size > 0
+        ? supabase.from("booking_vehicles")
+            .select("id, booking_id, vehicle_type, client_share, tvl_commission, driver_receives, commission_status, payout_status, bookings(id, tvl_ref, date_time, payment_method, clients(name))")
+            .in("id", [...histVehicleIds])
+        : Promise.resolve({ data: [] as any[] }),
+    ]);
+    const histBkRows = (histBks ?? []).map((b: any) => ({
+      booking_id: b.id,
+      tvl_ref: b.tvl_ref,
+      date: b.date_time,
+      client_name: b.clients?.name ?? null,
+      total_fare: (b.price ?? 0) + (b.additional_charges ?? 0),
+      tvl_commission: b.tvl_commission ?? 0,
+      driver_receives: b.driver_receives ?? 0,
+      payment_method: b.payment_method,
+      commission_status: b.commission_status,
+      payout_status: b.payout_status,
+      role: "historical" as const,
+    }));
+    const histVehRows = (histVehs ?? [])
+      .filter((v: any) => v.bookings)
+      .map((v: any) => ({
+        booking_id: v.booking_id,
+        booking_vehicle_id: v.id,
+        tvl_ref: v.bookings?.tvl_ref ?? null,
+        date: v.bookings?.date_time ?? null,
+        client_name: v.bookings?.clients?.name ?? null,
+        total_fare: Number(v.client_share) || 0,
+        tvl_commission: Number(v.tvl_commission) || 0,
+        driver_receives: Number(v.driver_receives) || 0,
+        payment_method: v.bookings?.payment_method ?? null,
+        commission_status: v.commission_status ?? "Outstanding",
+        payout_status: v.payout_status ?? "Pending",
+        vehicle_type: v.vehicle_type ?? null,
+        role: "historical" as const,
+      }));
+    historicalLedger = [...histBkRows, ...histVehRows];
+  }
+
+  const commissionLedger = [...primaryLedger, ...extraLedger, ...historicalLedger]
     .sort((a, b) => new Date(b.date ?? 0).getTime() - new Date(a.date ?? 0).getTime());
 
   // Surface the extra-vehicle bookings in the bookings array too, so the
@@ -497,8 +573,8 @@ router.delete("/:id", async (req, res) => {
   await auditLog("delete_driver", "driver", id, user.id,
     `Deleted driver ${deleted?.name ?? id}`);
   await logActivity({
-    type: "driver_delete",
-    summary: `Driver ${deleted?.name ?? id} deleted`,
+    action_type: "driver_deleted",
+    description: `Driver ${deleted?.name ?? id} deleted`,
     entity_type: "driver",
     entity_id: id,
     entity_label: deleted?.name ?? null,

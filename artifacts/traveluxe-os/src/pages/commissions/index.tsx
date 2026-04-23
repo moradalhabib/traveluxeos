@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useListCommissions, getListCommissionsQueryKey, useCreateSettlement, useCreatePayout } from "@workspace/api-client-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -992,6 +992,47 @@ function DriverMonthBreakdownDialog({
   onClose: () => void;
 }) {
   const open = !!driver;
+  const qc = useQueryClient();
+  const { toast } = useToast();
+  const [unwinding, setUnwinding] = useState<string | null>(null);
+
+  // Unwind a settlement or payout — admin only. Reverts the underlying
+  // booking commission_status / payout_status back to Outstanding /
+  // Pending and deletes the ledger row. Used when a row was mistakenly
+  // recorded or the underlying booking has since been cancelled.
+  const handleUnwind = async (e: SettlementHistoryEntry) => {
+    if (!e.settlement_id) return;
+    const kind = e.kind === "payout" ? "payout" : "settlement";
+    const url = kind === "payout"
+      ? `${API_BASE}/commissions/payouts/${e.settlement_id}`
+      : `${API_BASE}/commissions/settlements/${e.settlement_id}`;
+    const ok = window.confirm(
+      `Unwind this ${kind} of ${fmtMoney(e.total_amount ?? 0)} for ${e.driver_name}?\n\nThe ${e.booking_refs?.length ?? 0} job(s) will revert to ${kind === "payout" ? "Pending" : "Outstanding"} and the ledger row will be deleted. This cannot be undone.`
+    );
+    if (!ok) return;
+    setUnwinding(e.settlement_id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const r = await fetch(url, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${session?.access_token ?? ""}` },
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.error ?? `Unwind failed (${r.status})`);
+      }
+      toast({ title: `${kind === "payout" ? "Payout" : "Settlement"} unwound`, description: `Jobs reverted for ${e.driver_name}` });
+      // Broad invalidation — the bookings list, drivers detail, and
+      // commissions tabs all derive from the same rows we just touched.
+      qc.invalidateQueries();
+      onClose();
+    } catch (err: any) {
+      toast({ title: "Unwind failed", description: err?.message ?? "Unknown error", variant: "destructive" });
+    } finally {
+      setUnwinding(null);
+    }
+  };
+
   if (!driver) return null;
 
   // Sort entries within the dialog newest first so the most recent
@@ -1098,12 +1139,26 @@ function DriverMonthBreakdownDialog({
                       </div>
                     )}
                   </div>
-                  <div
-                    className={`text-base font-bold ${
-                      e.kind === "payout" ? "text-blue-400" : "text-emerald-400"
-                    }`}
-                  >
-                    {isSuperAdmin ? fmtMoney(e.total_amount ?? 0) : "—"}
+                  <div className="flex items-center gap-2">
+                    <div
+                      className={`text-base font-bold ${
+                        e.kind === "payout" ? "text-blue-400" : "text-emerald-400"
+                      }`}
+                    >
+                      {isSuperAdmin ? fmtMoney(e.total_amount ?? 0) : "—"}
+                    </div>
+                    {isSuperAdmin && e.settlement_id && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-[11px] border-destructive/40 text-destructive hover:bg-destructive/10"
+                        disabled={unwinding === e.settlement_id}
+                        onClick={() => handleUnwind(e)}
+                        data-testid={`btn-unwind-${e.settlement_id}`}
+                      >
+                        {unwinding === e.settlement_id ? "Unwinding…" : "Unwind"}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </CardContent>

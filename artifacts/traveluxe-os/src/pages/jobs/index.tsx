@@ -13,9 +13,10 @@ import { format, isToday, isTomorrow, startOfDay, endOfDay, addDays, isBefore, i
 import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { getVipBadgeColor } from "@/lib/vip";
+import { supabase } from "@/lib/supabase";
 
 const STATUS_COLORS: Record<string, string> = {
   'Pending':   'bg-amber-500/20 text-amber-400 border-amber-500/50',
@@ -52,6 +53,32 @@ export default function Jobs() {
     (drivers as any[] | undefined)?.forEach((d) => m.set(d.id, d));
     return m;
   }, [drivers]);
+
+  // Multi-vehicle bookings: pull every booking_vehicles row across the
+  // estate so each parent card can render its extra cars as sub-rows.
+  // Without this the jobs board only showed the primary driver/vehicle and
+  // operators were missing the second car on a transfer.
+  const { data: allVehicles } = useQuery<any[]>({
+    queryKey: ["jobs:booking-vehicles:all"],
+    queryFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token ?? "";
+      const r = await fetch("/api/booking-vehicles", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!r.ok) return [];
+      return r.json();
+    },
+  });
+  const vehiclesByBooking = useMemo(() => {
+    const m = new Map<string, any[]>();
+    (allVehicles ?? []).forEach((v: any) => {
+      if (!v.booking_id) return;
+      if (!m.has(v.booking_id)) m.set(v.booking_id, []);
+      m.get(v.booking_id)!.push(v);
+    });
+    return m;
+  }, [allVehicles]);
 
   const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>, jobId: string) => {
     e.preventDefault();
@@ -294,7 +321,10 @@ export default function Jobs() {
                 {group.jobs.length} job{group.jobs.length !== 1 ? "s" : ""}
               </Badge>
             </div>
-            {group.jobs.map((job) => (
+            {group.jobs.map((job) => {
+              const extras = (vehiclesByBooking.get(job.id) ?? []);
+              return (
+              <div key={job.id} className="space-y-1.5">
               <Card
             key={job.id}
             className="border-border hover:border-primary/40 hover:bg-secondary/10 transition-all bg-card overflow-hidden cursor-pointer select-none"
@@ -495,7 +525,65 @@ export default function Jobs() {
               )}
             </CardContent>
           </Card>
-            ))}
+
+          {/* Extra-vehicle sub-rows: one compact card per booking_vehicles
+              row so operators see the second / third car on a transfer
+              without opening the booking. Tapping still opens the parent
+              booking so they can edit the leg details. */}
+          {extras.map((v: any, idx: number) => {
+            const drv = v.driver_id ? driversById.get(v.driver_id) : null;
+            const drvName = v.driver_name ?? drv?.name ?? null;
+            const drvStaff = v.driver_staff_no ?? drv?.staff_no ?? null;
+            // Numbering: primary booking is "Car 1", first extra is "Car 2",
+            // and so on. The booking-vehicles table doesn't store leg_index,
+            // so we derive it from the array order (created_at-sorted by API).
+            const carNo = idx + 2;
+            return (
+              <Card
+                key={`${job.id}-veh-${v.id}`}
+                className="ml-6 border-border/60 bg-secondary/5 hover:bg-secondary/15 transition-all cursor-pointer"
+                onClick={(e) => { e.stopPropagation(); setLocation(`/bookings/${job.id}`); }}
+                data-testid={`extra-vehicle-row-${v.id}`}
+              >
+                <CardContent className="p-3">
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/20">
+                        Car {carNo} · {job.tvl_ref}
+                      </span>
+                      <Badge variant="outline" className="text-[9px] py-0 px-1.5 bg-secondary/40 text-foreground border-border">
+                        {v.vehicle_type ?? "—"}
+                      </Badge>
+                      <span className="text-muted-foreground truncate">
+                        {(v.pickup ?? job.pickup) || "—"} → {(v.dropoff ?? (job as any).dropoff ?? (job as any).destination) || "—"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      {drvName ? (
+                        <span className="flex items-center gap-1 text-foreground">
+                          <Car className="w-3 h-3 text-muted-foreground" />
+                          {drvStaff && (
+                            <span className="font-mono text-[9px] px-1 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">
+                              {drvStaff}
+                            </span>
+                          )}
+                          {drvName}
+                        </span>
+                      ) : (
+                        <span className="text-destructive flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" /> No Driver
+                        </span>
+                      )}
+                      <span className="text-muted-foreground">£{v.client_share ?? 0}</span>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })}
+              </div>
+              );
+            })}
           </div>
         )) : (
           <div className="flex flex-col items-center justify-center py-16 text-center">

@@ -727,6 +727,135 @@ router.post("/payouts", async (req, res) => {
   return res.status(201).json({ ...data, driver_name: data.drivers?.name ?? null, drivers: undefined });
 });
 
+// ── Unwind a settlement (admin only) ─────────────────────────────────────
+// Reverses commission_status of every booking + booking_vehicle in this
+// settlement back to "Outstanding", then deletes the settlement ledger row.
+// Used when a settlement was made in error or the underlying booking has
+// since been cancelled. Admin / super_admin only — operators can settle
+// but cannot reverse, the same gate as the booking-vehicle unlock flow.
+router.delete("/settlements/:id", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || !["admin", "super_admin"].includes(user.role)) {
+    return res.status(403).json({ error: "Only Admin or Super Admin can unwind a settlement." });
+  }
+
+  const { data: sett, error: fetchErr } = await supabase
+    .from("commission_settlements")
+    .select("id, driver_id, total_amount, booking_ids, booking_vehicle_ids, drivers(name)")
+    .eq("id", req.params.id)
+    .single();
+  if (fetchErr || !sett) return res.status(404).json({ error: "Settlement not found." });
+
+  const bookingIds: string[] = Array.isArray((sett as any).booking_ids) ? (sett as any).booking_ids : [];
+  const vehicleIds: string[] = Array.isArray((sett as any).booking_vehicle_ids) ? (sett as any).booking_vehicle_ids : [];
+
+  if (bookingIds.length > 0) {
+    const { error: bkErr } = await supabase
+      .from("bookings")
+      .update({ commission_status: "Outstanding" })
+      .in("id", bookingIds);
+    if (bkErr) return res.status(500).json({ error: `Failed to revert bookings: ${bkErr.message}` });
+  }
+  if (vehicleIds.length > 0) {
+    const { error: vehErr } = await supabase
+      .from("booking_vehicles")
+      .update({ commission_status: "Outstanding" })
+      .in("id", vehicleIds);
+    if (vehErr) {
+      if (bookingIds.length > 0) {
+        await supabase.from("bookings").update({ commission_status: "Settled" }).in("id", bookingIds);
+      }
+      return res.status(500).json({ error: `Failed to revert vehicles: ${vehErr.message}` });
+    }
+  }
+
+  const { error: delErr } = await supabase
+    .from("commission_settlements")
+    .delete()
+    .eq("id", req.params.id);
+  if (delErr) {
+    if (bookingIds.length > 0) await supabase.from("bookings").update({ commission_status: "Settled" }).in("id", bookingIds);
+    if (vehicleIds.length > 0) await supabase.from("booking_vehicles").update({ commission_status: "Settled" }).in("id", vehicleIds);
+    return res.status(500).json({ error: `Failed to delete settlement: ${delErr.message}` });
+  }
+
+  const drvName = (sett as any).drivers?.name ?? "driver";
+  const summary = `Settlement £${(sett as any).total_amount} for ${drvName} unwound — ${bookingIds.length + vehicleIds.length} legs reverted to Outstanding.`;
+  await auditLog("commission_unwound", "driver", (sett as any).driver_id, user.id, summary);
+  await logActivity({
+    action_type: "settlement_created",
+    description: `UNWOUND: ${summary}`,
+    entity_type: "commission_settlement",
+    entity_id: req.params.id,
+    entity_label: drvName,
+    operator_id: user.id,
+    operator_name: user.name ?? null,
+  });
+
+  return res.json({ ok: true, reverted_bookings: bookingIds.length, reverted_vehicles: vehicleIds.length });
+});
+
+// ── Unwind a payout (admin only) ─────────────────────────────────────────
+router.delete("/payouts/:id", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || !["admin", "super_admin"].includes(user.role)) {
+    return res.status(403).json({ error: "Only Admin or Super Admin can unwind a payout." });
+  }
+
+  const { data: pay, error: fetchErr } = await supabase
+    .from("driver_payouts")
+    .select("id, driver_id, total_amount, booking_ids, booking_vehicle_ids, drivers(name)")
+    .eq("id", req.params.id)
+    .single();
+  if (fetchErr || !pay) return res.status(404).json({ error: "Payout not found." });
+
+  const bookingIds: string[] = Array.isArray((pay as any).booking_ids) ? (pay as any).booking_ids : [];
+  const vehicleIds: string[] = Array.isArray((pay as any).booking_vehicle_ids) ? (pay as any).booking_vehicle_ids : [];
+
+  if (bookingIds.length > 0) {
+    const { error: bkErr } = await supabase
+      .from("bookings")
+      .update({ payout_status: "Pending" })
+      .in("id", bookingIds);
+    if (bkErr) return res.status(500).json({ error: `Failed to revert bookings: ${bkErr.message}` });
+  }
+  if (vehicleIds.length > 0) {
+    const { error: vehErr } = await supabase
+      .from("booking_vehicles")
+      .update({ payout_status: "Pending" })
+      .in("id", vehicleIds);
+    if (vehErr) {
+      if (bookingIds.length > 0) await supabase.from("bookings").update({ payout_status: "Paid" }).in("id", bookingIds);
+      return res.status(500).json({ error: `Failed to revert vehicles: ${vehErr.message}` });
+    }
+  }
+
+  const { error: delErr } = await supabase
+    .from("driver_payouts")
+    .delete()
+    .eq("id", req.params.id);
+  if (delErr) {
+    if (bookingIds.length > 0) await supabase.from("bookings").update({ payout_status: "Paid" }).in("id", bookingIds);
+    if (vehicleIds.length > 0) await supabase.from("booking_vehicles").update({ payout_status: "Paid" }).in("id", vehicleIds);
+    return res.status(500).json({ error: `Failed to delete payout: ${delErr.message}` });
+  }
+
+  const drvName = (pay as any).drivers?.name ?? "driver";
+  const summary = `Payout £${(pay as any).total_amount} for ${drvName} unwound — ${bookingIds.length + vehicleIds.length} legs reverted to Pending.`;
+  await auditLog("payout_unwound", "driver", (pay as any).driver_id, user.id, summary);
+  await logActivity({
+    action_type: "payout_created",
+    description: `UNWOUND: ${summary}`,
+    entity_type: "driver_payout",
+    entity_id: req.params.id,
+    entity_label: drvName,
+    operator_id: user.id,
+    operator_name: user.name ?? null,
+  });
+
+  return res.json({ ok: true, reverted_bookings: bookingIds.length, reverted_vehicles: vehicleIds.length });
+});
+
 // Mark a hotel/apartment arrangement fee as collected
 router.patch("/arrangement-fees/:bookingId", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
