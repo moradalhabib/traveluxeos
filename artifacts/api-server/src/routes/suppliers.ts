@@ -14,7 +14,7 @@ const SUPPLIER_COLUMNS = new Set([
 
 // ─── GET /suppliers — list with optional category + search filters ─────────
 router.get("/", async (req, res) => {
-  const { category, search, active } = req.query as Record<string, string>;
+  const { category, search, active, include_inactive } = req.query as Record<string, string>;
 
   let q = supabase
     .from("suppliers")
@@ -23,7 +23,10 @@ router.get("/", async (req, res) => {
 
   if (category && category !== "all") q = q.eq("category", category);
   if (active === "true") q = q.eq("is_active", true);
-  if (active === "false") q = q.eq("is_active", false);
+  else if (active === "false") q = q.eq("is_active", false);
+  else if (include_inactive !== "1" && include_inactive !== "true") {
+    q = q.eq("is_active", true);
+  }
 
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
@@ -343,23 +346,67 @@ router.post("/:id/balance/unmark-paid", async (req, res) => {
 });
 
 // ─── DELETE /suppliers/:id ──────────────────────────────────────────────────
-// Soft delete: flip is_active to false so existing booking links are preserved.
+// Default: hard delete. If the supplier is referenced by any booking, fall
+// back to a soft delete (is_active = false) so historical bookings keep
+// their reference. Pass ?soft=1 to force a soft delete (used by the
+// per-supplier "Deactivate" button).
 router.delete("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
   if (!user) return res.status(401).json({ error: "Unauthorized" });
+  if (!["super_admin", "admin"].includes(user.role)) {
+    return res.status(403).json({ error: "Admin access required" });
+  }
   const { id } = req.params;
+  const soft = req.query.soft === "1" || req.query.soft === "true";
 
-  const { data, error } = await supabase
+  // Look up the supplier name once for the audit log message.
+  const { data: existing } = await supabase
     .from("suppliers")
-    .update({ is_active: false })
+    .select("name")
     .eq("id", id)
-    .select()
     .single();
-  if (error) return res.status(400).json({ error: error.message });
+  const name = existing?.name ?? id;
 
-  await auditLog("deactivate_supplier", "supplier", id, user.id,
-    `Deactivated supplier ${data?.name ?? id}`);
-  return res.json({ ok: true });
+  const doSoftDelete = async (reason?: string) => {
+    const { error } = await supabase
+      .from("suppliers")
+      .update({ is_active: false })
+      .eq("id", id);
+    if (error) return res.status(400).json({ error: error.message });
+    await auditLog("deactivate_supplier", "supplier", id, user.id,
+      reason
+        ? `Deactivated supplier ${name} (${reason})`
+        : `Deactivated supplier ${name}`);
+    return res.json({
+      ok: true,
+      deleted: false,
+      deactivated: true,
+      reason: reason ?? "soft_requested",
+    });
+  };
+
+  if (soft) return doSoftDelete();
+
+  // Hard delete path: only if no booking references this supplier.
+  const { count, error: countErr } = await supabase
+    .from("bookings")
+    .select("id", { count: "exact", head: true })
+    .eq("supplier_id", id);
+  if (countErr) return res.status(500).json({ error: countErr.message });
+
+  if ((count ?? 0) > 0) {
+    return doSoftDelete("linked_bookings");
+  }
+
+  const { error: delErr } = await supabase
+    .from("suppliers")
+    .delete()
+    .eq("id", id);
+  if (delErr) return res.status(400).json({ error: delErr.message });
+
+  await auditLog("delete_supplier", "supplier", id, user.id,
+    `Deleted supplier ${name}`);
+  return res.json({ ok: true, deleted: true, deactivated: false });
 });
 
 export default router;

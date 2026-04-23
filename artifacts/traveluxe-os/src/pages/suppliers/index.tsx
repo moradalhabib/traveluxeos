@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,10 +60,12 @@ export default function SuppliersList() {
   const { user } = useAuth();
   const canBulkDelete = user?.role === "admin" || user?.role === "super_admin";
   const bulk = useBulkSelect();
+  const queryClient = useQueryClient();
   const [items, setItems] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("all");
+  const [showInactive, setShowInactive] = useState(false);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<any>({ name: "", category: "Car Rental" });
   const [saving, setSaving] = useState(false);
@@ -70,13 +73,28 @@ export default function SuppliersList() {
   const handleBulkDelete = async () => {
     const ids = bulk.ids;
     const results = await Promise.allSettled(
-      ids.map(id => authedFetch(`/api/suppliers/${id}`, { method: "DELETE" })
-        .then(r => { if (!r.ok) throw new Error(String(r.status)); }))
+      ids.map(async (id) => {
+        const r = await authedFetch(`/api/suppliers/${id}`, { method: "DELETE" });
+        if (!r.ok) throw new Error(String(r.status));
+        const body = await r.json().catch(() => ({}));
+        return body as { deleted?: boolean; deactivated?: boolean; reason?: string };
+      })
     );
-    const ok = results.filter(r => r.status === "fulfilled").length;
-    const fail = results.length - ok;
-    if (fail === 0) toast.success(`${ok} supplier${ok === 1 ? "" : "s"} deleted`);
-    else toast.error(`${ok} deleted, ${fail} failed`);
+    let deleted = 0, deactivated = 0, failed = 0;
+    for (const r of results) {
+      if (r.status !== "fulfilled") { failed++; continue; }
+      if (r.value.deleted) deleted++;
+      else if (r.value.deactivated) deactivated++;
+      else deleted++; // legacy/unknown success → assume deleted
+    }
+    const parts: string[] = [];
+    if (deleted) parts.push(`${deleted} deleted`);
+    if (deactivated) parts.push(`${deactivated} deactivated (linked to bookings)`);
+    if (failed) parts.push(`${failed} failed`);
+    const msg = parts.join(", ") || "No changes";
+    if (failed > 0) toast.error(msg);
+    else if (deactivated > 0 && deleted === 0) toast.warning(msg);
+    else toast.success(msg);
     bulk.exitSelectMode();
     load();
     queryClient.invalidateQueries();
@@ -88,6 +106,7 @@ export default function SuppliersList() {
       const params = new URLSearchParams();
       if (category !== "all") params.set("category", category);
       if (search) params.set("search", search);
+      if (showInactive) params.set("include_inactive", "1");
       const res = await authedFetch(`/api/suppliers?${params.toString()}`);
       const data = await res.json();
       setItems(Array.isArray(data) ? data : []);
@@ -98,7 +117,7 @@ export default function SuppliersList() {
     }
   };
 
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [category]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [category, showInactive]);
   useEffect(() => {
     const t = setTimeout(load, 250);
     return () => clearTimeout(t);
@@ -188,6 +207,15 @@ export default function SuppliersList() {
               {c === "all" ? "All" : c}
             </Button>
           ))}
+          <Button
+            size="sm"
+            variant={showInactive ? "default" : "outline"}
+            className="h-9 text-xs"
+            onClick={() => setShowInactive(v => !v)}
+            data-testid="button-toggle-inactive"
+          >
+            {showInactive ? "Hiding active-only" : "Show inactive"}
+          </Button>
         </div>
       </div>
 

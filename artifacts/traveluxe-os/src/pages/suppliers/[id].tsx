@@ -112,7 +112,7 @@ export default function SupplierDetail() {
   const handleDeactivate = async () => {
     if (!confirm("Deactivate this supplier? They will be hidden from new-booking pickers but existing bookings remain linked.")) return;
     try {
-      const res = await authedFetch(`/api/suppliers/${id}`, { method: "DELETE" });
+      const res = await authedFetch(`/api/suppliers/${id}?soft=1`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed");
       toast.success("Supplier deactivated");
       setLocation("/suppliers");
