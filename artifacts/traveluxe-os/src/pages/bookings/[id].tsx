@@ -20,7 +20,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
 import { BookingVehiclesRoster } from "@/components/booking/BookingVehiclesRoster";
@@ -435,6 +435,15 @@ export default function BookingDetail() {
   const { user } = useAuth();
   const qc = useQueryClient();
   const isResidenceManager = user?.role === "residence_manager";
+
+  // Targeted invalidation for inline payment-field edits — only the booking
+  // detail + dashboard summary change, no need to sweep every query on the
+  // page. Bigger state changes (status, driver assignment, invoice gen) keep
+  // their broader sweep.
+  const invalidateBookingDetail = useCallback(() => {
+    qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
+    qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+  }, [qc, id]);
 
   const { data: booking, isLoading, refetch } = useGetBooking(id, {
     query: { enabled: !!id, queryKey: getGetBookingQueryKey(id) }
@@ -2350,7 +2359,7 @@ export default function BookingDetail() {
                       patch.payment_date = new Date().toISOString().slice(0, 10);
                     }
                     updateBooking.mutate({ id, data: patch }, {
-                      onSuccess: () => qc.invalidateQueries(),
+                      onSuccess: invalidateBookingDetail,
                     });
                   }}
                   className={`h-9 rounded-md border px-3 text-sm bg-background w-full ${
@@ -2392,7 +2401,7 @@ export default function BookingDetail() {
                     const cur = (booking as any).payment_date?.slice(0,10) || null;
                     if (next === cur) return; // no-op blur shouldn't clobber autofill
                     updateBooking.mutate({ id, data: { payment_date: next } as any }, {
-                      onSuccess: () => qc.invalidateQueries(),
+                      onSuccess: invalidateBookingDetail,
                     });
                   }}
                   className="h-9"
@@ -2405,7 +2414,7 @@ export default function BookingDetail() {
                   type="number" step="0.01" min="0"
                   defaultValue={(booking as any).paid_amount ?? ""}
                   onBlur={e => updateBooking.mutate({ id, data: { paid_amount: e.target.value === "" ? null : Number(e.target.value) } as any }, {
-                    onSuccess: () => qc.invalidateQueries(),
+                    onSuccess: invalidateBookingDetail,
                   })}
                   className="h-9"
                   data-testid="input-paid-amount"
@@ -2416,7 +2425,7 @@ export default function BookingDetail() {
                 <select
                   value={booking.payment_method || ""}
                   onChange={e => updateBooking.mutate({ id, data: { payment_method: e.target.value || null } as any }, {
-                    onSuccess: () => qc.invalidateQueries(),
+                    onSuccess: invalidateBookingDetail,
                   })}
                   className="h-9 w-full rounded-md border border-border px-3 text-sm bg-background"
                   data-testid="select-payment-method"
@@ -2441,7 +2450,7 @@ export default function BookingDetail() {
                 <Textarea
                   defaultValue={(booking as any).payment_notes || ""}
                   onBlur={e => updateBooking.mutate({ id, data: { payment_notes: e.target.value || null } as any }, {
-                    onSuccess: () => qc.invalidateQueries(),
+                    onSuccess: invalidateBookingDetail,
                   })}
                   placeholder="e.g. Wise transfer ref TX12345 · settled by Mr Khalifa"
                   rows={2}
