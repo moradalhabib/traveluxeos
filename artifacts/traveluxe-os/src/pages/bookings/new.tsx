@@ -7,6 +7,7 @@ import { useCreateBooking, useCreateClient, useListDrivers, getListDriversQueryK
 import { Button } from "@/components/ui/button";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { TimePicker } from "@/components/ui/time-picker";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGroup, SelectLabel } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -1703,7 +1704,7 @@ export default function NewBooking() {
                             )} />
                             <div className="space-y-2">
                               <Label>Time <span className="text-[10px] text-muted-foreground font-normal">(UK)</span></Label>
-                              <Input type="time" value={timeVal} onChange={(e) => writeTime(e.target.value)} />
+                              <TimePicker value={timeVal} onChange={writeTime} />
                             </div>
                           </div>
                         </>
@@ -1721,7 +1722,7 @@ export default function NewBooking() {
                         </div>
                         <div className="space-y-2">
                           <Label>Time <span className="text-[10px] text-muted-foreground font-normal">(UK)</span></Label>
-                          <Input type="time" value={timeVal} onChange={(e) => writeTime(e.target.value)} />
+                          <TimePicker value={timeVal} onChange={writeTime} />
                         </div>
                         <FormField control={bookingForm.control} name="flight_number" render={({ field }) => (
                           <FormItem>
