@@ -86,8 +86,46 @@ router.post("/", async (req, res) => {
   return res.status(201).json(shape(data));
 });
 
+// Lock guard: once a row has been settled (cash) or paid out (bank/card),
+// the financials are part of the historical ledger and must not be edited
+// or deleted from the booking screen. Operators must reopen the row from
+// the Commissions page first. This is defence-in-depth — the UI also
+// blocks the action — to ensure no client can bypass the lock.
+async function assertNotLocked(id: string): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
+  const { data, error } = await supabase
+    .from("booking_vehicles")
+    .select("commission_status, payout_status")
+    .eq("id", id)
+    .single();
+  if (error || !data) {
+    return { ok: false, status: 404, message: "Vehicle row not found" };
+  }
+  if (data.commission_status === "Settled" || data.payout_status === "Paid") {
+    return {
+      ok: false,
+      status: 409,
+      message:
+        data.commission_status === "Settled"
+          ? "This vehicle's commission is already settled. Reopen it on the Commissions page first."
+          : "This vehicle is already paid out. Reopen it on the Commissions page first.",
+    };
+  }
+  return { ok: true };
+}
+
 router.patch("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
+
+  // Block edits to settled/paid rows. Allow operations that ONLY change
+  // commission_status or payout_status (the Commissions page uses these
+  // to settle/reopen rows) — those go through this same endpoint.
+  const bodyKeys = Object.keys(req.body || {});
+  const isStatusOnly = bodyKeys.length > 0 && bodyKeys.every(k => k === "commission_status" || k === "payout_status");
+  if (!isStatusOnly) {
+    const lock = await assertNotLocked(req.params.id);
+    if (!lock.ok) return res.status(lock.status).json({ error: lock.message });
+  }
+
   const allowed = [
     "driver_id",
     "vehicle_type",
@@ -141,6 +179,10 @@ router.patch("/:id", async (req, res) => {
 
 router.delete("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
+
+  // Block deletes on settled/paid rows — same reasoning as PATCH.
+  const lock = await assertNotLocked(req.params.id);
+  if (!lock.ok) return res.status(lock.status).json({ error: lock.message });
 
   const { data: existing } = await supabase
     .from("booking_vehicles")

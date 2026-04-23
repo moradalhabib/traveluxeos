@@ -56,6 +56,11 @@ const T: Record<Lang, Record<string, string>> = {
     notFound: "Job sheet not found.",
     backToBooking: "Back to booking",
     confidential: "For driver use only — do not share with clients.",
+    drivers: "Drivers",
+    driverPay: "Driver",
+    primaryDriver: "Primary driver",
+    extraCar: "Car",
+    plate: "Plate",
   },
   ar: {
     title: "ورقة مهمة السائق",
@@ -82,7 +87,23 @@ const T: Record<Lang, Record<string, string>> = {
     notFound: "لم يتم العثور على ورقة المهمة.",
     backToBooking: "العودة إلى الحجز",
     confidential: "للسائق فقط — لا تتم مشاركتها مع العملاء.",
+    drivers: "السائقون",
+    driverPay: "السائق",
+    primaryDriver: "السائق الرئيسي",
+    extraCar: "سيارة",
+    plate: "اللوحة",
   },
+};
+
+type ExtraDriver = {
+  id: string;
+  driver_id: string | null;
+  driver_name: string | null;
+  driver_staff_no: string | null;
+  driver_vehicle: string | null;
+  driver_plate: string | null;
+  vehicle_type: string | null;
+  notes: string | null;
 };
 
 async function authedFetch(path: string, init: RequestInit = {}) {
@@ -101,6 +122,7 @@ export default function JobSheet() {
   const [, params] = useRoute("/bookings/:id/job-sheet");
   const id = params?.id;
   const [booking, setBooking] = useState<any>(null);
+  const [extras, setExtras] = useState<ExtraDriver[]>([]);
   const [loading, setLoading] = useState(true);
   const [lang, setLang] = useState<Lang>(() => {
     if (typeof window === "undefined") return "en";
@@ -120,15 +142,31 @@ export default function JobSheet() {
 
   useEffect(() => {
     if (!id) return;
+    let cancelled = false;
+    // Reset on id change so we never flash another booking's data.
+    setBooking(null);
+    setExtras([]);
+    setLoading(true);
     (async () => {
-      setLoading(true);
       try {
-        const res = await authedFetch(`/api/bookings/${id}`);
-        if (res.ok) setBooking(await res.json());
+        const [bRes, vRes] = await Promise.all([
+          authedFetch(`/api/bookings/${id}`),
+          authedFetch(`/api/booking-vehicles?booking_id=${encodeURIComponent(id)}`),
+        ]);
+        if (cancelled) return;
+        if (bRes.ok) setBooking(await bRes.json());
+        if (vRes.ok) {
+          setExtras(await vRes.json());
+        } else {
+          // If the roster fetch fails we leave extras empty rather than
+          // showing a stale roster from a previous booking.
+          setExtras([]);
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+    return () => { cancelled = true; };
   }, [id]);
 
   const formatted = useMemo(() => {
@@ -173,6 +211,25 @@ export default function JobSheet() {
     push(t.passengers, booking.passengers != null ? String(booking.passengers) : null);
     push(t.luggage, booking.luggage != null ? String(booking.luggage) : null);
     push(t.vehicle, [booking.vehicle_model, booking.plate].filter(Boolean).join(" · ") || booking.vehicle_type);
+
+    // Multi-vehicle roster: when there are extra cars, list each driver +
+    // their car so the operator can copy-paste a single message that names
+    // every driver assigned to the job.
+    if (extras.length > 0) {
+      lines.push("");
+      lines.push(`*${t.drivers} (${extras.length + 1})*`);
+      const primaryVeh = [booking.vehicle_model, booking.plate].filter(Boolean).join(" · ") || booking.vehicle_type || "";
+      const primaryName = booking.driver_name || booking.driver_staff_no || t.primaryDriver;
+      lines.push(`1. ${primaryName}${primaryVeh ? ` — ${primaryVeh}` : ""}`);
+      extras.forEach((e, i) => {
+        const name = e.driver_name
+          ? `${e.driver_staff_no ? `${e.driver_staff_no} · ` : ""}${e.driver_name}`
+          : (isAr ? "غير محدد" : "Unassigned");
+        const veh = [e.vehicle_type || e.driver_vehicle, e.driver_plate].filter(Boolean).join(" · ");
+        lines.push(`${i + 2}. ${name}${veh ? ` — ${veh}` : ""}`);
+      });
+    }
+
     // Client phone deliberately omitted — driver/client coordination is
     // handled by the operator. Only the client's name + nameboard are shared
     // so the driver can identify their pax at pickup.
@@ -334,6 +391,66 @@ export default function JobSheet() {
             )}
           </CardContent>
         </Card>
+
+        {/* Multi-vehicle roster — only shown for multi-car bookings.
+            Each driver sees the full list so they know which car they're in
+            and who else is on the job. Single-car bookings keep the original
+            layout untouched. */}
+        {extras.length > 0 && (
+          <Card className="bg-card border-primary/30" data-testid="jobsheet-drivers-roster">
+            <CardContent className="p-4 space-y-3">
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                <Users className="w-3 h-3" /> {t.drivers} ({extras.length + 1})
+              </div>
+
+              {/* Car #1 — primary driver from the booking record */}
+              <div className="rounded-md border border-border/60 bg-background/50 p-3 space-y-1">
+                <div className="flex items-center justify-between">
+                  <Badge variant="outline" className="text-[10px]">{`${t.extraCar} #1`}</Badge>
+                  <span className="text-[10px] text-muted-foreground">{t.primaryDriver}</span>
+                </div>
+                <div className="text-sm font-semibold">
+                  {booking.driver_name
+                    ? `${booking.driver_staff_no ? `${booking.driver_staff_no} · ` : ""}${booking.driver_name}`
+                    : t.none}
+                </div>
+                {(booking.vehicle_model || booking.vehicle_type || booking.plate) && (
+                  <div className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Car className="w-3 h-3" />
+                    {booking.vehicle_model || booking.vehicle_type}
+                    {booking.plate ? <span> · {t.plate} {booking.plate}</span> : null}
+                  </div>
+                )}
+              </div>
+
+              {/* Car #2..N — additional vehicles */}
+              {extras.map((e, idx) => {
+                const name = e.driver_name
+                  ? `${e.driver_staff_no ? `${e.driver_staff_no} · ` : ""}${e.driver_name}`
+                  : (isAr ? "غير محدد" : "Unassigned");
+                const veh = e.vehicle_type || e.driver_vehicle;
+                return (
+                  <div key={e.id} className="rounded-md border border-border/60 bg-background/50 p-3 space-y-1">
+                    <div className="flex items-center justify-between">
+                      <Badge variant="outline" className="text-[10px]">{`${t.extraCar} #${idx + 2}`}</Badge>
+                    </div>
+                    <div className={`text-sm font-semibold ${e.driver_id ? "" : "text-destructive"}`}>{name}</div>
+                    {(veh || e.driver_plate) && (
+                      <div className="text-xs text-muted-foreground flex items-center gap-1">
+                        <Car className="w-3 h-3" />
+                        {veh || t.none}
+                        {e.driver_plate ? <span> · {t.plate} {e.driver_plate}</span> : null}
+                      </div>
+                    )}
+                    {e.notes && (
+                      <p className="text-xs text-muted-foreground italic pt-1">{e.notes}</p>
+                    )}
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
+        )}
 
         {/* Client identity (NO phone — operator coordinates driver↔client) */}
         {(booking.client_name || booking.nameboard) && (
