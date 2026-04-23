@@ -1,5 +1,6 @@
 import { useParams, useLocation } from "wouter";
 import { useListInvoices, getListInvoicesQueryKey, useGetBooking, getGetBookingQueryKey } from "@workspace/api-client-react";
+import { ActivityPanel } from "@/components/activity/ActivityPanel";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -832,6 +833,14 @@ export default function InvoiceDetail() {
           </div>
         </CardContent>
       </Card>
+
+      {id && (
+        <ActivityPanel
+          entityType="invoice"
+          entityId={id}
+          description="Recent audit entries for this invoice."
+        />
+      )}
     </div>
   );
 }

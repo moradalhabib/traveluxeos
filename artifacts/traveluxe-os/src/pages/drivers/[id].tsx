@@ -1,6 +1,7 @@
 import { useParams, useLocation, Link } from "wouter";
 import { useState, useEffect, useMemo } from "react";
 import { useGetDriver, useUpdateDriver, getGetDriverQueryKey } from "@workspace/api-client-react";
+import { ActivityPanel } from "@/components/activity/ActivityPanel";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -714,6 +715,14 @@ export default function DriverDetail() {
           )}
         </CardContent>
       </Card>
+
+      {id && (
+        <ActivityPanel
+          entityType="driver"
+          entityId={id}
+          description="Recent audit entries for this driver."
+        />
+      )}
     </div>
   );
 }

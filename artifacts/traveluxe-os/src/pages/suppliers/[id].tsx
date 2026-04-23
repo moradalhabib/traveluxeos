@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRoute, Link, useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
+import { ActivityPanel } from "@/components/activity/ActivityPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
@@ -289,6 +290,14 @@ export default function SupplierDetail() {
           if (res.ok) setSupplier(await res.json());
         }}
       />
+
+      {id && (
+        <ActivityPanel
+          entityType="supplier"
+          entityId={id}
+          description="Recent audit entries for this supplier."
+        />
+      )}
 
       {/* Danger zone */}
       <div className="flex justify-end">

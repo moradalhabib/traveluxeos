@@ -15,6 +15,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { NATIONALITIES, nationalityFlag } from "@/lib/nationalities";
+import { ActivityPanel } from "@/components/activity/ActivityPanel";
 
 const API_BASE = `${import.meta.env.VITE_API_URL ?? ""}/api`;
 
@@ -938,6 +939,14 @@ export default function ClientDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {id && (
+        <ActivityPanel
+          entityType="client"
+          entityId={id}
+          description="Recent audit entries for this client profile."
+        />
+      )}
     </div>
   );
 }
