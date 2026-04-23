@@ -155,6 +155,7 @@ export default function NewBooking() {
   // also auto-open it whenever the booking already has a referral_partner_name
   // (e.g. when re-rendering an edit) — handled at the render site below.
   const [showReferralSplit, setShowReferralSplit] = useState(false);
+  const [showVehiclePref, setShowVehiclePref] = useState(false);
   const [foundClient, setFoundClient] = useState<FoundClient | null>(null);
   const [confirmedClient, setConfirmedClient] = useState<FoundClient | null>(null);
   const [isEditingFound, setIsEditingFound] = useState(false);
@@ -2316,23 +2317,52 @@ export default function NewBooking() {
                     )} />
                   )}
 
-                  {/* Vehicle Preference — transport only. Free-text client
-                      preference (e.g. "Range Rover", "V-Class", "Rolls Royce")
-                      shown to dispatcher + driver. Independent of the
-                      structured vehicle_type / supplier product. */}
+                  {/* Vehicle Preference — transport only. Hidden behind a
+                      toggle since the structured vehicle picker handles the
+                      common case. Auto-revealed when an existing value is
+                      present (edit / draft restore). */}
                   {!isAccommodation && !isHotel && (
-                    <FormField control={bookingForm.control} name="vehicle_preference" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>
-                          Vehicle Preference
-                          <span className="text-xs text-muted-foreground font-normal ml-1">(optional — client request)</span>
-                        </FormLabel>
-                        <FormControl>
-                          <Input placeholder="e.g. Range Rover, V-Class, Rolls Royce" {...field} data-testid="input-vehicle-preference" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )} />
+                    <FormField control={bookingForm.control} name="vehicle_preference" render={({ field }) => {
+                      const hasValue = !!(field.value && String(field.value).trim());
+                      const show = showVehiclePref || hasValue;
+                      if (!show) {
+                        return (
+                          <FormItem>
+                            <button
+                              type="button"
+                              onClick={() => setShowVehiclePref(true)}
+                              className="text-xs text-primary hover:underline flex items-center gap-1"
+                              data-testid="toggle-vehicle-preference"
+                            >
+                              <Plus className="w-3 h-3" /> Add vehicle preference
+                              <span className="text-muted-foreground font-normal">— client request outside standard fleet</span>
+                            </button>
+                          </FormItem>
+                        );
+                      }
+                      return (
+                        <FormItem>
+                          <div className="flex items-center justify-between">
+                            <FormLabel>
+                              Vehicle Preference
+                              <span className="text-xs text-muted-foreground font-normal ml-1">(optional — client request)</span>
+                            </FormLabel>
+                            <button
+                              type="button"
+                              onClick={() => { field.onChange(""); setShowVehiclePref(false); }}
+                              className="text-[11px] text-muted-foreground hover:text-foreground underline"
+                              data-testid="hide-vehicle-preference"
+                            >
+                              Remove
+                            </button>
+                          </div>
+                          <FormControl>
+                            <Input placeholder="e.g. Range Rover, V-Class, Rolls Royce" {...field} data-testid="input-vehicle-preference" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      );
+                    }} />
                   )}
 
                   <FormField control={bookingForm.control} name="special_requests" render={({ field }) => {
