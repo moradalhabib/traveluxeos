@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Car, Users, Plus, Pencil, Trash2, Lock, X, Save } from "lucide-react";
+import { Car, Users, Plus, Pencil, Trash2, Lock, LockOpen, X, Save } from "lucide-react";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -98,10 +98,16 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [savingIdx, setSavingIdx] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<{ idx: number; id: string } | null>(null);
+  const [confirmUnlock, setConfirmUnlock] = useState<{ idx: number; id: string; commission_status: string; payout_status: string } | null>(null);
+  const [unlockingIdx, setUnlockingIdx] = useState<number | null>(null);
 
   const { user } = useAuth();
   const { toast } = useToast();
   const canEdit = user?.role === "operator" || user?.role === "admin" || user?.role === "super_admin";
+  // Unlocking a settled/paid row reopens the financial ledger entry, so
+  // restrict to admin roles only — regular operators must still go via
+  // the Commissions page.
+  const canUnlock = user?.role === "admin" || user?.role === "super_admin";
   const { data: drivers } = useListDrivers(
     {},
     { query: { enabled: canEdit, queryKey: getListDriversQueryKey({}) } },
@@ -250,6 +256,43 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
       toast({ title: "Delete failed", description: e?.message ?? String(e), variant: "destructive" });
     } finally {
       setConfirmDelete(null);
+    }
+  };
+
+  const performUnlock = async (idx: number, id: string, commission_status: string, payout_status: string) => {
+    setUnlockingIdx(idx);
+    try {
+      const token = await authToken();
+      // Status-only PATCH: only flip the fields that are actually locked.
+      // Settled → Outstanding for commission, Paid → Pending for payout.
+      // Sending only these keys keeps the server's "status-only" branch
+      // active so the lock guard doesn't reject the request.
+      const patch: Record<string, string> = {};
+      if (commission_status === "Settled") patch.commission_status = "Outstanding";
+      if (payout_status === "Paid") patch.payout_status = "Pending";
+      if (Object.keys(patch).length === 0) {
+        setConfirmUnlock(null);
+        return;
+      }
+      const r = await fetch(`/api/booking-vehicles/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(patch),
+      });
+      if (!r.ok) {
+        const errText = await r.text().catch(() => "");
+        toast({ title: "Couldn't unlock vehicle", description: errText || "Please try again.", variant: "destructive" });
+        return;
+      }
+      const saved: ExtraVehicle = await r.json();
+      toast({ title: "Vehicle unlocked", description: "The row is back in the pending pool — edit and re-settle as needed." });
+      await fetchRows();
+      setDrafts(prev => prev.map((row, i) => (i === idx ? toDraft(saved) : row)));
+    } catch (e: any) {
+      toast({ title: "Unlock failed", description: e?.message ?? String(e), variant: "destructive" });
+    } finally {
+      setUnlockingIdx(null);
+      setConfirmUnlock(null);
     }
   };
 
@@ -403,7 +446,7 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
       </CardHeader>
       <CardContent className="space-y-3">
         <p className="text-xs text-muted-foreground">
-          Edit each car independently. Rows that have already been settled or paid are locked — reopen them on the Commissions page first.
+          Edit each car independently. Rows that have already been settled or paid are locked{canUnlock ? " — admins can unlock them here, or reopen them from the Commissions page" : " — reopen them on the Commissions page first"}.
         </p>
 
         {drafts.length === 0 && (
@@ -430,6 +473,25 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
                   )}
                 </div>
                 <div className="flex items-center gap-1">
+                  {locked && canUnlock && d.id && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7"
+                      onClick={() => setConfirmUnlock({
+                        idx,
+                        id: d.id!,
+                        commission_status: d.commission_status,
+                        payout_status: d.payout_status,
+                      })}
+                      disabled={unlockingIdx === idx}
+                      data-testid={`btn-roster-unlock-${idx}`}
+                    >
+                      <LockOpen className="w-3.5 h-3.5 mr-1" />
+                      {unlockingIdx === idx ? "Unlocking…" : "Unlock"}
+                    </Button>
+                  )}
                   {!locked && (
                     <>
                       <Button
@@ -569,6 +631,36 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
           );
         })}
       </CardContent>
+
+      <AlertDialog open={!!confirmUnlock} onOpenChange={(open) => !open && setConfirmUnlock(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unlock this vehicle row?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmUnlock?.commission_status === "Settled" && confirmUnlock?.payout_status === "Paid"
+                ? "This row's commission is settled and the driver has been paid out. Unlocking it will reset the commission to Outstanding and the payout to Pending — the row will reappear in both the Commissions and Payouts pending pools and you'll need to re-settle/re-pay it."
+                : confirmUnlock?.commission_status === "Settled"
+                ? "This row's commission has been settled. Unlocking will reset it to Outstanding — the row will reappear in the Commissions pending pool and you'll need to re-settle it."
+                : "This row has been paid out to the driver. Unlocking will reset the payout to Pending — the row will reappear in the Payouts pending pool and you'll need to re-pay it."}
+              {" "}This action is recorded in the audit log.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => confirmUnlock && performUnlock(
+                confirmUnlock.idx,
+                confirmUnlock.id,
+                confirmUnlock.commission_status,
+                confirmUnlock.payout_status,
+              )}
+              data-testid="btn-roster-unlock-confirm"
+            >
+              Unlock row
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!confirmDelete} onOpenChange={(open) => !open && setConfirmDelete(null)}>
         <AlertDialogContent>

@@ -116,7 +116,16 @@ export function getDbClient(authHeader: string | undefined): SupabaseClient {
   return supabase;
 }
 
-export async function getUserFromToken(authHeader: string | undefined) {
+export type AppUser = {
+  id: string;
+  email: string;
+  name: string;
+  role: string;
+  active: boolean;
+  [key: string]: unknown;
+};
+
+export async function getUserFromToken(authHeader: string | undefined): Promise<AppUser | null> {
   if (!authHeader?.startsWith("Bearer ")) return null;
   const token = authHeader.substring(7);
   const client = getClient();
@@ -127,5 +136,14 @@ export async function getUserFromToken(authHeader: string | undefined) {
     .select("*")
     .eq("id", data.user.id)
     .single();
-  return userData;
+  if (!userData) return null;
+  const u = userData as Record<string, unknown>;
+  return {
+    ...u,
+    id: String(u.id ?? data.user.id),
+    email: String(u.email ?? ""),
+    name: String(u.name ?? ""),
+    role: String(u.role ?? ""),
+    active: Boolean(u.active ?? true),
+  };
 }

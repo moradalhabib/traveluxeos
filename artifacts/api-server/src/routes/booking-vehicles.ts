@@ -118,12 +118,51 @@ router.patch("/:id", async (req, res) => {
 
   // Block edits to settled/paid rows. Allow operations that ONLY change
   // commission_status or payout_status (the Commissions page uses these
-  // to settle/reopen rows) — those go through this same endpoint.
+  // to settle/reopen rows, and the booking screen uses them to unlock
+  // a settled row) — those go through this same endpoint.
   const bodyKeys = Object.keys(req.body || {});
   const isStatusOnly = bodyKeys.length > 0 && bodyKeys.every(k => k === "commission_status" || k === "payout_status");
+
+  // Snapshot the prior status BEFORE the update so we can detect an
+  // unlock (Settled → Outstanding / Paid → Pending) and audit it
+  // specifically.
+  const { data: prior } = await supabase
+    .from("booking_vehicles")
+    .select("commission_status, payout_status")
+    .eq("id", req.params.id)
+    .single();
+
   if (!isStatusOnly) {
-    const lock = await assertNotLocked(req.params.id);
-    if (!lock.ok) return res.status(lock.status).json({ error: lock.message });
+    if (!prior) return res.status(404).json({ error: "Vehicle row not found" });
+    if (prior.commission_status === "Settled" || prior.payout_status === "Paid") {
+      return res.status(409).json({
+        error:
+          prior.commission_status === "Settled"
+            ? "This vehicle's commission is already settled. Reopen it on the Commissions page first."
+            : "This vehicle is already paid out. Reopen it on the Commissions page first.",
+      });
+    }
+  }
+
+  // Authorization: a status-only PATCH that *unlocks* a row (Settled →
+  // Outstanding and/or Paid → Pending) reopens a financial ledger entry
+  // and is restricted to admin/super_admin. The Commissions page's
+  // forward transitions (Outstanding → Settled, Pending → Paid) remain
+  // open to operators. We check this server-side so the UI's role gate
+  // can't be bypassed by a crafted request.
+  if (isStatusOnly && prior) {
+    const wouldUnlockCommission =
+      prior.commission_status === "Settled" && req.body.commission_status === "Outstanding";
+    const wouldUnlockPayout =
+      prior.payout_status === "Paid" && req.body.payout_status === "Pending";
+    if (wouldUnlockCommission || wouldUnlockPayout) {
+      const role = user?.role;
+      if (role !== "admin" && role !== "super_admin") {
+        return res.status(403).json({
+          error: "Only admins can unlock a settled or paid vehicle row.",
+        });
+      }
+    }
   }
 
   const allowed = [
@@ -166,13 +205,37 @@ router.patch("/:id", async (req, res) => {
 
   if (error) return res.status(400).json({ error: error.message });
 
-  await auditLog(
-    "update_booking_vehicle",
-    "booking",
-    data?.booking_id ?? req.params.id,
-    user?.id ?? null,
-    `Updated vehicle ${req.params.id}`
-  );
+  // Detect an unlock: a status-only PATCH that moves Settled → Outstanding
+  // and/or Paid → Pending. Log it under a distinct action so it shows up
+  // clearly in the audit trail, separate from regular edits.
+  const wasSettled = prior?.commission_status === "Settled";
+  const wasPaid = prior?.payout_status === "Paid";
+  const nowOutstanding = payload.commission_status === "Outstanding";
+  const nowPending = payload.payout_status === "Pending";
+  const isUnlock =
+    isStatusOnly &&
+    ((wasSettled && nowOutstanding) || (wasPaid && nowPending));
+
+  if (isUnlock) {
+    const parts: string[] = [];
+    if (wasSettled && nowOutstanding) parts.push("commission Settled → Outstanding");
+    if (wasPaid && nowPending) parts.push("payout Paid → Pending");
+    await auditLog(
+      "unlock_booking_vehicle",
+      "booking",
+      data?.booking_id ?? req.params.id,
+      user?.id ?? null,
+      `Unlocked vehicle ${req.params.id} (${parts.join(", ")})`
+    );
+  } else {
+    await auditLog(
+      "update_booking_vehicle",
+      "booking",
+      data?.booking_id ?? req.params.id,
+      user?.id ?? null,
+      `Updated vehicle ${req.params.id}`
+    );
+  }
 
   return res.json(shape(data));
 });
