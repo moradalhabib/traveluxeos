@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { ActiveFilterChips } from "@/components/ui/active-filter-chips";
 import {
   PoundSterling, TrendingUp, CreditCard, AlertCircle, ArrowUpDown,
   Car, LayoutDashboard, ChevronRight, CheckCircle2, Clock, CalendarRange,
@@ -139,6 +140,23 @@ export default function Finance() {
           widthClass="w-44"
           testId="filter-finance-period"
         />
+        {/* Chip mirrors the Period dropdown — surfaced when the user picks
+            anything other than the default ("month") so the active filter is
+            visible at a glance, matching every other list page. */}
+        {(() => {
+          const PERIOD_LABELS: Record<string, string> = {
+            today: "Today", week: "Week", month: "Month", year: "Year", all: "All Time", custom: "Custom",
+          };
+          return (
+            <ActiveFilterChips
+              filters={
+                period !== "month"
+                  ? [{ key: "period", label: "Period", value: PERIOD_LABELS[period] ?? period, onClear: () => { setPeriod("month"); setCustomFrom(""); setCustomTo(""); } }]
+                  : []
+              }
+            />
+          );
+        })()}
         {period === "custom" && (
           <div className="flex items-end gap-2">
             <div className="flex-1">

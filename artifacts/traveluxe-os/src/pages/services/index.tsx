@@ -15,6 +15,7 @@ import {
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { ActiveFilterChips } from "@/components/ui/active-filter-chips";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 
@@ -533,6 +534,16 @@ export default function Services() {
                   : bookings.filter(b => canonicalKey(b.service_type) === selectedKey && b.status === s).length,
               }))}
               testId="filter-services-status"
+            />
+
+            {/* Active filter chips for the per-service detail view's Status
+                dropdown. Same chrome as every other list page. */}
+            <ActiveFilterChips
+              filters={
+                statusFilter !== "All"
+                  ? [{ key: "status", label: "Status", value: statusFilter, onClear: () => setStatusFilter("All") }]
+                  : []
+              }
             />
 
             {loadingBookings ? (

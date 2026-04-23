@@ -7,6 +7,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { ActiveFilterChips } from "@/components/ui/active-filter-chips";
 import { Calculator, Check, Hotel, Home, MessageSquare, ChevronRight, ExternalLink, Info, CheckCircle2, AlertTriangle, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -416,6 +417,15 @@ export default function Commissions() {
               testId="filter-commissions-period"
             />
           </div>
+          {/* Chip mirroring the Period dropdown so the active filter is
+              surfaced consistently with the rest of the app. */}
+          <ActiveFilterChips
+            filters={
+              outstandingView !== "all-time"
+                ? [{ key: "period", label: "Period", value: "This month", onClear: () => setOutstandingView("all-time") }]
+                : []
+            }
+          />
           {owedToTvlDrivers.map((driver) => {
             const pendingCash = driver.jobs.filter(
               (j) => j.payment_method === "Cash" && j.commission_status !== "Settled"

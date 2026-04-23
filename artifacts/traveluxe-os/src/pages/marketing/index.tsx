@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -340,6 +341,43 @@ export default function MarketingHub() {
           </h2>
         </div>
         <div className="bg-card border border-border rounded-xl p-5 space-y-4">
+          {/* Active filter chips — mirror the dropdown selections in the
+              builder below so the user gets a single "what is currently
+              active" summary, with one-tap clear per filter. */}
+          {(() => {
+            const chips: ActiveFilter[] = [];
+            if (lastBookingMode !== "any") {
+              const desc =
+                lastBookingMode === "more_than" ? `More than ${bMore || "?"} days ago`
+                : lastBookingMode === "within"   ? `Within ${bWithin || "?"} days`
+                :                                  `Between ${bMin || "?"}–${bMax || "?"} days`;
+              chips.push({
+                key: "last_booking", label: "Last booking", value: desc,
+                onClear: () => { setLastBookingMode("any"); setBMore(""); setBWithin(""); setBMin(""); setBMax(""); },
+              });
+            }
+            if (filters.vip_tier && filters.vip_tier !== "Any") {
+              chips.push({ key: "vip", label: "VIP Tier", value: filters.vip_tier, onClear: () => setFilters({ ...filters, vip_tier: null }) });
+            }
+            if (filters.nationality) {
+              chips.push({ key: "nationality", label: "Nationality", value: filters.nationality, onClear: () => setFilters({ ...filters, nationality: null }) });
+            }
+            if (filters.service_type) {
+              chips.push({ key: "service", label: "Service type", value: filters.service_type, onClear: () => setFilters({ ...filters, service_type: null }) });
+            }
+            if (filters.min_total_spend != null) {
+              chips.push({ key: "min_spend", label: "Min spend", value: String(filters.min_total_spend), onClear: () => setFilters({ ...filters, min_total_spend: null }) });
+            }
+            return (
+              <ActiveFilterChips
+                filters={chips}
+                onClearAll={() => {
+                  setLastBookingMode("any"); setBMore(""); setBWithin(""); setBMin(""); setBMax("");
+                  setFilters({});
+                }}
+              />
+            );
+          })()}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Last booking */}
             <div className="space-y-2">
