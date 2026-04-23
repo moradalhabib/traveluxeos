@@ -393,22 +393,31 @@ router.get("/settlements/history", async (_req, res) => {
     (users ?? []).forEach((u: any) => { operatorNameMap[u.id] = u.name ?? null; });
   }
 
-  // Recompute total for settlements (commission_settlements may not store total_amount)
+  // Build the unified history. The UI expects `total_amount`, `tvl_number`,
+  // and `month`; we also keep `amount` as an alias so legacy callers don't
+  // break. Returned both as a top-level array (preferred) and as
+  // `{ history, settlements }` for any older client code that wraps.
   const enriched = [
     ...(settlements ?? []).map((s: any) => {
       const refs = (s.booking_ids ?? []).map((id: string) => bookingRefMap[id] ?? id);
+      const total = Number(s.total_amount ?? 0);
+      const settledAt = s.settled_at;
       return {
         kind: "settlement" as const,
         id: s.id,
+        settlement_id: s.id,
         driver_id: s.driver_id,
         driver_name: s.drivers?.name ?? null,
         driver_staff_no: s.drivers?.staff_no ?? null,
-        settled_at: s.settled_at,
+        tvl_number: s.drivers?.staff_no ?? null,
+        settled_at: settledAt,
+        month: settledAt ? settledAt.slice(0, 7) : null,
         week_start: s.week_start,
         week_end: s.week_end,
         booking_ids: s.booking_ids ?? [],
         booking_refs: refs,
-        amount: Number(s.total_amount ?? 0),
+        amount: total,
+        total_amount: total,
         notes: s.notes ?? null,
         operator_id: s.settled_by ?? null,
         operator_name: s.settled_by ? operatorNameMap[s.settled_by] ?? null : null,
@@ -416,18 +425,24 @@ router.get("/settlements/history", async (_req, res) => {
     }),
     ...(payouts ?? []).map((p: any) => {
       const refs = (p.booking_ids ?? []).map((id: string) => bookingRefMap[id] ?? id);
+      const total = Number(p.total_amount ?? 0);
+      const settledAt = p.paid_at;
       return {
         kind: "payout" as const,
         id: p.id,
+        settlement_id: p.id,
         driver_id: p.driver_id,
         driver_name: p.drivers?.name ?? null,
         driver_staff_no: p.drivers?.staff_no ?? null,
-        settled_at: p.paid_at,
+        tvl_number: p.drivers?.staff_no ?? null,
+        settled_at: settledAt,
+        month: settledAt ? settledAt.slice(0, 7) : null,
         week_start: p.week_start,
         week_end: p.week_end,
         booking_ids: p.booking_ids ?? [],
         booking_refs: refs,
-        amount: Number(p.total_amount ?? 0),
+        amount: total,
+        total_amount: total,
         notes: p.notes ?? null,
         operator_id: p.paid_by ?? null,
         operator_name: p.paid_by ? operatorNameMap[p.paid_by] ?? null : null,
@@ -437,7 +452,11 @@ router.get("/settlements/history", async (_req, res) => {
     new Date(b.settled_at ?? 0).getTime() - new Date(a.settled_at ?? 0).getTime(),
   );
 
-  return res.json({ history: enriched });
+  // Express's res.json doesn't allow a top-level array AND extra fields, so
+  // we return the array directly — the UI (Array.isArray ? json : ...) handles
+  // it, and any older caller can still read response.settlements via a
+  // dedicated endpoint if needed. This is the single source of truth.
+  return res.json(enriched);
 });
 
 router.post("/settlements", async (req, res) => {
