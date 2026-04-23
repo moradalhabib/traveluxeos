@@ -326,15 +326,19 @@ router.delete("/:id", async (req, res) => {
     operator_name: user.name ?? user.email ?? null,
   });
 
-  notifyByRoles(STAFF_ROLES, {
-    type: "booking_cancelled",
-    title: "Invoice Deleted",
-    message: `${inv.invoice_number ?? id} — deleted by ${user.name ?? user.email ?? "admin"}`,
-    link: `/invoices`,
-    entityType: "invoice",
-    entityId: id,
-    severity: "warning",
-  }).catch(() => {});
+  // Suppressed when ?silent=1 — bulk-delete fan-out emits one aggregated
+  // "N invoices deleted" via /api/notifications/broadcast-staff instead.
+  if (req.query.silent !== "1") {
+    notifyByRoles(STAFF_ROLES, {
+      type: "booking_cancelled",
+      title: "Invoice Deleted",
+      message: `${inv.invoice_number ?? id} — deleted by ${user.name ?? user.email ?? "admin"}`,
+      link: `/invoices`,
+      entityType: "invoice",
+      entityId: id,
+      severity: "warning",
+    }).catch(() => {});
+  }
 
   return res.json({ ok: true, id, invoice_number: inv.invoice_number });
 });

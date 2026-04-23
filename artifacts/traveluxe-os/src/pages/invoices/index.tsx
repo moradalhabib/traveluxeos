@@ -46,14 +46,33 @@ export default function Invoices() {
     const ids = bulk.ids;
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
+    // ?silent=1 suppresses the per-row staff broadcast; we emit ONE
+    // aggregated notification at the end so the bell doesn't show 10
+    // duplicate "Invoice Deleted" entries for a single bulk action.
     const results = await Promise.allSettled(
-      ids.map(id => fetch(`/api/invoices/${id}`, {
+      ids.map(id => fetch(`/api/invoices/${id}?silent=1`, {
         method: "DELETE",
         headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       }).then(r => { if (!r.ok) throw new Error(String(r.status)); }))
     );
     const ok = results.filter(r => r.status === "fulfilled").length;
     const fail = results.length - ok;
+    if (ok > 0) {
+      fetch("/api/notifications/broadcast-staff", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          type: "booking_cancelled",
+          title: "Invoices Deleted",
+          message: `${ok} invoice${ok === 1 ? "" : "s"} permanently removed in a bulk action`,
+          link: "/invoices",
+          severity: "warning",
+        }),
+      }).catch(() => {});
+    }
     toast({
       title: fail === 0 ? "Invoices deleted" : `${ok} deleted, ${fail} failed`,
       description: fail === 0 ? `${ok} invoice${ok === 1 ? "" : "s"} permanently removed` : "Some deletions failed",

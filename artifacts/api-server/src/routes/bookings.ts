@@ -1255,16 +1255,21 @@ router.delete("/:id", async (req, res) => {
     operator_name: user.name ?? user.email ?? null,
   });
 
-  // Broadcast to every staff member so deletions are visible across the team
-  notifyByRoles(STAFF_ROLES, {
-    type: "booking_cancelled",
-    title: "Booking Deleted",
-    message: `${bk.tvl_ref ?? id} · ${bk.client_name ?? "—"} — deleted by ${user.name ?? user.email ?? "admin"}`,
-    link: `/bookings`,
-    entityType: "booking",
-    entityId: id,
-    severity: "warning",
-  }).catch(() => {});
+  // Broadcast to every staff member so deletions are visible across the team.
+  // Suppressed when ?silent=1 is set — used by bulk-delete fan-out so the
+  // bell doesn't spam one row per deleted booking; the client emits one
+  // aggregated "N bookings deleted" notification via /api/notifications/broadcast-staff.
+  if (req.query.silent !== "1") {
+    notifyByRoles(STAFF_ROLES, {
+      type: "booking_cancelled",
+      title: "Booking Deleted",
+      message: `${bk.tvl_ref ?? id} · ${bk.client_name ?? "—"} — deleted by ${user.name ?? user.email ?? "admin"}`,
+      link: `/bookings`,
+      entityType: "booking",
+      entityId: id,
+      severity: "warning",
+    }).catch(() => {});
+  }
 
   return res.json({ ok: true, id, tvl_ref: bk.tvl_ref });
 });

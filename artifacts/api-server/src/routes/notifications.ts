@@ -1,9 +1,35 @@
 import { Router } from "express";
 import { getDbClient, getUserFromToken } from "../lib/supabase";
+import { notifyByRoles, STAFF_ROLES } from "../services/notify";
 
 const router = Router();
 
 const auth = (req: any) => req.headers.authorization;
+
+// POST /api/notifications/broadcast-staff
+// Admin-only. Used by bulk-delete fan-outs to emit ONE aggregated
+// notification to all staff after silently deleting many rows, instead
+// of letting each per-row DELETE notify and spam the bell.
+// Body: { type, title, message, link?, severity? }
+router.post("/broadcast-staff", async (req, res) => {
+  const user = await getUserFromToken(auth(req));
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+  if (!["admin", "super_admin"].includes(user.role)) {
+    return res.status(403).json({ error: "Admin only" });
+  }
+  const { type, title, message, link, severity } = req.body ?? {};
+  if (!type || !title || !message) {
+    return res.status(400).json({ error: "type, title and message are required" });
+  }
+  await notifyByRoles(STAFF_ROLES, {
+    type,
+    title,
+    message,
+    link,
+    severity: severity ?? "info",
+  }).catch((e) => console.warn("[broadcast-staff] notify error:", e?.message));
+  return res.json({ ok: true });
+});
 
 // GET /api/notifications?limit=50&unread_only=false
 router.get("/", async (req, res) => {

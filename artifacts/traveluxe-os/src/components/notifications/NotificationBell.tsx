@@ -66,10 +66,11 @@ function NotifItem({ n, onDismiss, onNavigate }: NotifItemProps) {
         <span className="absolute top-3 right-3 w-2 h-2 rounded-full bg-primary flex-shrink-0" />
       )}
       <button
-        className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded hover:bg-secondary"
+        className="absolute top-1.5 right-1.5 p-1 rounded hover:bg-secondary"
         onClick={(e) => { e.stopPropagation(); onDismiss(n.id); }}
+        aria-label="Dismiss"
       >
-        <X className="w-3 h-3 text-muted-foreground" />
+        <X className="w-3.5 h-3.5 text-muted-foreground" />
       </button>
     </div>
   );
@@ -116,13 +117,19 @@ export function NotificationBell({ className = "" }: Props) {
 
       {open && (
         <>
-          {/* Backdrop */}
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          {/* Backdrop — dim + blur the page so the panel reads cleanly.
+              Without this the panel sat over a fully transparent overlay
+              and the page content bled through, making both unreadable. */}
+          <div
+            className="fixed inset-0 z-40 bg-black/50 backdrop-blur-sm"
+            onClick={() => setOpen(false)}
+          />
 
           {/* Panel — bell sits in the left sidebar, so anchor the panel's
               left edge to the bell and extend rightward into the page.
               On mobile, fall back to fixed positioning near the top. */}
-          <div className="fixed left-2 right-2 top-14 md:absolute md:left-full md:right-auto md:top-0 md:ml-3 z-50 md:w-[360px] max-h-[75vh] bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+          <div className="fixed left-2 right-2 top-14 md:absolute md:left-full md:right-auto md:top-0 md:ml-3 z-50 md:w-[360px] max-h-[75vh] bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+               style={{ backgroundColor: "hsl(var(--card))" }}>
             {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 border-b border-border bg-card sticky top-0">
               <div className="flex items-center gap-2">
