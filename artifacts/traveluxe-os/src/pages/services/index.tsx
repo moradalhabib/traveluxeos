@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { useListBookings, getListBookingsQueryKey } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -9,9 +10,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import {
   ArrowLeft, ArrowRight, PlaneTakeoff, Car, Map as MapIcon, Building2, Hotel,
-  CalendarRange, Clock, CheckCircle2, Plus, Package, Tag
+  CalendarRange, Clock, CheckCircle2, Plus, Package, Tag, CheckSquare, Check
 } from "lucide-react";
 import { Link } from "wouter";
+import { useToast } from "@/hooks/use-toast";
+import { useBulkSelect } from "@/hooks/use-bulk-select";
+import { BulkActionBar } from "@/components/bulk-action-bar";
 
 const SERVICES = [
   {
@@ -107,6 +111,56 @@ export default function Services() {
   const [selectedKey, setSelectedKey] = useState<ServiceKey | null>(null);
   const [statusFilter, setStatusFilter] = useState("All");
   const [activeTab, setActiveTab] = useState<"bookings" | "catalogue" | "imported">("bookings");
+
+  // Bulk select / bulk delete on the per-service bookings list. Mirrors the
+  // exact pattern from /bookings — same hook, same fan-out endpoint, same
+  // global query invalidation so deleting bookings here cascades to
+  // dashboard, finance, intel, drivers, follow-ups, audit etc.
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const canDelete = user?.role === "admin" || user?.role === "super_admin";
+  const bulk = useBulkSelect();
+
+  const handleBulkDelete = async () => {
+    const ids = bulk.ids;
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const results = await Promise.allSettled(
+      ids.map(id => fetch(`/api/bookings/${id}?silent=1`, {
+        method: "DELETE",
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      }).then(r => { if (!r.ok) throw new Error(String(r.status)); }))
+    );
+    const ok = results.filter(r => r.status === "fulfilled").length;
+    const fail = results.length - ok;
+    if (ok > 0) {
+      fetch("/api/notifications/broadcast-staff", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({
+          type: "booking_cancelled",
+          title: "Bookings Deleted",
+          message: `${ok} booking${ok === 1 ? "" : "s"} permanently removed in a bulk action`,
+          link: "/bookings",
+          severity: "warning",
+        }),
+      }).catch(() => {});
+    }
+    toast({
+      title: fail === 0 ? "Bookings deleted" : `${ok} deleted, ${fail} failed`,
+      description: fail === 0 ? `${ok} booking${ok === 1 ? "" : "s"} permanently removed` : "Some deletions failed — check audit log",
+      variant: fail === 0 ? undefined : "destructive",
+    });
+    queryClient.invalidateQueries();
+    bulk.exitSelectMode();
+  };
+
+  // Exit select mode whenever the operator changes service or tab so a stale
+  // selection from one service can never be deleted under another service.
+  useEffect(() => { bulk.exitSelectMode(); }, [selectedKey, activeTab]);
 
   // Active (non-Odoo) bookings — drives all overview cards, stats and the
   // primary "Bookings" sub-tab. Imported Odoo bookings are pulled separately
@@ -410,6 +464,45 @@ export default function Services() {
         {/* ── Bookings tab ────────────────────────────────────────────────────── */}
         {activeTab === "bookings" && (
           <>
+            {/* Select / Select All / Cancel — only Admin + Super Admin */}
+            {canDelete && filteredBookings.length > 0 && (
+              <div className="flex items-center justify-between gap-2">
+                {!bulk.selectMode ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 text-xs"
+                    onClick={bulk.enterSelectMode}
+                    data-testid="button-enter-select-mode"
+                  >
+                    <CheckSquare className="w-3.5 h-3.5 mr-1.5" />
+                    Select
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-8 text-xs"
+                      onClick={() => bulk.selectAll(filteredBookings.map(b => b.id))}
+                      data-testid="button-select-all"
+                    >
+                      Select all {filteredBookings.length}
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="h-8 text-xs"
+                      onClick={bulk.exitSelectMode}
+                      data-testid="button-exit-select-mode"
+                    >
+                      Cancel
+                    </Button>
+                  </>
+                )}
+              </div>
+            )}
+
             {/* Status filter */}
             <div className="flex overflow-x-auto gap-2 pb-1">
               {STATUS_FILTERS.map(s => (
@@ -447,11 +540,34 @@ export default function Services() {
               </div>
             ) : (
               <div className="space-y-2">
-                {filteredBookings.map(booking => (
-                  <Link key={booking.id} href={`/bookings/${booking.id}`}>
-                    <Card className="border-border hover:border-primary/40 transition-all cursor-pointer bg-card hover:bg-secondary/5">
+                {filteredBookings.map(booking => {
+                  // Select mode: clicking the row toggles selection instead of
+                  // navigating, and a checkbox lights up on the left. Out of
+                  // select mode the original Link → /bookings/:id navigation
+                  // is preserved unchanged.
+                  const isSelected = bulk.isSelected(booking.id);
+                  const cardInner = (
+                    <Card className={`border-border transition-all cursor-pointer bg-card hover:bg-secondary/5 ${
+                      bulk.selectMode && isSelected
+                        ? "border-primary ring-2 ring-primary/40"
+                        : "hover:border-primary/40"
+                    }`}>
                       <CardContent className="p-0">
                         <div className="flex items-stretch">
+                          {bulk.selectMode && (
+                            <div className="flex items-center pl-3 pr-1">
+                              <div
+                                className={`w-5 h-5 rounded-md border flex items-center justify-center transition-all ${
+                                  isSelected
+                                    ? "bg-primary border-primary"
+                                    : "border-border bg-card"
+                                }`}
+                                data-testid={`checkbox-booking-${booking.id}`}
+                              >
+                                {isSelected && <Check className="w-3.5 h-3.5 text-primary-foreground" />}
+                              </div>
+                            </div>
+                          )}
                           <div className={`w-1 rounded-l-xl flex-shrink-0 ${
                             booking.status === "Confirmed"  ? "bg-blue-500"  :
                             booking.status === "Active"     ? "bg-green-400" :
@@ -497,18 +613,42 @@ export default function Services() {
                               </div>
                             </div>
                           </div>
-                          <div className="flex items-center pr-3">
-                            <ArrowRight className="w-4 h-4 text-muted-foreground/40" />
-                          </div>
+                          {!bulk.selectMode && (
+                            <div className="flex items-center pr-3">
+                              <ArrowRight className="w-4 h-4 text-muted-foreground/40" />
+                            </div>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
-                  </Link>
-                ))}
+                  );
+                  return bulk.selectMode ? (
+                    <div
+                      key={booking.id}
+                      onClick={() => bulk.toggle(booking.id)}
+                      data-testid={`row-booking-${booking.id}`}
+                    >
+                      {cardInner}
+                    </div>
+                  ) : (
+                    <Link key={booking.id} href={`/bookings/${booking.id}`}>
+                      {cardInner}
+                    </Link>
+                  );
+                })}
               </div>
             )}
           </>
         )}
+
+        {/* Bulk action bar — fixed bottom of viewport, only shown when ≥1 selected */}
+        <BulkActionBar
+          count={bulk.count}
+          noun="booking"
+          onClear={bulk.exitSelectMode}
+          onDelete={handleBulkDelete}
+          warning="This permanently deletes the selected bookings, their invoices, follow-ups and amendments. Cannot be undone."
+        />
 
         {/* ── Catalogue tab ───────────────────────────────────────────────────── */}
         {activeTab === "catalogue" && (

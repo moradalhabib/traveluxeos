@@ -512,7 +512,12 @@ export default function BookingDetail() {
         toast({ title: "Failed to assign driver", description: result.error, variant: "destructive" });
         return;
       }
-      qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
+      // Driver assignment ripples into: dashboard "no driver" alert,
+      // /drivers/:id job history, /jobs roster, follow-ups (assignment
+      // resets the alert), commissions ledger and audit feed. Sweep
+      // everything so each page rederives from truth instead of relying
+      // on a per-page refresh.
+      qc.invalidateQueries();
       toast({
         title: value ? "Driver assigned" : "Driver unassigned",
         description: value
@@ -533,7 +538,9 @@ export default function BookingDetail() {
         toast({ title: "Override failed", description: result.error, variant: "destructive" });
         return;
       }
-      qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
+      // Same fan-out as the regular assign — override path also touches
+      // amendments, conflicts, dashboard alerts.
+      qc.invalidateQueries();
       toast({
         title: "Driver assigned (override)",
         description: `${conflictDialog.driverName} assigned despite conflict — logged in amendments.`,
@@ -562,7 +569,10 @@ export default function BookingDetail() {
       toast({ title: "Failed to update acceptance", description: j?.error, variant: "destructive" });
       return;
     }
-    qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
+    // Driver acceptance toggles the dashboard "awaiting confirmation"
+    // counter, the driver's own dashboard, follow-ups (re-flag), and
+    // intel funnel — sweep all queries.
+    qc.invalidateQueries();
     if (next === "Driver Declined") {
       toast({
         title: "Driver declined",
@@ -666,7 +676,12 @@ export default function BookingDetail() {
       }
       toast({ title: "Booking completed" });
       setIsCompleteOpen(false);
-      qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
+      // Completion ripples into: dashboard completion counter, finance
+      // (revenue moves from forecast → realised), profit, intel funnel,
+      // commissions ledger (commission becomes payable), drivers
+      // dashboard (job marked done), follow-ups (closes the chase). Sweep
+      // every query so each page rederives.
+      qc.invalidateQueries();
       reloadIssues();
       reloadAmendments();
       refetch();
@@ -925,10 +940,28 @@ export default function BookingDetail() {
       onSuccess: () => {
         toast({ title: `Booking marked as ${status}` });
         refetch();
+        // Status changes are the single biggest cascade in the system:
+        //   Pending → Confirmed   = invoice auto-generated, dashboard "Confirmed"
+        //                           counter ticks, finance forecast updates,
+        //                           driver dashboard pings.
+        //   Confirmed → Active    = job sheet flips to live, intel funnel,
+        //                           drivers active count, follow-ups close.
+        //   Active → Completed    = revenue moves forecast → realised in
+        //                           finance + profit, commissions become
+        //                           payable, dashboard completion counter,
+        //                           intel conversion %.
+        // Sweep every cached query so every page rederives instead of
+        // showing stale numbers.
+        qc.invalidateQueries();
         // Auto-generate invoice when booking is confirmed or completed
         if ((status === "Confirmed" || status === "Completed") && !booking?.invoice) {
           generateInvoice.mutate({ data: { booking_id: id } }, {
-            onSuccess: (inv) => toast({ title: `Invoice ${(inv as any).invoice_number} auto-generated` }),
+            onSuccess: (inv) => {
+              toast({ title: `Invoice ${(inv as any).invoice_number} auto-generated` });
+              // Invoice creation is its own cascade — finance receivables,
+              // dashboard cash-in counter, client outstanding balance etc.
+              qc.invalidateQueries();
+            },
           });
         }
         // Auto return-journey prompt: arrival just completed and no return
@@ -972,7 +1005,14 @@ export default function BookingDetail() {
 
   const handleAddWaiting = () => {
     addWaiting.mutate({ id, data: { amount: waitingAmount } }, {
-      onSuccess: () => { toast({ title: "Waiting time added" }); setIsWaitingOpen(false); refetch(); }
+      onSuccess: () => {
+        toast({ title: "Waiting time added" });
+        setIsWaitingOpen(false);
+        refetch();
+        // Waiting charges add to the booking total → invoice line, finance
+        // receivables, dashboard revenue counter, profit. Sweep all queries.
+        qc.invalidateQueries();
+      }
     });
   };
 
@@ -2281,7 +2321,7 @@ export default function BookingDetail() {
                       patch.payment_date = new Date().toISOString().slice(0, 10);
                     }
                     updateBooking.mutate({ id, data: patch }, {
-                      onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
+                      onSuccess: () => qc.invalidateQueries(),
                     });
                   }}
                   className={`h-9 rounded-md border px-3 text-sm bg-background w-full ${
@@ -2323,7 +2363,7 @@ export default function BookingDetail() {
                     const cur = (booking as any).payment_date?.slice(0,10) || null;
                     if (next === cur) return; // no-op blur shouldn't clobber autofill
                     updateBooking.mutate({ id, data: { payment_date: next } as any }, {
-                      onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
+                      onSuccess: () => qc.invalidateQueries(),
                     });
                   }}
                   className="h-9"
@@ -2336,7 +2376,7 @@ export default function BookingDetail() {
                   type="number" step="0.01" min="0"
                   defaultValue={(booking as any).paid_amount ?? ""}
                   onBlur={e => updateBooking.mutate({ id, data: { paid_amount: e.target.value === "" ? null : Number(e.target.value) } as any }, {
-                    onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
+                    onSuccess: () => qc.invalidateQueries(),
                   })}
                   className="h-9"
                   data-testid="input-paid-amount"
@@ -2347,7 +2387,7 @@ export default function BookingDetail() {
                 <select
                   value={booking.payment_method || ""}
                   onChange={e => updateBooking.mutate({ id, data: { payment_method: e.target.value || null } as any }, {
-                    onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
+                    onSuccess: () => qc.invalidateQueries(),
                   })}
                   className="h-9 w-full rounded-md border border-border px-3 text-sm bg-background"
                   data-testid="select-payment-method"
@@ -2372,7 +2412,7 @@ export default function BookingDetail() {
                 <Textarea
                   defaultValue={(booking as any).payment_notes || ""}
                   onBlur={e => updateBooking.mutate({ id, data: { payment_notes: e.target.value || null } as any }, {
-                    onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
+                    onSuccess: () => qc.invalidateQueries(),
                   })}
                   placeholder="e.g. Wise transfer ref TX12345 · settled by Mr Khalifa"
                   rows={2}
@@ -2445,7 +2485,7 @@ export default function BookingDetail() {
                 className="text-purple-400 border-purple-500/30 hover:bg-purple-500/10"
                 disabled={generateInvoice.isPending}
                 onClick={() => generateInvoice.mutate({ data: { booking_id: id } }, {
-                  onSuccess: () => qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) }),
+                  onSuccess: () => qc.invalidateQueries(),
                 })}
               >
                 <FileText className="w-4 h-4 mr-2" />
