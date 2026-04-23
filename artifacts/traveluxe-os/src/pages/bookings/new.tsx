@@ -455,9 +455,16 @@ export default function NewBooking() {
   useEffect(() => {
     const params = new URLSearchParams(search);
     const clientId = params.get("client_id");
-    if (clientId) loadClientById(clientId);
+    const fromRequestParam = params.get("from_request");
+    if (clientId) {
+      // Auto-confirm and skip the WhatsApp lookup card whenever the caller
+      // already knows which client owns this booking — i.e. anything that
+      // arrives with `client_id` in the URL (request conversion, "New
+      // Booking" from a client profile, etc.).
+      loadClientById(clientId, { autoConfirm: true });
+    }
 
-    const fromRequest = params.get("from_request");
+    const fromRequest = fromRequestParam;
     if (fromRequest) {
       const svc = params.get("service_type");
       const dt  = params.get("date_time");
@@ -526,7 +533,7 @@ export default function NewBooking() {
           .eq("id", cloneOf)
           .maybeSingle();
         if (!src) return;
-        if (src.client_id) loadClientById(src.client_id);
+        if (src.client_id) loadClientById(src.client_id, { autoConfirm: true });
         if (src.service_type) bookingForm.setValue("service_type", src.service_type as any);
         if (src.direction) bookingForm.setValue("direction", src.direction as any);
         if (src.pickup)  bookingForm.setValue("pickup", src.pickup);
@@ -554,7 +561,7 @@ export default function NewBooking() {
           .eq("id", returnOf)
           .maybeSingle();
         if (!src) return;
-        if (src.client_id) loadClientById(src.client_id);
+        if (src.client_id) loadClientById(src.client_id, { autoConfirm: true });
         bookingForm.setValue("service_type", (src.service_type ?? "Airport Transfer") as any);
         const reversedDir = src.direction === "Arrival" ? "Departure" : "Arrival";
         bookingForm.setValue("direction", reversedDir as any);
@@ -705,7 +712,7 @@ export default function NewBooking() {
     bookingForm.setValue("fuel_cost"     as any, r2(adFuelPerDay     * adRentalDays), { shouldDirty: true });
   }, [serviceType, adRentalDays, adPricePerDay, adSupplierPerDay, adDriverPerDay, adFuelPerDay]);
 
-  const loadClientById = async (clientId: string) => {
+  const loadClientById = async (clientId: string, opts: { autoConfirm?: boolean } = {}) => {
     const { data } = await supabase
       .from("clients")
       .select("id, name, whatsapp, email, nationality, vip_tier")
@@ -717,7 +724,15 @@ export default function NewBooking() {
       client.lastBooking = lastBooking;
       setFoundClient(client);
       setWaInput(client.whatsapp);
-      setPhase("found");
+      if (opts.autoConfirm) {
+        // Skip the "Found" confirmation card and land straight on the
+        // Booking Details step. Used when the caller already knows which
+        // client this booking belongs to (request conversion, rebook,
+        // return-trip, "New Booking" from a client profile).
+        confirmFoundClient(client);
+      } else {
+        setPhase("found");
+      }
     }
   };
 
@@ -735,6 +750,12 @@ export default function NewBooking() {
   // Live WhatsApp search
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    // Once the operator has confirmed a client and moved on to Booking
+    // Details, ignore any further changes to the WhatsApp input. Without
+    // this guard, programmatically setting `waInput` (e.g. when arriving
+    // from a request conversion via `loadClientById`) would re-fire the
+    // lookup and bounce the page back to the "Found" card.
+    if (phase === "booking") return;
     const trimmed = waInput.trim();
     const normalized = waInput.replace(/\D/g, "");
     const looksLikePhone = normalized.length >= 6;
