@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips } from "@/components/ui/active-filter-chips";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
@@ -110,9 +110,13 @@ export default function Services() {
   const isSuperAdmin = user?.role === "super_admin";
   const [products, setProducts] = useState<Product[]>([]);
   const [loadingProducts, setLoadingProducts] = useState(false);
-  const [selectedKey, setSelectedKey] = useState<ServiceKey | null>(null);
-  const [statusFilter, setStatusFilter] = useState("All");
-  const [activeTab, setActiveTab] = useState<"bookings" | "catalogue" | "imported">("bookings");
+  // URL-backed filters so a refresh / shared link restores the same view.
+  // `selectedKey` is stored as a string with empty = unselected (back to grid).
+  const [selectedKeyRaw, setSelectedKeyRaw] = useFilterState<string>("svc", "");
+  const selectedKey = (selectedKeyRaw || null) as ServiceKey | null;
+  const setSelectedKey = (v: ServiceKey | null) => setSelectedKeyRaw((v ?? "") as string);
+  const [statusFilter, setStatusFilter] = useFilterState("status", "All");
+  const [activeTab, setActiveTab] = useFilterState<"bookings" | "catalogue" | "imported">("tab", "bookings");
 
   // Bulk select / bulk delete on the per-service bookings list. Mirrors the
   // exact pattern from /bookings — same hook, same fan-out endpoint, same

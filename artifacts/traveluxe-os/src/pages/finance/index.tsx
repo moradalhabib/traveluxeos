@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips } from "@/components/ui/active-filter-chips";
 import {
   PoundSterling, TrendingUp, CreditCard, AlertCircle, ArrowUpDown,
@@ -64,10 +64,11 @@ export default function Finance() {
   const { user } = useAuth();
   // Admin and Super Admin see all amounts. Profit tab still super_admin-only further down.
   const isSuperAdmin = user?.role === "super_admin" || user?.role === "admin";
-  const [tab, setTab] = useState("overview");
-  const [period, setPeriod] = useState<Period>("month");
-  const [customFrom, setCustomFrom] = useState("");
-  const [customTo, setCustomTo] = useState("");
+  // URL-backed filters so a refresh / shared link restores the same view.
+  const [tab, setTab] = useFilterState("tab", "overview");
+  const [period, setPeriod] = useFilterState<Period>("period", "month");
+  const [customFrom, setCustomFrom] = useFilterState("from", "");
+  const [customTo, setCustomTo] = useFilterState("to", "");
 
   const range = useMemo(() => periodRange(period, customFrom, customTo), [period, customFrom, customTo]);
   const params = useMemo(() => {

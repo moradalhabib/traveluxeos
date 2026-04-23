@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
-import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { format, formatDistanceToNow } from "date-fns";
 import { getVipPillClass } from "@/lib/vip";
@@ -70,11 +70,12 @@ export default function FollowUps() {
   const bulk = useBulkSelect();
 
   // ── Filters ───────────────────────────────────────────────────────────────
-  const [statusFilter, setStatusFilter] = useState("pending");
-  const [dateFilter, setDateFilter] = useState("all");
-  const [search, setSearch] = useState("");
+  // URL-backed so a refresh / shared link restores the same view.
+  const [statusFilter, setStatusFilter] = useFilterState("status", "pending");
+  const [dateFilter, setDateFilter] = useFilterState("date", "all");
+  const [search, setSearch] = useFilterState("q", "");
   // Fix 3 — Most Recent (created_at desc) is the default across all list pages.
-  const [sort, setSort] = useState("recent");
+  const [sort, setSort] = useFilterState("sort", "recent");
 
   // ── Data ──────────────────────────────────────────────────────────────────
   const [followUps, setFollowUps] = useState<any[]>([]);

@@ -11,7 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useLocation, useSearch, Link } from "wouter";
 import { format, isToday, isTomorrow, startOfDay, endOfDay, addDays, isBefore, isAfter } from "date-fns";
 import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCircle } from "lucide-react";
-import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -34,7 +34,10 @@ const PAYMENT_COLORS: Record<string, string> = {
 
 export default function Jobs() {
   const [, setLocation] = useLocation();
-  const [timeFilter, setTimeFilter] = useState("all");
+  // URL-backed filters so a refresh / shared link restores the same view.
+  // `status` and `filter` were already URL-driven; we now also persist
+  // `time` and `unassigned` so every dropdown survives a reload.
+  const [timeFilter, setTimeFilter] = useFilterState("time", "all");
   const search = useSearch();
   const statusFilter = new URLSearchParams(search).get("status") ?? "";
   const customFilter = new URLSearchParams(search).get("filter") ?? "";
@@ -167,7 +170,10 @@ export default function Jobs() {
 
   // Operator-driven "show only unassigned" filter. Toggled by tapping the
   // urgent banner so the operator can act on the alert with one tap.
-  const [unassignedOnly, setUnassignedOnly] = useState(false);
+  // URL-backed so a refresh keeps the same focused view.
+  const [unassignedFlag, setUnassignedFlag] = useFilterState<"0" | "1">("unassigned", "0");
+  const unassignedOnly = unassignedFlag === "1";
+  const setUnassignedOnly = (v: boolean) => setUnassignedFlag(v ? "1" : "0");
 
   const filteredBookings = useMemo(() => {
     if (!bookings) return [];

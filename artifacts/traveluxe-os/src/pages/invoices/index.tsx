@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 // `Select` is still used by the "Generate invoice" dialog further down the
 // page; the inline status filter has been replaced with FilterDropdown so the
@@ -34,13 +34,16 @@ import { supabase } from "@/lib/supabase";
 export default function Invoices() {
   const [generateOpen, setGenerateOpen] = useState(false);
   const [selectedBookingId, setSelectedBookingId] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [sourceFilter, setSourceFilter] = useState<"new" | "imported" | "all">("new");
+  // URL-backed so a refresh / shared link restores the same view.
+  const [searchQuery, setSearchQuery] = useFilterState("q", "");
+  const [statusFilter, setStatusFilter] = useFilterState("status", "all");
+  const [sourceFilter, setSourceFilter] = useFilterState<"new" | "imported" | "all">("source", "new");
   // When true, show only invoices that are unpaid (Generated/Sent/Overdue)
   // for bookings completed > 48h ago — these are the operator's overdue items.
   // Toggled by tapping the amber banner; cleared by the X button.
-  const [overdueOnly, setOverdueOnly] = useState(false);
+  const [overdueFlag, setOverdueFlag] = useFilterState<"0" | "1">("overdue", "0");
+  const overdueOnly = overdueFlag === "1";
+  const setOverdueOnly = (v: boolean) => setOverdueFlag(v ? "1" : "0");
   const { toast } = useToast();
   const { user } = useAuth();
   const queryClient = useQueryClient();

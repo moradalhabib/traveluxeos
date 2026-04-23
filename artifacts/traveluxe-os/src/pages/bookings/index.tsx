@@ -18,7 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Link, useSearch } from "wouter";
 import { format, startOfDay, isBefore } from "date-fns";
 import { Input } from "@/components/ui/input";
-import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -110,11 +110,12 @@ export default function Bookings() {
     bulk.exitSelectMode();
   };
 
-  const [status, setStatus] = useState<string>("");
-  const [search, setSearch] = useState<string>("");
-  const [source, setSource] = useState<"active" | "imported">("active");
-  const [sortKey, setSortKey] = useState<SortKey>("recent");
-  const [groupKey, setGroupKey] = useState<GroupKey>("none");
+  // URL-backed filters so a refresh / shared link restores the same view.
+  const [status, setStatus] = useFilterState<string>("status", "");
+  const [search, setSearch] = useFilterState<string>("q", "");
+  const [source, setSource] = useFilterState<"active" | "imported">("source", "active");
+  const [sortKey, setSortKey] = useFilterState<SortKey>("sort", "recent");
+  const [groupKey, setGroupKey] = useFilterState<GroupKey>("group", "none");
   const urlSearch = useSearch();
   const upcomingOnly = new URLSearchParams(urlSearch).get("upcoming") === "1";
 

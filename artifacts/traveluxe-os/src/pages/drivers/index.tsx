@@ -7,7 +7,7 @@ import { Search, Plus, MessageSquare, Car, RefreshCw, Loader2, CheckSquare, X } 
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import {
   AlertDialog,
@@ -31,8 +31,9 @@ type StatusFilter = "All" | "Active" | "Inactive" | "Suspended";
 const STATUS_FILTERS: StatusFilter[] = ["All", "Active", "Inactive", "Suspended"];
 
 export default function Drivers() {
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("All");
+  // URL-backed filters so a refresh / shared link restores the same view.
+  const [search, setSearch] = useFilterState("q", "");
+  const [statusFilter, setStatusFilter] = useFilterState<StatusFilter>("status", "All");
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();

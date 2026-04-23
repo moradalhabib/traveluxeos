@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips } from "@/components/ui/active-filter-chips";
 import { Calculator, Check, Hotel, Home, MessageSquare, ChevronRight, ExternalLink, Info, CheckCircle2, AlertTriangle, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
@@ -138,7 +138,8 @@ export default function Commissions() {
   const [settleNotesDriver, setSettleNotesDriver] = useState<Driver | null>(null);
   const [settleNotesText, setSettleNotesText] = useState("");
   const [settleConfirm, setSettleConfirm] = useState<SettleConfirmState | null>(null);
-  const [outstandingView, setOutstandingView] = useState<"all-time" | "this-month">("all-time");
+  // URL-backed so a refresh / shared link restores the same view.
+  const [outstandingView, setOutstandingView] = useFilterState<"all-time" | "this-month">("view", "all-time");
 
   const historyQuery = useQuery<SettlementHistoryEntry[]>({
     queryKey: ["settlement-history"],

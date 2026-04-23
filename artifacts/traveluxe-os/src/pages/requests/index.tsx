@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import {
   useListRequests, PRIORITY_STYLES, STATUS_STYLES,
@@ -44,11 +44,12 @@ export default function Requests() {
   const canBulkDelete = user?.role === "admin" || user?.role === "super_admin";
   const bulk = useBulkSelect();
   const queryClient = useQueryClient();
-  const [status, setStatus] = useState<RequestStatus | "">("");
-  const [priority, setPriority] = useState<RequestPriority | "">("");
-  const [search, setSearch] = useState("");
+  // URL-backed filters so a refresh / shared link restores the same view.
+  const [status, setStatus] = useFilterState<RequestStatus | "">("status", "");
+  const [priority, setPriority] = useFilterState<RequestPriority | "">("priority", "");
+  const [search, setSearch] = useFilterState("q", "");
   // Fix 3 — default Most Recent (created_at desc) across all list pages.
-  const [sort, setSort] = useState<"follow_up" | "created">("created");
+  const [sort, setSort] = useFilterState<"follow_up" | "created">("sort", "created");
 
   const handleBulkDelete = async () => {
     const ids = bulk.ids;

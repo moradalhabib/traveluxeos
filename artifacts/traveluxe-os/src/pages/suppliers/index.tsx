@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Building2, Plus, Phone, Mail, MessageCircle, Search as SearchIcon, MapPin, Star, CheckSquare, X as XIcon } from "lucide-react";
-import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
@@ -65,9 +65,12 @@ export default function SuppliersList() {
   const queryClient = useQueryClient();
   const [items, setItems] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
-  const [search, setSearch] = useState("");
-  const [category, setCategory] = useState("all");
-  const [showInactive, setShowInactive] = useState(false);
+  // URL-backed filters so a refresh / shared link restores the same view.
+  const [search, setSearch] = useFilterState("q", "");
+  const [category, setCategory] = useFilterState("category", "all");
+  const [inactiveFlag, setInactiveFlag] = useFilterState<"0" | "1">("inactive", "0");
+  const showInactive = inactiveFlag === "1";
+  const setShowInactive = (v: boolean) => setInactiveFlag(v ? "1" : "0");
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<any>({ name: "", category: "Car Rental" });
   const [saving, setSaving] = useState(false);

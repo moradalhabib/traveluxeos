@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useListClients, getListClientsQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Search, Plus, MessageSquare, CheckSquare, Square, X } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { FilterDropdown } from "@/components/ui/filter-dropdown";
+import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -22,12 +21,13 @@ export default function Clients() {
   const queryClient = useQueryClient();
   const isResidenceManager = user?.role === "residence_manager";
   const canBulkDelete = user?.role === "admin" || user?.role === "super_admin";
-  const [search, setSearch] = useState("");
+  // Filters are URL-backed so a refresh / shared link restores the same view.
+  const [search, setSearch] = useFilterState("q", "");
   // Operators want to instantly slice the directory by VIP tier so they
   // can find their high-value patrons without scrolling. The chip strip
   // below maps to the existing vip_tier query param the API already
   // supports — no backend changes needed.
-  const [tierFilter, setTierFilter] = useState<string>("all");
+  const [tierFilter, setTierFilter] = useFilterState<string>("tier", "all");
   const bulk = useBulkSelect();
 
   const listParams = {
