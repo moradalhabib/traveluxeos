@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import {
   Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
 } from "@/components/ui/select";
+import { FilterDropdown } from "@/components/ui/filter-dropdown";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
@@ -383,60 +384,58 @@ export default function MarketingHub() {
             {/* VIP Tier */}
             <div className="space-y-2">
               <Label>VIP Tier</Label>
-              <Select
+              <FilterDropdown
                 value={filters.vip_tier ?? "Any"}
-                onValueChange={(v: any) =>
-                  setFilters({ ...filters, vip_tier: v === "Any" ? null : v })
+                onChange={(v) =>
+                  setFilters({ ...filters, vip_tier: v === "Any" ? null : (v as any) })
                 }
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Any">Any</SelectItem>
-                  <SelectItem value="Standard">Standard</SelectItem>
-                  <SelectItem value="VIP">VIP</SelectItem>
-                  <SelectItem value="VVIP">VVIP</SelectItem>
-                  <SelectItem value="Platinum">Platinum</SelectItem>
-                </SelectContent>
-              </Select>
+                options={[
+                  { value: "Any", label: "Any" },
+                  { value: "Standard", label: "Standard" },
+                  { value: "VIP", label: "VIP" },
+                  { value: "VVIP", label: "VVIP" },
+                  { value: "Platinum", label: "Platinum" },
+                ]}
+                widthClass="w-full"
+                testId="filter-marketing-vip"
+              />
             </div>
 
             {/* Nationality */}
             <div className="space-y-2">
               <Label>Nationality</Label>
-              <Select
+              <FilterDropdown
                 value={filters.nationality ?? "__any__"}
-                onValueChange={(v) =>
+                onChange={(v) =>
                   setFilters({ ...filters, nationality: v === "__any__" ? null : v })
                 }
-              >
-                <SelectTrigger><SelectValue placeholder="Any nationality" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__any__">Any nationality</SelectItem>
-                  {nationalities.map((n) => (
-                    <SelectItem key={n} value={n}>{n}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                options={[
+                  { value: "__any__", label: "Any nationality" },
+                  ...nationalities.map((n) => ({ value: n, label: n })),
+                ]}
+                widthClass="w-full"
+                testId="filter-marketing-nationality"
+              />
             </div>
 
             {/* Service type last used */}
             <div className="space-y-2">
               <Label>Service type last used</Label>
-              <Select
+              <FilterDropdown
                 value={filters.service_type ?? "Any"}
-                onValueChange={(v) =>
+                onChange={(v) =>
                   setFilters({ ...filters, service_type: v === "Any" ? null : v })
                 }
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Any">Any</SelectItem>
-                  <SelectItem value="Airport Transfer">Airport Transfer</SelectItem>
-                  <SelectItem value="Tour">Tour</SelectItem>
-                  <SelectItem value="Car Rental">Car Rental</SelectItem>
-                  <SelectItem value="Apartment">Apartment</SelectItem>
-                </SelectContent>
-              </Select>
+                options={[
+                  { value: "Any", label: "Any" },
+                  { value: "Airport Transfer", label: "Airport Transfer" },
+                  { value: "Tour", label: "Tour" },
+                  { value: "Car Rental", label: "Car Rental" },
+                  { value: "Apartment", label: "Apartment" },
+                ]}
+                widthClass="w-full"
+                testId="filter-marketing-service"
+              />
             </div>
 
             {/* Min total spend */}

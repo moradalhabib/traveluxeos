@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FilterDropdown } from "@/components/ui/filter-dropdown";
 import {
   useListRequests, PRIORITY_STYLES, STATUS_STYLES,
   type RequestStatus, type RequestPriority, type RequestServiceType,
@@ -115,56 +116,51 @@ export default function Requests() {
 
       {/* Filters */}
       <div className="space-y-3">
-        <div className="flex gap-2 overflow-x-auto pb-1">
-          {STATUS_TABS.map(t => (
-            <Button
-              key={t}
-              size="sm"
-              variant={ (t === "All" && status === "") || status === t ? "default" : "outline"}
-              onClick={() => setStatus(t === "All" ? "" : (t as RequestStatus))}
-              className="whitespace-nowrap"
-            >
-              {t}
-              {counts[t] != null && counts[t] > 0 && (
-                <span className="ml-2 text-xs opacity-80">{counts[t]}</span>
-              )}
-            </Button>
-          ))}
+        <div className="flex flex-wrap items-center gap-2">
+          <FilterDropdown
+            label="Status:"
+            value={status === "" ? "All" : status}
+            onChange={(v) => setStatus(v === "All" ? "" : (v as RequestStatus))}
+            options={STATUS_TABS.map((t) => ({
+              value: t,
+              label: t,
+              count: counts[t] ?? undefined,
+            }))}
+            widthClass="w-44"
+            testId="filter-requests-status"
+          />
+          <FilterDropdown
+            label="Priority:"
+            value={priority === "" ? "any" : priority}
+            onChange={(v) => setPriority(v === "any" ? "" : (v as RequestPriority))}
+            options={[
+              { value: "any", label: "Any priority" },
+              ...PRIORITIES.filter((p) => p !== "").map((p) => ({ value: p as string, label: p as string })),
+            ]}
+            widthClass="w-40"
+            testId="filter-requests-priority"
+          />
+          <FilterDropdown
+            label="Sort:"
+            value={sort}
+            onChange={(v) => setSort(v as any)}
+            options={[
+              { value: "created", label: "Most Recent" },
+              { value: "follow_up", label: "Follow-up date" },
+            ]}
+            widthClass="w-44"
+            testId="filter-requests-sort"
+          />
         </div>
 
-        <div className="flex flex-col md:flex-row gap-3">
-          <div className="flex gap-2 flex-wrap">
-            {PRIORITIES.map(p => (
-              <Button
-                key={p || "any"}
-                size="sm"
-                variant={priority === p ? "default" : "outline"}
-                onClick={() => setPriority(p)}
-                className="whitespace-nowrap"
-              >
-                {p || "Any priority"}
-              </Button>
-            ))}
-          </div>
-
-          <div className="relative flex-1 min-w-[220px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Search by client or notes…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-
-          <select
-            value={sort}
-            onChange={e => setSort(e.target.value as any)}
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-          >
-            <option value="created">Sort: Most Recent</option>
-            <option value="follow_up">Sort: Follow-up date</option>
-          </select>
+        <div className="relative flex-1 min-w-[220px]">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search by client or notes…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="pl-9"
+          />
         </div>
       </div>
 

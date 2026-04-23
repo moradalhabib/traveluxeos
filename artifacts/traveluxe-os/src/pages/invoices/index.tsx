@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FilterDropdown } from "@/components/ui/filter-dropdown";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -239,19 +240,12 @@ export default function Invoices() {
         </div>
       </div>
 
-      {/* Overdue-unpaid in-app reminder.
-          REPLACES the operator email reminder by surfacing 48h+ unpaid
-          invoices in-app only. Tap the banner to filter; tap the X to clear. */}
+      {/* Overdue-unpaid in-app reminder. The amber banner is now read-only —
+          it always shows the count when there are 48h+ unpaid invoices, and
+          the actual filter sits in the dedicated dropdown row to keep all
+          filter chrome consistent app-wide. */}
       {overdueUnpaid.length > 0 && (
-        <button
-          type="button"
-          onClick={() => setOverdueOnly(v => !v)}
-          className={`w-full flex items-center justify-between gap-3 rounded-lg border px-4 py-3 text-left transition-colors ${
-            overdueOnly
-              ? "border-amber-500/60 bg-amber-500/15"
-              : "border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/15"
-          }`}
-        >
+        <div className="w-full flex items-center justify-between gap-3 rounded-lg border px-4 py-3 border-amber-500/40 bg-amber-500/10">
           <div className="flex items-center gap-3 min-w-0">
             <AlertTriangle className="w-5 h-5 text-amber-400 flex-shrink-0" />
             <div className="min-w-0">
@@ -259,22 +253,22 @@ export default function Invoices() {
                 {overdueUnpaid.length} unpaid invoice{overdueUnpaid.length === 1 ? "" : "s"} overdue (48h+)
               </div>
               <div className="text-xs text-amber-200/70">
-                {overdueOnly ? "Showing overdue only — tap to clear filter" : "Tap to filter to overdue invoices only"}
+                Use the &ldquo;Show&rdquo; filter below to view only overdue invoices.
               </div>
             </div>
           </div>
-          {overdueOnly && (
-            <span
-              role="button"
-              tabIndex={0}
-              onClick={(e) => { e.stopPropagation(); setOverdueOnly(false); }}
-              onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); setOverdueOnly(false); } }}
-              className="inline-flex items-center gap-1 text-xs font-medium text-amber-300 hover:text-amber-200 px-2 py-1 rounded cursor-pointer"
-            >
-              <X className="w-3.5 h-3.5" /> Clear
-            </span>
-          )}
-        </button>
+          <FilterDropdown
+            label="Show:"
+            value={overdueOnly ? "overdue" : "all"}
+            onChange={(v: string) => setOverdueOnly(v === "overdue")}
+            options={[
+              { value: "all", label: "All invoices" },
+              { value: "overdue", label: "Overdue only" },
+            ]}
+            widthClass="w-40"
+            testId="filter-invoices-overdue"
+          />
+        </div>
       )}
 
       {/* Source tabs — keep imported Odoo invoices out of the way */}

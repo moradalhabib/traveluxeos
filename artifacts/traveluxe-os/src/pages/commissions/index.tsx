@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { FilterDropdown } from "@/components/ui/filter-dropdown";
 import { Calculator, Check, Hotel, Home, MessageSquare, ChevronRight, ExternalLink, Info, CheckCircle2, AlertTriangle, Download } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -404,19 +404,17 @@ export default function Commissions() {
             <p className="text-xs text-muted-foreground">
               One row per driver. Click any driver to view their full job history, send a WhatsApp statement, or mark commissions as settled.
             </p>
-            <ToggleGroup
-              type="single"
+            <FilterDropdown
+              label="Period:"
               value={outstandingView}
-              onValueChange={(v) => v && setOutstandingView(v as "all-time" | "this-month")}
-              className="border border-border rounded-md p-0.5"
-            >
-              <ToggleGroupItem value="all-time" size="sm" data-testid="toggle-view-all-time" className="text-xs px-3">
-                All time
-              </ToggleGroupItem>
-              <ToggleGroupItem value="this-month" size="sm" data-testid="toggle-view-this-month" className="text-xs px-3">
-                This month
-              </ToggleGroupItem>
-            </ToggleGroup>
+              onChange={(v) => setOutstandingView(v as "all-time" | "this-month")}
+              options={[
+                { value: "all-time",   label: "All time" },
+                { value: "this-month", label: "This month" },
+              ]}
+              widthClass="w-36"
+              testId="filter-commissions-period"
+            />
           </div>
           {owedToTvlDrivers.map((driver) => {
             const pendingCash = driver.jobs.filter(

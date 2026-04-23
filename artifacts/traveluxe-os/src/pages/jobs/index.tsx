@@ -12,6 +12,7 @@ import { useLocation, useSearch, Link } from "wouter";
 import { format, isToday, isTomorrow, startOfDay, endOfDay, addDays, isBefore, isAfter } from "date-fns";
 import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCircle } from "lucide-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FilterDropdown } from "@/components/ui/filter-dropdown";
 import { useQueryClient } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { getVipBadgeColor } from "@/lib/vip";
@@ -230,37 +231,15 @@ export default function Jobs() {
         </Button>
       </div>
 
-      {/* Urgent alert — tap to filter to just the unassigned jobs */}
+      {/* Urgent alert — read-only banner so the warning is always visible.
+          The actual filter toggle moved into the compact dropdown below to
+          stay consistent with the rest of the app's filter chrome. */}
       {urgentJobs.length > 0 && (
-        <button
-          type="button"
-          onClick={() => setUnassignedOnly(v => !v)}
-          className={`w-full text-left border rounded-xl p-4 transition-colors ${
-            unassignedOnly
-              ? 'bg-destructive/20 border-destructive/60'
-              : 'bg-destructive/10 border-destructive/30 hover:bg-destructive/15'
-          }`}
-        >
-          <div className="flex items-center justify-between gap-2 text-destructive font-semibold text-sm">
-            <div className="flex items-center gap-2">
-              <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-              <span>{urgentJobs.length} job{urgentJobs.length > 1 ? 's' : ''} need a driver assigned urgently</span>
-            </div>
-            <span className="text-[11px] font-normal opacity-80">
-              {unassignedOnly ? 'Tap to clear filter' : 'Tap to filter'}
-            </span>
+        <div className="w-full border rounded-xl p-4 bg-destructive/10 border-destructive/30">
+          <div className="flex items-center gap-2 text-destructive font-semibold text-sm">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            <span>{urgentJobs.length} job{urgentJobs.length > 1 ? 's' : ''} need a driver assigned urgently</span>
           </div>
-        </button>
-      )}
-
-      {unassignedOnly && (
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="border-destructive/40 text-destructive bg-destructive/10 gap-1.5 py-1">
-            Showing only: Unassigned
-          </Badge>
-          <Button variant="ghost" size="sm" className="text-muted-foreground gap-1 h-8" onClick={() => setUnassignedOnly(false)}>
-            <X className="w-3.5 h-3.5" /> Clear Filter
-          </Button>
         </div>
       )}
 
@@ -276,17 +255,30 @@ export default function Jobs() {
       )}
 
       {!statusFilter && (
-        <Select value={timeFilter} onValueChange={setTimeFilter}>
-          <SelectTrigger className="w-full sm:w-[200px]">
-            <SelectValue placeholder="Filter by time" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="today">Today</SelectItem>
-            <SelectItem value="tomorrow">Tomorrow</SelectItem>
-            <SelectItem value="this_week">This Week</SelectItem>
-            <SelectItem value="all">All Upcoming</SelectItem>
-          </SelectContent>
-        </Select>
+        <div className="flex flex-wrap gap-2 items-center">
+          <FilterDropdown
+            label="Time:"
+            value={timeFilter}
+            onChange={setTimeFilter}
+            options={[
+              { value: "today", label: "Today" },
+              { value: "tomorrow", label: "Tomorrow" },
+              { value: "this_week", label: "This Week" },
+              { value: "all", label: "All Upcoming" },
+            ]}
+            testId="filter-jobs-time"
+          />
+          <FilterDropdown
+            label="Show:"
+            value={unassignedOnly ? "unassigned" : "all"}
+            onChange={(v) => setUnassignedOnly(v === "unassigned")}
+            options={[
+              { value: "all", label: "All jobs" },
+              { value: "unassigned", label: "Unassigned only" },
+            ]}
+            testId="filter-jobs-unassigned"
+          />
+        </div>
       )}
 
       {/* Job cards grouped by date */}

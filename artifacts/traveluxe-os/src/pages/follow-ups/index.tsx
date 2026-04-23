@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
+import { FilterDropdown } from "@/components/ui/filter-dropdown";
 import { format, formatDistanceToNow } from "date-fns";
 import { getVipPillClass } from "@/lib/vip";
 import * as XLSX from "xlsx";
@@ -417,65 +418,47 @@ export default function FollowUps() {
 
       {/* Filters */}
       <div className="space-y-2.5">
-        {/* Status filter */}
-        <div className="flex gap-1.5 flex-wrap">
-          {[
-            { v: "pending",       label: "Pending" },
-            { v: "all",           label: "All" },
-            { v: "done",          label: "Done" },
-            { v: "booked_return", label: "Return Booked" },
-            { v: "no_response",   label: "No Response" },
-          ].map(({ v, label }) => (
-            <Button
-              key={v}
-              size="sm"
-              variant={statusFilter === v ? "default" : "outline"}
-              className="h-8 text-xs"
-              onClick={() => setStatusFilter(v)}
-            >
-              {label}
-            </Button>
-          ))}
-        </div>
-
-        {/* Date + sort filters */}
-        <div className="flex gap-1.5 flex-wrap items-center">
-          <span className="text-[11px] text-muted-foreground">Date:</span>
-          {[
-            { v: "all",       label: "All" },
-            { v: "today",     label: "Today" },
-            { v: "overdue",   label: "Overdue" },
-            { v: "this_week", label: "This week" },
-          ].map(({ v, label }) => (
-            <Button
-              key={v}
-              size="sm"
-              variant={dateFilter === v ? "default" : "outline"}
-              className="h-7 text-[11px]"
-              onClick={() => setDateFilter(v)}
-            >
-              {label}
-            </Button>
-          ))}
-          <div className="flex gap-1.5 ml-auto items-center">
-            <span className="text-[11px] text-muted-foreground">Sort:</span>
-            {[
-              { v: "recent",       label: "Most Recent" },
-              { v: "due_date",     label: "Due date" },
-              { v: "client_name",  label: "Client" },
-              { v: "arrival_date", label: "Arrival" },
-            ].map(({ v, label }) => (
-              <Button
-                key={v}
-                size="sm"
-                variant={sort === v ? "default" : "outline"}
-                className="h-7 text-[11px]"
-                onClick={() => setSort(v)}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <FilterDropdown
+            label="Status:"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={[
+              { value: "pending",       label: "Pending" },
+              { value: "all",           label: "All" },
+              { value: "done",          label: "Done" },
+              { value: "booked_return", label: "Return Booked" },
+              { value: "no_response",   label: "No Response" },
+            ]}
+            widthClass="w-40"
+            testId="filter-followups-status"
+          />
+          <FilterDropdown
+            label="Date:"
+            value={dateFilter}
+            onChange={setDateFilter}
+            options={[
+              { value: "all",       label: "All dates" },
+              { value: "today",     label: "Today" },
+              { value: "overdue",   label: "Overdue" },
+              { value: "this_week", label: "This week" },
+            ]}
+            widthClass="w-36"
+            testId="filter-followups-date"
+          />
+          <FilterDropdown
+            label="Sort:"
+            value={sort}
+            onChange={setSort}
+            options={[
+              { value: "recent",       label: "Most Recent" },
+              { value: "due_date",     label: "Due date" },
+              { value: "client_name",  label: "Client" },
+              { value: "arrival_date", label: "Arrival" },
+            ]}
+            widthClass="w-40"
+            testId="filter-followups-sort"
+          />
         </div>
 
         {/* Search */}

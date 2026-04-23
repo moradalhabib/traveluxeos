@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FilterDropdown } from "@/components/ui/filter-dropdown";
 import {
   PoundSterling, TrendingUp, CreditCard, AlertCircle, ArrowUpDown,
   Car, LayoutDashboard, ChevronRight, CheckCircle2, Clock, CalendarRange,
@@ -121,31 +122,23 @@ export default function Finance() {
         </Link>
       </div>
 
-      {/* Period filter */}
+      {/* Period filter — compact dropdown matching the rest of the app. */}
       <div className="rounded-2xl border border-border bg-card p-3 space-y-3">
-        <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
-          {([
-            { k: "today", label: "Today" },
-            { k: "week", label: "Week" },
-            { k: "month", label: "Month" },
-            { k: "year", label: "Year" },
-            { k: "all", label: "All Time" },
-            { k: "custom", label: "Custom" },
-          ] as { k: Period; label: string }[]).map(opt => (
-            <button
-              key={opt.k}
-              onClick={() => setPeriod(opt.k)}
-              data-testid={`finance-period-${opt.k}`}
-              className={`px-2 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                period === opt.k
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-secondary text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
+        <FilterDropdown
+          label="Period:"
+          value={period}
+          onChange={(v) => setPeriod(v as Period)}
+          options={[
+            { value: "today",  label: "Today" },
+            { value: "week",   label: "Week" },
+            { value: "month",  label: "Month" },
+            { value: "year",   label: "Year" },
+            { value: "all",    label: "All Time" },
+            { value: "custom", label: "Custom" },
+          ]}
+          widthClass="w-44"
+          testId="filter-finance-period"
+        />
         {period === "custom" && (
           <div className="flex items-end gap-2">
             <div className="flex-1">
