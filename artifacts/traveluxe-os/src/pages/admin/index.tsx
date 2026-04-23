@@ -2043,7 +2043,16 @@ function ServicesTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
             return (
               <button
                 key={svc.id}
-                onClick={() => setExpanded(expanded === svc.id ? null : svc.id)}
+                onClick={() => {
+                  const next = expanded === svc.id ? null : svc.id;
+                  setExpanded(next);
+                  if (next) {
+                    setTimeout(() => {
+                      document.getElementById(`svc-row-${svc.id}`)
+                        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    }, 50);
+                  }
+                }}
                 className={`text-left p-4 rounded-2xl border transition-all ${
                   expanded === svc.id
                     ? "border-primary bg-primary/5 shadow-[0_0_14px_rgba(201,168,76,0.15)]"
@@ -2082,7 +2091,7 @@ function ServicesTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
 
       <div className="space-y-3">
         {services.map(svc => (
-          <div key={svc.id} className={`rounded-2xl border ${svc.active ? 'border-border' : 'border-border/40 opacity-60'} bg-card overflow-hidden`}>
+          <div key={svc.id} id={`svc-row-${svc.id}`} className={`rounded-2xl border ${svc.active ? 'border-border' : 'border-border/40 opacity-60'} bg-card overflow-hidden scroll-mt-24`}>
             <button
               className="w-full flex items-center justify-between px-4 py-3 text-left"
               onClick={() => setExpanded(expanded === svc.id ? null : svc.id)}
@@ -2267,6 +2276,14 @@ export default function Admin() {
         </TabsContent>
 
         <TabsContent value="audit" className="mt-5">
+          <Tabs defaultValue="trail" className="w-full">
+            <div className="overflow-x-auto -mx-2 px-2 mb-4">
+              <TabsList className="inline-flex w-auto min-w-full bg-secondary/40">
+                <TabsTrigger value="trail" className="text-xs px-3 whitespace-nowrap">Audit Trail</TabsTrigger>
+                <TabsTrigger value="activity" className="text-xs px-3 whitespace-nowrap">Activity</TabsTrigger>
+              </TabsList>
+            </div>
+            <TabsContent value="trail" className="mt-0">
           <Card className="border-border">
             <CardHeader><CardTitle className="text-base">System Audit Trail</CardTitle></CardHeader>
             <CardContent>
@@ -2316,13 +2333,13 @@ export default function Admin() {
                   }
                   return (
                     <div key={log.id} className="p-3 border border-border rounded-xl bg-background/50 text-sm">
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-medium">{log.operator_name || "System"}</span>
-                          <Badge variant="secondary" className="text-[10px]">{log.action}</Badge>
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1 sm:gap-2 mb-1">
+                        <div className="flex items-center gap-2 flex-wrap min-w-0">
+                          <span className="font-medium truncate">{log.operator_name || "System"}</span>
+                          <Badge variant="secondary" className="text-[10px] whitespace-nowrap">{log.action}</Badge>
                           <span className="text-xs text-muted-foreground">{log.entity_type}</span>
                         </div>
-                        <span className="text-xs text-muted-foreground">{format(new Date(log.created_at), "dd MMM · HH:mm")}</span>
+                        <span className="text-[11px] text-muted-foreground whitespace-nowrap shrink-0">{format(new Date(log.created_at), "dd MMM · HH:mm")}</span>
                       </div>
                       {summary && <p className="text-xs text-muted-foreground mt-1">{summary}</p>}
                       {prettyDiff && (
@@ -2337,6 +2354,11 @@ export default function Admin() {
               </div>
             </CardContent>
           </Card>
+            </TabsContent>
+            <TabsContent value="activity" className="mt-0">
+              <ActivityLogSection />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         <TabsContent value="api" className="mt-5">
