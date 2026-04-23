@@ -92,7 +92,7 @@ function showToast(n: AppNotification, onClick: () => void) {
   const sev = n.severity ?? "info";
   const opts = {
     description: n.message,
-    duration: 8000,
+    duration: 5000,
     onClick,
     className: sev === "urgent"
       ? "tvl-toast-urgent"
@@ -140,6 +140,9 @@ export function useNotifications() {
   itemsRef.current = items;
   const channelRef = useRef<any>(null);
   const flightTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Dedup set for toast firing — survives StrictMode double-mount races
+  // where the same realtime INSERT is delivered to two parallel channels.
+  const toastedIdsRef = useRef<Set<string>>(new Set());
 
   const unreadCount = items.filter(n => !n.read).length;
 
@@ -193,6 +196,10 @@ export function useNotifications() {
     const handleInsert = (payload: any) => {
       const n = rowToNotif(payload.new);
       if (payload.new?.dismissed) return;
+      // Hard dedup — if we've already toasted this row id, drop the duplicate
+      // event entirely (covers StrictMode/Fast-Refresh duplicate channels).
+      if (toastedIdsRef.current.has(n.id)) return;
+      toastedIdsRef.current.add(n.id);
       setItems(prev => {
         if (prev.some(x => x.id === n.id)) return prev;
         return [n, ...prev].slice(0, MAX_KEEP);
