@@ -1495,30 +1495,20 @@ export default function NewBooking() {
                     }} />
                   )}
 
-                  {/* Supplier Product picker — shown once a supplier is
-                      selected on Car Rental, As Directed, or Airport Transfer.
-                      Lets the operator pick the exact car / driver / Meet &
-                      Greet / Fast-Track service the supplier is providing,
-                      so the supplier KPI rolls up to the right product and
-                      the cost auto-fills. */}
-                  {(needsCostBreakdown || isAirportTransfer) && (bookingForm.watch("supplier_id" as any) || "") !== "" && (
+                  {/* Supplier Product picker — shown for Car Rental & As Directed
+                      once a supplier is selected. Airport Transfer has its own
+                      copy down in Financials & Assignment > Third-Party Supplier
+                      so the service + cost + commission live together. */}
+                  {needsCostBreakdown && (bookingForm.watch("supplier_id" as any) || "") !== "" && (
                     <SupplierProductPicker
                       supplierId={String(bookingForm.watch("supplier_id" as any) || "")}
                       value={String(bookingForm.watch("supplier_product_id" as any) || "")}
                       onChange={(productId, product) => {
                         bookingForm.setValue("supplier_product_id" as any, productId || "");
                         if (product) {
-                          if (needsCostBreakdown && product.daily_rate != null) {
-                            // Car Rental / As Directed: fill base_daily_rate
-                            // so Cost Breakdown maths use the supplier rate.
+                          if (product.daily_rate != null) {
                             bookingForm.setValue("base_daily_rate" as any, Number(product.daily_rate));
-                          } else if (isAirportTransfer && product.daily_rate != null) {
-                            // Airport Transfer: there's no daily-rate maths,
-                            // so write the rate straight into supplier_cost.
-                            bookingForm.setValue("supplier_cost" as any, Number(product.daily_rate));
                           }
-                          // Mirror Car name into vehicle_type so the Job
-                          // Sheet shows a human-readable vehicle.
                           if (product.kind === "Car" && product.name) {
                             bookingForm.setValue("vehicle_type", product.name);
                           }
@@ -2767,6 +2757,26 @@ export default function NewBooking() {
                                     />
                                   </div>
                                 </div>
+
+                                {/* Service / product picker — appears once a
+                                    supplier is chosen. Picking a product (Meet
+                                    & Greet, Fast-Track, Lounge, Porter, …)
+                                    auto-fills Supplier Cost above so the
+                                    operator doesn't have to retype the rate. */}
+                                {supplierIdAt && (
+                                  <SupplierProductPicker
+                                    supplierId={supplierIdAt}
+                                    value={String(bookingForm.watch("supplier_product_id" as any) || "")}
+                                    onChange={(productId, product) => {
+                                      bookingForm.setValue("supplier_product_id" as any, productId || "", { shouldDirty: true });
+                                      if (product && product.daily_rate != null) {
+                                        bookingForm.setValue("supplier_cost" as any, Number(product.daily_rate), { shouldDirty: true });
+                                      } else if (product && product.hourly_rate != null) {
+                                        bookingForm.setValue("supplier_cost" as any, Number(product.hourly_rate), { shouldDirty: true });
+                                      }
+                                    }}
+                                  />
+                                )}
                               </div>
 
                               {/* Total TVL profit (driver + supplier commission) */}
