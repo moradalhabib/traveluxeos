@@ -21,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
+import { FilterDropdown } from "@/components/ui/filter-dropdown";
 import { useAuth } from "@/hooks/use-auth";
 
 // Sort + Group controls (Fix 3). Default sort is Most Recent (created_at desc)
@@ -310,14 +311,20 @@ export default function Bookings() {
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <div className="flex gap-2 overflow-x-auto pb-2 flex-1">
-          <Button variant={status === "" ? "default" : "outline"} onClick={() => setStatus("")}>All</Button>
-          <Button variant={status === "Pending" ? "default" : "outline"} onClick={() => setStatus("Pending")}>Pending</Button>
-          <Button variant={status === "Confirmed" ? "default" : "outline"} onClick={() => setStatus("Confirmed")}>Confirmed</Button>
-          <Button variant={status === "Active" ? "default" : "outline"} onClick={() => setStatus("Active")}>Active</Button>
-          <Button variant={status === "Completed" ? "default" : "outline"} onClick={() => setStatus("Completed")}>Completed</Button>
-          <Button variant={status === "Cancelled" ? "default" : "outline"} onClick={() => setStatus("Cancelled")}>Cancelled</Button>
-        </div>
+        <FilterDropdown
+          label="Status:"
+          value={status === "" ? "all" : status}
+          onChange={(v) => setStatus(v === "all" ? "" : v)}
+          options={[
+            { value: "all", label: "All" },
+            { value: "Pending", label: "Pending" },
+            { value: "Confirmed", label: "Confirmed" },
+            { value: "Active", label: "Active" },
+            { value: "Completed", label: "Completed" },
+            { value: "Cancelled", label: "Cancelled" },
+          ]}
+          testId="filter-bookings-status"
+        />
       </div>
 
       {/* Sort + Group controls (Fix 3) */}

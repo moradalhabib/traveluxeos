@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import { FilterDropdown } from "@/components/ui/filter-dropdown";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 
@@ -503,27 +504,20 @@ export default function Services() {
               </div>
             )}
 
-            {/* Status filter */}
-            <div className="flex overflow-x-auto gap-2 pb-1">
-              {STATUS_FILTERS.map(s => (
-                <button
-                  key={s}
-                  onClick={() => setStatusFilter(s)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap border flex-shrink-0 transition-all ${
-                    statusFilter === s
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground"
-                  }`}
-                >
-                  {s}
-                  {s !== "All" && (
-                    <span className="ml-1.5 opacity-70">
-                      {bookings.filter(b => canonicalKey(b.service_type) === selectedKey && b.status === s).length}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </div>
+            {/* Status filter — compact dropdown with live counts. */}
+            <FilterDropdown
+              label="Status:"
+              value={statusFilter}
+              onChange={setStatusFilter}
+              options={STATUS_FILTERS.map((s) => ({
+                value: s,
+                label: s,
+                count: s === "All"
+                  ? bookings.filter(b => canonicalKey(b.service_type) === selectedKey).length
+                  : bookings.filter(b => canonicalKey(b.service_type) === selectedKey && b.status === s).length,
+              }))}
+              testId="filter-services-status"
+            />
 
             {loadingBookings ? (
               <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-20" />)}</div>

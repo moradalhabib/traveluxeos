@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useListCommissions, getListCommissionsQueryKey, useCreateSettlement, useCreatePayout } from "@workspace/api-client-react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,12 +53,14 @@ type Driver = {
 
 type SettlementHistoryEntry = {
   settlement_id?: string;
+  kind?: "settlement" | "payout";
   driver_id?: string;
   driver_name: string;
   tvl_number?: string | null;
   settled_at: string;
   total_amount: number;
   booking_refs: string[];
+  booking_ids?: string[];
   month: string;
   operator_name?: string | null;
   notes?: string | null;
@@ -776,6 +778,14 @@ export default function Commissions() {
   );
 }
 
+type DriverMonthAggregate = {
+  driver_id: string;
+  driver_name: string;
+  tvl_number: string | null;
+  total: number;
+  entries: SettlementHistoryEntry[];
+};
+
 function SettlementHistoryView({
   entries,
   isLoading,
@@ -787,29 +797,76 @@ function SettlementHistoryView({
   isError: boolean;
   isSuperAdmin: boolean;
 }) {
-  const grouped = useMemo(() => {
-    const map = new Map<string, SettlementHistoryEntry[]>();
+  // Build the list of months that have at least one entry (newest first).
+  const monthOptions = useMemo(() => {
+    const set = new Set<string>();
     for (const e of entries) {
-      const key = e.month ?? (e.settled_at ? format(parseISO(e.settled_at), "yyyy-MM") : "unknown");
-      if (!map.has(key)) map.set(key, []);
-      map.get(key)!.push(e);
+      const key = e.month ?? (e.settled_at ? e.settled_at.slice(0, 7) : null);
+      if (key) set.add(key);
     }
-    const sortedKeys = Array.from(map.keys()).sort((a, b) => (a < b ? 1 : -1));
-    return sortedKeys.map((k) => ({
-      month: k,
-      label: k && /^\d{4}-\d{2}$/.test(k) ? format(parseISO(`${k}-01`), "MMMM yyyy") : k,
-      items: [...map.get(k)!].sort((a, b) =>
-        new Date(b.settled_at).getTime() - new Date(a.settled_at).getTime()
-      ),
-      subtotal: map.get(k)!.reduce((s, e) => s + (e.total_amount ?? 0), 0),
-    }));
+    return Array.from(set).sort((a, b) => (a < b ? 1 : -1));
   }, [entries]);
 
+  // Default the dropdown to the most recent month with entries; falls back to
+  // current calendar month when there are no entries at all.
+  const [selectedMonth, setSelectedMonth] = useState<string>("");
+  useEffect(() => {
+    if (monthOptions.length === 0) {
+      setSelectedMonth(format(new Date(), "yyyy-MM"));
+    } else if (!selectedMonth || !monthOptions.includes(selectedMonth)) {
+      setSelectedMonth(monthOptions[0]);
+    }
+  }, [monthOptions, selectedMonth]);
+
+  // Drill-in dialog: when a driver card is clicked we show every settlement
+  // and payout for that driver in the selected month.
+  const [drillDriver, setDrillDriver] = useState<DriverMonthAggregate | null>(null);
+
+  // Filter to selected month, then aggregate by driver.
+  const monthEntries = useMemo(() => {
+    if (!selectedMonth) return [];
+    return entries.filter((e) => {
+      const key = e.month ?? (e.settled_at ? e.settled_at.slice(0, 7) : null);
+      return key === selectedMonth;
+    });
+  }, [entries, selectedMonth]);
+
+  const driverAggregates = useMemo<DriverMonthAggregate[]>(() => {
+    const map = new Map<string, DriverMonthAggregate>();
+    for (const e of monthEntries) {
+      // Group by driver_id when available, else by name as fallback.
+      const key = e.driver_id ?? e.driver_name ?? "unknown";
+      const existing = map.get(key);
+      if (existing) {
+        existing.total += e.total_amount ?? 0;
+        existing.entries.push(e);
+      } else {
+        map.set(key, {
+          driver_id: e.driver_id ?? key,
+          driver_name: e.driver_name ?? "Unknown driver",
+          tvl_number: e.tvl_number ?? null,
+          total: e.total_amount ?? 0,
+          entries: [e],
+        });
+      }
+    }
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [monthEntries]);
+
+  const monthTotal = useMemo(
+    () => driverAggregates.reduce((s, d) => s + d.total, 0),
+    [driverAggregates],
+  );
+
+  const monthLabel = (key: string) =>
+    key && /^\d{4}-\d{2}$/.test(key) ? format(parseISO(`${key}-01`), "MMMM yyyy") : key;
+
   const exportCsv = () => {
-    const rows = entries.map((e) => ({
+    const rows = monthEntries.map((e) => ({
       Driver: e.driver_name,
       "TVL Number": e.tvl_number ?? "",
-      "Settled At": e.settled_at ? format(parseISO(e.settled_at), "yyyy-MM-dd") : "",
+      Type: e.kind === "payout" ? "Payout" : "Settlement",
+      "Date": e.settled_at ? format(parseISO(e.settled_at), "yyyy-MM-dd") : "",
       Month: e.month ?? "",
       "Total Amount": e.total_amount ?? 0,
       "Booking Refs": (e.booking_refs ?? []).join(", "),
@@ -820,7 +877,7 @@ function SettlementHistoryView({
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Settlements");
     const stamp = format(new Date(), "yyyyMMdd_HHmm");
-    XLSX.writeFile(wb, `traveluxe_settlements_${stamp}.xlsx`);
+    XLSX.writeFile(wb, `traveluxe_settlements_${selectedMonth || stamp}.xlsx`);
   };
 
   if (isLoading) {
@@ -833,24 +890,38 @@ function SettlementHistoryView({
       </div>
     );
   }
-  if (entries.length === 0) {
-    return (
-      <div className="py-12 text-center text-muted-foreground border border-dashed rounded-lg">
-        No settlements recorded yet.
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-4">
+      {/* Month selector + month total + export. */}
       <div className="flex items-center justify-between gap-2 flex-wrap">
-        <p className="text-xs text-muted-foreground">
-          All past commission settlements grouped by month, most recent first.
-        </p>
+        <div className="flex items-center gap-3 flex-wrap">
+          <FilterDropdown
+            label="Month:"
+            value={selectedMonth}
+            onChange={setSelectedMonth}
+            options={
+              monthOptions.length > 0
+                ? monthOptions.map((m) => ({ value: m, label: monthLabel(m) }))
+                : [{ value: selectedMonth, label: monthLabel(selectedMonth) }]
+            }
+            widthClass="w-48"
+            testId="filter-history-month"
+          />
+          <div className="text-xs text-muted-foreground">
+            <span className="font-semibold text-foreground">{driverAggregates.length}</span>
+            {" "}
+            driver{driverAggregates.length === 1 ? "" : "s"} · total{" "}
+            <span className="font-bold text-emerald-400">
+              {isSuperAdmin ? fmtMoney(monthTotal) : "—"}
+            </span>
+          </div>
+        </div>
         <Button
           variant="outline"
           size="sm"
           onClick={exportCsv}
+          disabled={monthEntries.length === 0}
           data-testid="button-export-settlements-csv"
         >
           <Download className="w-3.5 h-3.5 mr-1.5" />
@@ -858,58 +929,195 @@ function SettlementHistoryView({
         </Button>
       </div>
 
-      {grouped.map((g) => (
-        <div key={g.month} className="space-y-2">
-          <div className="flex items-center justify-between gap-2 px-1">
-            <h3 className="text-sm font-semibold text-foreground">{g.label}</h3>
-            <span className="text-sm font-bold text-emerald-400">
-              {isSuperAdmin ? fmtMoney(g.subtotal) : "—"}
-            </span>
-          </div>
-          <div className="space-y-2">
-            {g.items.map((e, idx) => (
-              <Card key={e.settlement_id ?? `${g.month}-${idx}`} className="border-emerald-500/20">
-                <CardContent className="p-4 space-y-2">
-                  <div className="flex items-center justify-between gap-3 flex-wrap">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-bold text-sm">{e.driver_name}</span>
-                        {e.tvl_number && (
-                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30 font-semibold">
-                            {e.tvl_number}
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        {e.settled_at ? format(parseISO(e.settled_at), "dd MMM yyyy") : "—"}
-                        {e.operator_name && ` · by ${e.operator_name}`}
-                      </div>
+      {/* Driver list for the selected month. */}
+      {driverAggregates.length === 0 ? (
+        <div className="py-12 text-center text-muted-foreground border border-dashed rounded-lg">
+          No settlements or payouts recorded for {monthLabel(selectedMonth)}.
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {driverAggregates.map((d) => (
+            <button
+              key={d.driver_id}
+              type="button"
+              onClick={() => setDrillDriver(d)}
+              className="w-full text-left"
+              data-testid={`history-driver-card-${d.driver_id}`}
+            >
+              <Card className="border-emerald-500/20 hover:border-emerald-500/40 transition-colors">
+                <CardContent className="p-4 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-bold text-sm">{d.driver_name}</span>
+                      {d.tvl_number && (
+                        <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30 font-semibold">
+                          {d.tvl_number}
+                        </span>
+                      )}
                     </div>
-                    <div className="text-lg font-bold text-emerald-400">
-                      {isSuperAdmin ? fmtMoney(e.total_amount ?? 0) : "—"}
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {d.entries.length} entr{d.entries.length === 1 ? "y" : "ies"} · tap to see breakdown
                     </div>
                   </div>
-                  {e.booking_refs && e.booking_refs.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {e.booking_refs.map((ref) => (
-                        <Badge key={ref} variant="outline" className="text-[10px] font-mono">
-                          {ref}
-                        </Badge>
-                      ))}
+                  <div className="flex items-center gap-2">
+                    <div className="text-lg font-bold text-emerald-400">
+                      {isSuperAdmin ? fmtMoney(d.total) : "—"}
                     </div>
-                  )}
-                  {e.notes && (
-                    <div className="text-xs italic text-muted-foreground border-l-2 border-border pl-2">
-                      {e.notes}
-                    </div>
-                  )}
+                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                  </div>
                 </CardContent>
               </Card>
-            ))}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <DriverMonthBreakdownDialog
+        driver={drillDriver}
+        monthLabel={drillDriver ? monthLabel(selectedMonth) : ""}
+        isSuperAdmin={isSuperAdmin}
+        onClose={() => setDrillDriver(null)}
+      />
+    </div>
+  );
+}
+
+function DriverMonthBreakdownDialog({
+  driver,
+  monthLabel,
+  isSuperAdmin,
+  onClose,
+}: {
+  driver: DriverMonthAggregate | null;
+  monthLabel: string;
+  isSuperAdmin: boolean;
+  onClose: () => void;
+}) {
+  const open = !!driver;
+  if (!driver) return null;
+
+  // Sort entries within the dialog newest first so the most recent
+  // settlement/payout sits at the top.
+  const sorted = [...driver.entries].sort(
+    (a, b) => new Date(b.settled_at ?? 0).getTime() - new Date(a.settled_at ?? 0).getTime(),
+  );
+
+  // Split totals into settlement (cash → owed to TVL) vs payout (bank/card → owed to driver)
+  // so the breakdown header tells the operator at a glance how the total is composed.
+  const settlementTotal = sorted
+    .filter((e) => e.kind !== "payout")
+    .reduce((s, e) => s + (e.total_amount ?? 0), 0);
+  const payoutTotal = sorted
+    .filter((e) => e.kind === "payout")
+    .reduce((s, e) => s + (e.total_amount ?? 0), 0);
+
+  return (
+    <Dialog open={open} onOpenChange={onClose}>
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2 flex-wrap">
+            <span>{driver.driver_name}</span>
+            {driver.tvl_number && (
+              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30 font-semibold">
+                {driver.tvl_number}
+              </span>
+            )}
+          </DialogTitle>
+          <DialogDescription>
+            {monthLabel} — {sorted.length} entr{sorted.length === 1 ? "y" : "ies"} · total{" "}
+            <span className="font-bold text-emerald-400">
+              {isSuperAdmin ? fmtMoney(driver.total) : "—"}
+            </span>
+          </DialogDescription>
+        </DialogHeader>
+
+        {/* Settlement / payout split summary. */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Settlements (cash)
+            </div>
+            <div className="text-base font-bold text-emerald-400">
+              {isSuperAdmin ? fmtMoney(settlementTotal) : "—"}
+            </div>
+          </div>
+          <div className="rounded-lg border border-blue-500/20 bg-blue-500/5 p-3">
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+              Payouts (bank/card)
+            </div>
+            <div className="text-base font-bold text-blue-400">
+              {isSuperAdmin ? fmtMoney(payoutTotal) : "—"}
+            </div>
           </div>
         </div>
-      ))}
-    </div>
+
+        {/* Per-entry breakdown. */}
+        <div className="space-y-2">
+          {sorted.map((e, idx) => (
+            <Card
+              key={e.settlement_id ?? `${e.kind}-${idx}`}
+              className={
+                e.kind === "payout"
+                  ? "border-blue-500/20"
+                  : "border-emerald-500/20"
+              }
+            >
+              <CardContent className="p-3 space-y-2">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge
+                        variant="outline"
+                        className={
+                          e.kind === "payout"
+                            ? "text-[10px] border-blue-500/40 text-blue-400"
+                            : "text-[10px] border-emerald-500/40 text-emerald-400"
+                        }
+                      >
+                        {e.kind === "payout" ? "Payout" : "Settlement"}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground">
+                        {e.settled_at ? format(parseISO(e.settled_at), "dd MMM yyyy") : "—"}
+                        {e.operator_name && ` · by ${e.operator_name}`}
+                      </span>
+                    </div>
+                    {e.booking_refs && e.booking_refs.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {e.booking_refs.map((ref) => (
+                          <Badge
+                            key={ref}
+                            variant="outline"
+                            className="text-[10px] font-mono"
+                          >
+                            {ref}
+                          </Badge>
+                        ))}
+                      </div>
+                    )}
+                    {e.notes && (
+                      <div className="text-xs italic text-muted-foreground border-l-2 border-border pl-2 mt-2">
+                        {e.notes}
+                      </div>
+                    )}
+                  </div>
+                  <div
+                    className={`text-base font-bold ${
+                      e.kind === "payout" ? "text-blue-400" : "text-emerald-400"
+                    }`}
+                  >
+                    {isSuperAdmin ? fmtMoney(e.total_amount ?? 0) : "—"}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

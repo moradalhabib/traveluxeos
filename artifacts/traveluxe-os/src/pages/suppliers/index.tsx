@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Building2, Plus, Phone, Mail, MessageCircle, Search as SearchIcon, MapPin, Star, CheckSquare, X as XIcon } from "lucide-react";
+import { FilterDropdown } from "@/components/ui/filter-dropdown";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
@@ -200,27 +201,29 @@ export default function SuppliersList() {
             className="pl-9"
           />
         </div>
-        <div className="flex gap-1.5 flex-wrap">
-          {(["all", ...CATEGORIES]).map(c => (
-            <Button
-              key={c}
-              size="sm"
-              variant={category === c ? "default" : "outline"}
-              className="h-9 text-xs"
-              onClick={() => setCategory(c)}
-            >
-              {c === "all" ? "All" : c}
-            </Button>
-          ))}
-          <Button
-            size="sm"
-            variant={showInactive ? "default" : "outline"}
-            className="h-9 text-xs"
-            onClick={() => setShowInactive(v => !v)}
-            data-testid="button-toggle-inactive"
-          >
-            {showInactive ? "Hiding active-only" : "Show inactive"}
-          </Button>
+        <div className="flex gap-2 flex-wrap items-center">
+          <FilterDropdown
+            label="Category:"
+            value={category}
+            onChange={setCategory}
+            options={[
+              { value: "all", label: "All categories" },
+              ...CATEGORIES.map((c) => ({ value: c, label: c })),
+            ]}
+            widthClass="w-48"
+            testId="filter-suppliers-category"
+          />
+          <FilterDropdown
+            label="Show:"
+            value={showInactive ? "all" : "active"}
+            onChange={(v) => setShowInactive(v === "all")}
+            options={[
+              { value: "active", label: "Active only" },
+              { value: "all", label: "Including inactive" },
+            ]}
+            widthClass="w-44"
+            testId="filter-suppliers-active"
+          />
         </div>
       </div>
 

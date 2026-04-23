@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Search, Plus, MessageSquare, CheckSquare, Square, X } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FilterDropdown } from "@/components/ui/filter-dropdown";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -139,28 +140,14 @@ export default function Clients() {
         />
       </div>
 
-      {/* VIP tier filter chips — instant slice into Standard / VIP / VVIP /
-          Platinum so operators can find their high-value patrons fast. */}
-      <div className="flex flex-wrap gap-2">
-        {TIER_FILTERS.map(t => {
-          const active = tierFilter === t.value;
-          return (
-            <button
-              key={t.value}
-              type="button"
-              onClick={() => setTierFilter(t.value)}
-              data-testid={`chip-tier-${t.value.toLowerCase()}`}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-all ${
-                active
-                  ? "bg-primary text-primary-foreground border-primary shadow-[0_0_10px_rgba(201,168,76,0.25)]"
-                  : "bg-card text-muted-foreground border-border hover:text-foreground hover:border-primary/40"
-              }`}
-            >
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
+      {/* VIP tier filter — compact dropdown matching the rest of the app. */}
+      <FilterDropdown
+        label="VIP Tier:"
+        value={tierFilter}
+        onChange={setTierFilter}
+        options={TIER_FILTERS.map((t) => ({ value: t.value, label: t.label }))}
+        testId="filter-clients-tier"
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading ? (

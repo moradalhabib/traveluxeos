@@ -7,6 +7,7 @@ import { Search, Plus, MessageSquare, Car, RefreshCw, Loader2, CheckSquare, X } 
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { Skeleton } from "@/components/ui/skeleton";
+import { FilterDropdown } from "@/components/ui/filter-dropdown";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -213,24 +214,13 @@ export default function Drivers() {
         />
       </div>
 
-      <div className="flex flex-wrap gap-2" data-testid="status-filter-chips">
-        {STATUS_FILTERS.map((s) => (
-          <Button
-            key={s}
-            variant={statusFilter === s ? "default" : "outline"}
-            size="sm"
-            className={
-              statusFilter === s && s === "Suspended"
-                ? "bg-red-600 hover:bg-red-700 text-white border-red-700"
-                : ""
-            }
-            onClick={() => setStatusFilter(s)}
-            data-testid={`chip-status-${s.toLowerCase()}`}
-          >
-            {s}
-          </Button>
-        ))}
-      </div>
+      <FilterDropdown
+        label="Status:"
+        value={statusFilter}
+        onChange={(v) => setStatusFilter(v as StatusFilter)}
+        options={STATUS_FILTERS.map((s) => ({ value: s, label: s }))}
+        testId="filter-drivers-status"
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading ? (
