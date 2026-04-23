@@ -21,6 +21,8 @@ interface Props {
   bookingId: string;
 }
 
+type FilterMode = "all" | "unlocks";
+
 const VEHICLE_ROW_ACTIONS = new Set([
   "unlock_booking_vehicle",
   "create_booking_vehicle",
@@ -53,22 +55,48 @@ const toneClasses: Record<string, string> = {
 
 export function BookingActivityPanel({ bookingId }: Props) {
   const [entries, setEntries] = useState<AuditEntry[] | null>(null);
+  const [totalCount, setTotalCount] = useState<number>(0);
+  const [unlockCount, setUnlockCount] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<FilterMode>("all");
 
-  const fetchEntries = useCallback(async () => {
+  const fetchEntries = useCallback(async (mode: FilterMode) => {
     setLoading(true);
     setError(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token ?? "";
-      const r = await fetch(
-        `/api/audit-log?entity_type=booking&entity_id=${encodeURIComponent(bookingId)}&limit=25`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
+      const params = new URLSearchParams({
+        entity_type: "booking",
+        entity_id: bookingId,
+        limit: "25",
+      });
+      if (mode === "unlocks") params.set("action", "unlock_booking_vehicle");
+      const r = await fetch(`/api/audit-log?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (!r.ok) throw new Error(await r.text());
       const data = (await r.json()) as AuditEntry[];
-      setEntries(data ?? []);
+      const list = data ?? [];
+      setEntries(list);
+
+      // Always refresh the unfiltered totals from a separate "all" fetch so the
+      // header badge reflects the true count regardless of the active filter.
+      if (mode === "all") {
+        setTotalCount(list.length);
+        setUnlockCount(list.filter((e) => e.action === "unlock_booking_vehicle").length);
+      } else {
+        const r2 = await fetch(
+          `/api/audit-log?entity_type=booking&entity_id=${encodeURIComponent(bookingId)}&limit=25`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (r2.ok) {
+          const all = ((await r2.json()) as AuditEntry[]) ?? [];
+          setTotalCount(all.length);
+          setUnlockCount(all.filter((e) => e.action === "unlock_booking_vehicle").length);
+        }
+      }
     } catch (e: any) {
       setError(e?.message ?? "Failed to load activity");
     } finally {
@@ -78,7 +106,8 @@ export function BookingActivityPanel({ bookingId }: Props) {
 
   useEffect(() => {
     setEntries(null);
-    fetchEntries();
+    setFilter("all");
+    fetchEntries("all");
   }, [bookingId, fetchEntries]);
 
   if (loading && entries === null) {
@@ -101,16 +130,20 @@ export function BookingActivityPanel({ bookingId }: Props) {
       <Card className="border-destructive/40 bg-destructive/5">
         <CardContent className="p-3 flex items-center justify-between gap-3">
           <div className="text-xs text-destructive">Couldn't load activity. {error}</div>
-          <Button size="sm" variant="outline" onClick={fetchEntries}>Retry</Button>
+          <Button size="sm" variant="outline" onClick={() => fetchEntries(filter)}>Retry</Button>
         </CardContent>
       </Card>
     );
   }
 
   const list = entries ?? [];
-  if (list.length === 0) return null;
+  if (totalCount === 0 && list.length === 0) return null;
 
-  const unlockCount = list.filter(e => e.action === "unlock_booking_vehicle").length;
+  const setFilterMode = (mode: FilterMode) => {
+    if (mode === filter) return;
+    setFilter(mode);
+    fetchEntries(mode);
+  };
 
   return (
     <Card className="border-primary/10 bg-card">
@@ -118,59 +151,101 @@ export function BookingActivityPanel({ bookingId }: Props) {
         <CardTitle className="text-base flex items-center justify-between gap-2">
           <span className="flex items-center gap-2">
             <History className="w-4 h-4" /> Activity
-            <Badge variant="outline" className="text-xs">{list.length}</Badge>
+            <Badge variant="outline" className="text-xs">{totalCount}</Badge>
             {unlockCount > 0 && (
               <Badge variant="outline" className="text-[10px] gap-1 border-amber-500/40 text-amber-700 dark:text-amber-400">
                 <LockOpen className="w-3 h-3" /> {unlockCount} unlock{unlockCount === 1 ? "" : "s"}
               </Badge>
             )}
           </span>
-          <Button size="sm" variant="ghost" onClick={fetchEntries} data-testid="btn-activity-refresh">
+          <Button size="sm" variant="ghost" onClick={() => fetchEntries(filter)} data-testid="btn-activity-refresh">
             <RefreshCw className="w-3.5 h-3.5" />
           </Button>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-2">
+        <div
+          className="inline-flex rounded-md border border-border bg-muted/30 p-0.5 text-xs"
+          role="tablist"
+          aria-label="Filter activity"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={filter === "all"}
+            onClick={() => setFilterMode("all")}
+            data-testid="btn-activity-filter-all"
+            className={`px-2.5 py-1 rounded-sm transition-colors ${
+              filter === "all"
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            All activity
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={filter === "unlocks"}
+            onClick={() => setFilterMode("unlocks")}
+            data-testid="btn-activity-filter-unlocks"
+            className={`px-2.5 py-1 rounded-sm transition-colors flex items-center gap-1 ${
+              filter === "unlocks"
+                ? "bg-background text-amber-700 dark:text-amber-400 shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <LockOpen className="w-3 h-3" /> Unlocks only
+          </button>
+        </div>
         <p className="text-xs text-muted-foreground">
-          Recent audit entries for this booking. Unlock events reopen settled or paid vehicle rows and are highlighted.
+          {filter === "unlocks"
+            ? "Showing unlock events only — the chain of custody for reopened vehicle rows."
+            : "Recent audit entries for this booking. Unlock events reopen settled or paid vehicle rows and are highlighted."}
         </p>
-        <ul className="space-y-1.5" data-testid="list-activity">
-          {list.map((entry) => {
-            const meta = actionMeta(entry.action);
-            const isUnlock = entry.action === "unlock_booking_vehicle";
-            return (
-              <li
-                key={entry.id}
-                className={`rounded-md border p-2 text-xs ${isUnlock ? "border-amber-500/40 bg-amber-500/5" : "border-border/60 bg-background/40"}`}
-                data-testid={`activity-${entry.action}`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <Badge
-                      variant="outline"
-                      className={`text-[10px] gap-1 ${toneClasses[meta.tone]}`}
-                    >
-                      {meta.icon}
-                      {meta.label}
-                    </Badge>
-                    {VEHICLE_ROW_ACTIONS.has(entry.action) && !isUnlock && (
-                      <span className="text-[10px] text-muted-foreground">vehicle row</span>
-                    )}
+        {list.length === 0 ? (
+          <p className="text-xs text-muted-foreground italic" data-testid="text-activity-empty">
+            {filter === "unlocks" ? "No unlock events yet." : "No activity yet."}
+          </p>
+        ) : (
+          <ul className="space-y-1.5" data-testid="list-activity">
+            {list.map((entry) => {
+              const meta = actionMeta(entry.action);
+              const isUnlock = entry.action === "unlock_booking_vehicle";
+              return (
+                <li
+                  key={entry.id}
+                  className={`rounded-md border p-2 text-xs ${isUnlock ? "border-amber-500/40 bg-amber-500/5" : "border-border/60 bg-background/40"}`}
+                  data-testid={`activity-${entry.action}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-1.5">
+                      <Badge
+                        variant="outline"
+                        className={`text-[10px] gap-1 ${toneClasses[meta.tone]}`}
+                      >
+                        {meta.icon}
+                        {meta.label}
+                      </Badge>
+                      {VEHICLE_ROW_ACTIONS.has(entry.action) && !isUnlock && (
+                        <span className="text-[10px] text-muted-foreground">vehicle row</span>
+                      )}
+                    </div>
+                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                      {fmtLondon(entry.created_at, "d MMM · HH:mm")}
+                    </span>
                   </div>
-                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                    {fmtLondon(entry.created_at, "d MMM · HH:mm")}
-                  </span>
-                </div>
-                <div className="mt-1 flex items-center justify-between gap-2">
-                  <span className="text-foreground/90">{entry.detail || "—"}</span>
-                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                    {entry.operator_name ?? "System"}
-                  </span>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                  <div className="mt-1 flex items-center justify-between gap-2">
+                    <span className="text-foreground/90">{entry.detail || "—"}</span>
+                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                      {entry.operator_name ?? "System"}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </CardContent>
     </Card>
   );
