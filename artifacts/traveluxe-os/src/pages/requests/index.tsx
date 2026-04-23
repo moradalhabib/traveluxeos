@@ -3,8 +3,15 @@ import { Link, useLocation } from "wouter";
 import { format, parseISO, differenceInCalendarDays } from "date-fns";
 import {
   Plus, ClipboardList, CalendarRange, AlertTriangle, Search,
-  Plane, MapPin, Car as CarIcon, Building2, Hotel, Package
+  Plane, MapPin, Car as CarIcon, Building2, Hotel, Package,
+  CheckSquare, X as XIcon,
 } from "lucide-react";
+import { useAuth } from "@/hooks/use-auth";
+import { useBulkSelect } from "@/hooks/use-bulk-select";
+import { BulkActionBar } from "@/components/bulk-action-bar";
+import { supabase } from "@/lib/supabase";
+import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -31,11 +38,35 @@ const SERVICE_ICONS: Record<RequestServiceType, any> = {
 };
 
 export default function Requests() {
+  const { user } = useAuth();
+  const canBulkDelete = user?.role === "admin" || user?.role === "super_admin";
+  const bulk = useBulkSelect();
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<RequestStatus | "">("");
   const [priority, setPriority] = useState<RequestPriority | "">("");
   const [search, setSearch] = useState("");
   // Fix 3 — default Most Recent (created_at desc) across all list pages.
   const [sort, setSort] = useState<"follow_up" | "created">("created");
+
+  const handleBulkDelete = async () => {
+    const ids = bulk.ids;
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const results = await Promise.allSettled(
+      ids.map(id => fetch(`/api/requests/${id}`, {
+        method: "DELETE",
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      }).then(r => { if (!r.ok) throw new Error(String(r.status)); }))
+    );
+    const ok = results.filter(r => r.status === "fulfilled").length;
+    const fail = results.length - ok;
+    if (fail === 0) toast.success(`${ok} request${ok === 1 ? "" : "s"} deleted`);
+    else toast.error(`${ok} deleted, ${fail} failed`);
+    queryClient.invalidateQueries({
+      predicate: (q) => Array.isArray(q.queryKey) && typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/api/requests"),
+    });
+    bulk.exitSelectMode();
+  };
 
   const { data: requests, isLoading } = useListRequests({
     status: status || undefined,
@@ -61,12 +92,27 @@ export default function Requests() {
             Future opportunities, follow-ups & conversions
           </p>
         </div>
-        <Link href="/requests/new">
-          <Button className="w-full sm:w-auto h-12 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
-            <Plus className="w-4 h-4 mr-2" />
-            New Request
-          </Button>
-        </Link>
+        <div className="flex gap-2 w-full sm:w-auto">
+          {canBulkDelete && (
+            bulk.selectMode ? (
+              <Button variant="outline" onClick={bulk.exitSelectMode} className="h-12 flex-1 sm:flex-initial" data-testid="button-cancel-select">
+                <XIcon className="w-4 h-4 mr-2" /> Cancel
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={bulk.enterSelectMode} className="h-12 flex-1 sm:flex-initial" data-testid="button-select-mode">
+                <CheckSquare className="w-4 h-4 mr-2" /> Select
+              </Button>
+            )
+          )}
+          {!bulk.selectMode && (
+            <Link href="/requests/new" className="flex-1 sm:flex-initial">
+              <Button className="w-full h-12 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
+                <Plus className="w-4 h-4 mr-2" />
+                New Request
+              </Button>
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -135,14 +181,33 @@ export default function Requests() {
             <p className="text-xs mt-1">Capture client interest before it becomes a booking.</p>
           </div>
         ) : (
-          (requests ?? []).map(r => <RequestCard key={r.id} r={r} today={today} />)
+          (requests ?? []).map(r => (
+            <RequestCard
+              key={r.id}
+              r={r}
+              today={today}
+              selectMode={bulk.selectMode}
+              selected={bulk.isSelected(r.id)}
+              onToggle={() => bulk.toggle(r.id)}
+            />
+          ))
         )}
       </div>
+
+      <BulkActionBar
+        count={bulk.count}
+        noun="request"
+        onClear={bulk.clear}
+        onDelete={handleBulkDelete}
+      />
     </div>
   );
 }
 
-function RequestCard({ r, today }: { r: ClientRequest; today: Date }) {
+function RequestCard({ r, today, selectMode, selected, onToggle }: {
+  r: ClientRequest; today: Date;
+  selectMode: boolean; selected: boolean; onToggle: () => void;
+}) {
   const [, setLocation] = useLocation();
   const Icon = SERVICE_ICONS[r.service_type] ?? Package;
   const followUp = parseISO(r.follow_up_date);
@@ -150,15 +215,24 @@ function RequestCard({ r, today }: { r: ClientRequest; today: Date }) {
   const isOverdue = daysUntil < 0 && !["Converted","Declined","Expired"].includes(r.status);
   const isToday = daysUntil === 0;
 
-  return (
-    <Link href={`/requests/${r.id}`}>
-      <Card className={`border-primary/10 hover:border-primary/30 transition-colors bg-card overflow-hidden cursor-pointer ${isOverdue ? "border-red-500/40" : ""}`}>
+  const inner = (
+      <Card className={`border-primary/10 transition-colors bg-card overflow-hidden cursor-pointer ${isOverdue ? "border-red-500/40" : ""} ${
+        selectMode
+          ? (selected ? "ring-2 ring-primary border-primary" : "hover:border-primary/30")
+          : "hover:border-primary/30"
+      }`}>
         <CardContent className="p-5 space-y-4">
           <div className="flex items-start justify-between gap-3">
             <div className="flex items-start gap-3 min-w-0 flex-1">
+              {selectMode ? (
+                <div className={`w-10 h-10 rounded-lg border-2 flex items-center justify-center flex-shrink-0 ${selected ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                  {selected && <CheckSquare className="w-5 h-5 text-primary-foreground" />}
+                </div>
+              ) : (
               <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
                 <Icon className="w-5 h-5 text-primary" />
               </div>
+              )}
               <div className="min-w-0 flex-1">
                 <h3 className="font-bold text-base text-foreground truncate">
                   {(r as any).client_id ? (
@@ -219,6 +293,14 @@ function RequestCard({ r, today }: { r: ClientRequest; today: Date }) {
           </div>
         </CardContent>
       </Card>
-    </Link>
   );
+
+  if (selectMode) {
+    return (
+      <div onClick={onToggle} data-testid={`select-request-${r.id}`}>
+        {inner}
+      </div>
+    );
+  }
+  return <Link href={`/requests/${r.id}`}>{inner}</Link>;
 }

@@ -4,13 +4,16 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Briefcase, CalendarRange, Home, X, StickyNote, Trash2 } from "lucide-react";
+import { Plus, Briefcase, CalendarRange, Home, X, StickyNote, Trash2, CheckSquare } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { useBulkSelect } from "@/hooks/use-bulk-select";
+import { BulkActionBar } from "@/components/bulk-action-bar";
+import { supabase } from "@/lib/supabase";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link, useSearch } from "wouter";
 import { format, startOfDay, isBefore } from "date-fns";
@@ -62,6 +65,31 @@ export default function Bookings() {
       },
     },
   });
+
+  const bulk = useBulkSelect();
+
+  const handleBulkDelete = async () => {
+    const ids = bulk.ids;
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const results = await Promise.allSettled(
+      ids.map(id => fetch(`/api/bookings/${id}`, {
+        method: "DELETE",
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      }).then(r => { if (!r.ok) throw new Error(String(r.status)); }))
+    );
+    const ok = results.filter(r => r.status === "fulfilled").length;
+    const fail = results.length - ok;
+    toast({
+      title: fail === 0 ? "Bookings deleted" : `${ok} deleted, ${fail} failed`,
+      description: fail === 0 ? `${ok} booking${ok === 1 ? "" : "s"} permanently removed` : "Some deletions failed — check audit log",
+      variant: fail === 0 ? undefined : "destructive",
+    });
+    queryClient.invalidateQueries({
+      predicate: (q) => Array.isArray(q.queryKey) && typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/api/bookings"),
+    });
+    bulk.exitSelectMode();
+  };
 
   const [status, setStatus] = useState<string>("");
   const [search, setSearch] = useState<string>("");
@@ -200,12 +228,27 @@ export default function Bookings() {
           )}
         </div>
         {!isResidenceManager && (
-          <Link href="/bookings/new">
-            <Button className="w-full sm:w-auto h-12 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
-              <Plus className="w-4 h-4 mr-2" />
-              New Booking
-            </Button>
-          </Link>
+          <div className="flex gap-2 w-full sm:w-auto">
+            {canDeleteBookings && (
+              bulk.selectMode ? (
+                <Button variant="outline" onClick={bulk.exitSelectMode} className="h-12 flex-1 sm:flex-initial" data-testid="button-cancel-select">
+                  <X className="w-4 h-4 mr-2" /> Cancel
+                </Button>
+              ) : (
+                <Button variant="outline" onClick={bulk.enterSelectMode} className="h-12 flex-1 sm:flex-initial" data-testid="button-select-mode">
+                  <CheckSquare className="w-4 h-4 mr-2" /> Select
+                </Button>
+              )
+            )}
+            {!bulk.selectMode && (
+              <Link href="/bookings/new" className="flex-1 sm:flex-initial">
+                <Button className="w-full h-12 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
+                  <Plus className="w-4 h-4 mr-2" />
+                  New Booking
+                </Button>
+              </Link>
+            )}
+          </div>
         )}
       </div>
 
@@ -304,11 +347,28 @@ export default function Bookings() {
                 </div>
               )}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {group.items.map((booking: any) => (
-          <Card key={booking.id} className="border-primary/10 hover:border-primary/30 transition-colors bg-card overflow-hidden flex flex-col">
+                {group.items.map((booking: any) => {
+          const selected = bulk.isSelected(booking.id);
+          return (
+          <Card
+            key={booking.id}
+            className={`border-primary/10 transition-colors bg-card overflow-hidden flex flex-col ${
+              bulk.selectMode
+                ? (selected ? "ring-2 ring-primary border-primary cursor-pointer" : "hover:border-primary/30 cursor-pointer")
+                : "hover:border-primary/30"
+            }`}
+            onClick={bulk.selectMode ? () => bulk.toggle(booking.id) : undefined}
+            data-testid={bulk.selectMode ? `select-booking-${booking.id}` : undefined}
+          >
             <CardContent className="p-5 flex-1 flex flex-col">
               <div className="flex justify-between items-start mb-4">
-                <div className="min-w-0">
+                <div className="min-w-0 flex items-start gap-3">
+                  {bulk.selectMode && (
+                    <div className={`mt-1 flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center ${selected ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                      {selected && <CheckSquare className="w-3 h-3 text-primary-foreground" />}
+                    </div>
+                  )}
+                  <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <div className="text-xs text-muted-foreground font-mono">{booking.tvl_ref}</div>
                     {booking.service_type && (
@@ -335,6 +395,7 @@ export default function Bookings() {
                   <div className="text-sm text-muted-foreground mt-1 flex items-center">
                     <CalendarRange className="w-3 h-3 mr-1" />
                     {booking.date_time ? format(new Date(booking.date_time), "PPp") : "TBD"}
+                  </div>
                   </div>
                 </div>
                 <Badge variant="outline" className={getStatusColor(booking.status)}>
@@ -385,7 +446,7 @@ export default function Bookings() {
                     {isResidenceManager ? "View Details" : "Job Sheet"}
                   </Button>
                 </Link>
-                {canDeleteBookings && (
+                {canDeleteBookings && !bulk.selectMode && (
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button
@@ -421,7 +482,8 @@ export default function Bookings() {
               </div>
             </CardContent>
           </Card>
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -434,6 +496,13 @@ export default function Bookings() {
           )}
         </div>
       )}
+
+      <BulkActionBar
+        count={bulk.count}
+        noun="booking"
+        onClear={bulk.clear}
+        onDelete={handleBulkDelete}
+      />
     </div>
   );
 }

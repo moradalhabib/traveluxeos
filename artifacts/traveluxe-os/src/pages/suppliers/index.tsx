@@ -10,8 +10,11 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
-import { Building2, Plus, Phone, Mail, MessageCircle, Search as SearchIcon, MapPin, Star } from "lucide-react";
+import { Building2, Plus, Phone, Mail, MessageCircle, Search as SearchIcon, MapPin, Star, CheckSquare, X as XIcon } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/use-auth";
+import { useBulkSelect } from "@/hooks/use-bulk-select";
+import { BulkActionBar } from "@/components/bulk-action-bar";
 
 const CATEGORIES = [
   "Airport Transfer", "Car Rental", "Hotel", "Apartment", "Tour Operator",
@@ -53,6 +56,9 @@ function whatsappLink(num?: string) {
 
 export default function SuppliersList() {
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const canBulkDelete = user?.role === "admin" || user?.role === "super_admin";
+  const bulk = useBulkSelect();
   const [items, setItems] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -60,6 +66,20 @@ export default function SuppliersList() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<any>({ name: "", category: "Car Rental" });
   const [saving, setSaving] = useState(false);
+
+  const handleBulkDelete = async () => {
+    const ids = bulk.ids;
+    const results = await Promise.allSettled(
+      ids.map(id => authedFetch(`/api/suppliers/${id}`, { method: "DELETE" })
+        .then(r => { if (!r.ok) throw new Error(String(r.status)); }))
+    );
+    const ok = results.filter(r => r.status === "fulfilled").length;
+    const fail = results.length - ok;
+    if (fail === 0) toast.success(`${ok} supplier${ok === 1 ? "" : "s"} deleted`);
+    else toast.error(`${ok} deleted, ${fail} failed`);
+    bulk.exitSelectMode();
+    load();
+  };
 
   const load = async () => {
     setLoading(true);
@@ -123,10 +143,25 @@ export default function SuppliersList() {
             Car rental partners, hotels, apartments, tour operators and concierge contacts.
           </p>
         </div>
-        <Button onClick={() => setOpen(true)} className="shadow-[0_0_15px_rgba(201,168,76,0.25)]">
-          <Plus className="w-4 h-4 mr-2" />
-          New Supplier
-        </Button>
+        <div className="flex gap-2">
+          {canBulkDelete && (
+            bulk.selectMode ? (
+              <Button variant="outline" onClick={bulk.exitSelectMode} data-testid="button-cancel-select">
+                <XIcon className="w-4 h-4 mr-2" /> Cancel
+              </Button>
+            ) : (
+              <Button variant="outline" onClick={bulk.enterSelectMode} data-testid="button-select-mode">
+                <CheckSquare className="w-4 h-4 mr-2" /> Select
+              </Button>
+            )
+          )}
+          {!bulk.selectMode && (
+            <Button onClick={() => setOpen(true)} className="shadow-[0_0_15px_rgba(201,168,76,0.25)]">
+              <Plus className="w-4 h-4 mr-2" />
+              New Supplier
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Filters */}
@@ -176,19 +211,32 @@ export default function SuppliersList() {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {items.map(s => {
             const wa = whatsappLink(s.whatsapp);
+            const selected = bulk.isSelected(s.id);
             return (
               <Card
                 key={s.id}
-                className={`border-border hover:border-primary/40 hover:bg-secondary/10 transition-all bg-card cursor-pointer ${!s.is_active ? "opacity-60" : ""}`}
-                onClick={() => setLocation(`/suppliers/${s.id}`)}
+                className={`border-border transition-all bg-card cursor-pointer ${!s.is_active ? "opacity-60" : ""} ${
+                  bulk.selectMode
+                    ? (selected ? "ring-2 ring-primary border-primary" : "hover:border-primary/40")
+                    : "hover:border-primary/40 hover:bg-secondary/10"
+                }`}
+                onClick={() => bulk.selectMode ? bulk.toggle(s.id) : setLocation(`/suppliers/${s.id}`)}
+                data-testid={bulk.selectMode ? `select-supplier-${s.id}` : undefined}
               >
                 <CardContent className="p-5 space-y-3">
                   <div className="flex justify-between items-start gap-2">
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex items-start gap-3">
+                      {bulk.selectMode && (
+                        <div className={`mt-1 flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center ${selected ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                          {selected && <CheckSquare className="w-3 h-3 text-primary-foreground" />}
+                        </div>
+                      )}
+                      <div className="min-w-0">
                       <div className="font-bold text-lg text-foreground truncate">{s.name}</div>
                       {s.contact_name && (
                         <div className="text-xs text-muted-foreground truncate">{s.contact_name}</div>
                       )}
+                      </div>
                     </div>
                     <div className="flex flex-col items-end gap-1">
                       <Badge variant="outline" className="text-[10px] py-0 px-1.5 border-primary/30 text-primary bg-primary/5">
@@ -324,6 +372,13 @@ export default function SuppliersList() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BulkActionBar
+        count={bulk.count}
+        noun="supplier"
+        onClear={bulk.clear}
+        onDelete={handleBulkDelete}
+      />
     </div>
   );
 }
