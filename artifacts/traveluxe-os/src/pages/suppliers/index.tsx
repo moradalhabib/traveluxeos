@@ -79,6 +79,7 @@ export default function SuppliersList() {
     else toast.error(`${ok} deleted, ${fail} failed`);
     bulk.exitSelectMode();
     load();
+    queryClient.invalidateQueries();
   };
 
   const load = async () => {

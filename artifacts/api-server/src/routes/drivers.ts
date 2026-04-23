@@ -410,16 +410,11 @@ router.delete("/:id", async (req, res) => {
   }
   const { id } = req.params;
 
-  const { data: active } = await supabase
-    .from("bookings")
-    .select("id")
-    .eq("driver_id", id)
-    .neq("status", "Cancelled")
-    .limit(1);
-
-  if (active && active.length > 0) {
-    return res.status(409).json({ error: "Cannot delete a driver with active bookings. Reassign or cancel those bookings first." });
-  }
+  // Unlink the driver from any bookings (preserve booking history — the
+  // operational record stays, the driver field just becomes unassigned).
+  // This is safer than refusing the delete and leaves the booking trail
+  // intact for invoicing/audit.
+  await supabase.from("bookings").update({ driver_id: null }).eq("driver_id", id);
 
   // Driver ratings have FK → driver; clear them first.
   await supabase.from("driver_ratings").delete().eq("driver_id", id);

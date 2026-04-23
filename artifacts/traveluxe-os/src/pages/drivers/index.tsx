@@ -57,7 +57,9 @@ export default function Drivers() {
     );
     const ok = results.filter(r => r.status === "fulfilled").length;
     const fail = results.length - ok;
-    queryClient.invalidateQueries({ queryKey: getListDriversQueryKey({}) });
+    // Driver delete now unlinks bookings (driver_id → null) instead of refusing,
+    // so refresh every cached query so dashboards reflect the new driver list.
+    queryClient.invalidateQueries();
     bulk.exitSelectMode();
     if (fail === 0) {
       toast({ title: `Deleted ${ok} driver${ok === 1 ? "" : "s"}` });

@@ -104,9 +104,10 @@ export default function Bookings() {
       description: fail === 0 ? `${ok} booking${ok === 1 ? "" : "s"} permanently removed` : "Some deletions failed — check audit log",
       variant: fail === 0 ? undefined : "destructive",
     });
-    queryClient.invalidateQueries({
-      predicate: (q) => Array.isArray(q.queryKey) && typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/api/bookings"),
-    });
+    // Bulk delete touches bookings, invoices, follow-ups, dashboard
+    // forecasts, analytics rollups and audit log — invalidate everything
+    // so every counter on every page re-derives from the new truth.
+    queryClient.invalidateQueries();
     bulk.exitSelectMode();
   };
 

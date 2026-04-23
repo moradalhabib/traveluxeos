@@ -219,27 +219,68 @@ router.put("/:id", async (req, res) => {
   return res.json({ ...data, total_bookings: 0, total_spent: 0 });
 });
 
-// Delete client (only allowed when no non-cancelled bookings exist)
+// DELETE /clients/:id — admin-only hard delete with full cascade.
+// Deletes the client and EVERY booking linked to them, plus each booking's
+// dependent rows (invoices, follow_ups, booking_products, amendments,
+// driver_ratings, issues, requests, booking_email_log, return-link
+// pointers). Stats endpoints (follow-ups, dashboard, analytics) re-derive
+// from these tables so once they're gone the counts update everywhere.
 router.delete("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
+  if (!user || (user.role !== "admin" && user.role !== "super_admin")) {
+    return res.status(403).json({ error: "Only Admin or Super Admin can delete clients" });
+  }
   const { id } = req.params;
 
-  const { data: active } = await supabase
-    .from("bookings")
-    .select("id")
-    .eq("client_id", id)
-    .neq("status", "Cancelled")
-    .limit(1);
+  const { data: clientRow } = await supabase
+    .from("clients")
+    .select("id, name")
+    .eq("id", id)
+    .single();
+  if (!clientRow) return res.status(404).json({ error: "Client not found" });
 
-  if (active && active.length > 0) {
-    return res.status(409).json({ error: "Cannot delete a client with active bookings. Cancel all bookings first." });
+  // Fetch every booking for this client (any status — fully purge).
+  const { data: bookingRows } = await supabase
+    .from("bookings")
+    .select("id, tvl_ref")
+    .eq("client_id", id);
+  const bookingIds = (bookingRows ?? []).map(b => b.id);
+
+  if (bookingIds.length > 0) {
+    // Clear self-referential return-booking pointers across the table.
+    await supabase.from("bookings").update({ return_booking_id: null }).in("return_booking_id", bookingIds);
+
+    const childTables = [
+      "follow_ups",
+      "booking_email_log",
+      "booking_products",
+      "booking_amendments",
+      "driver_ratings",
+      "issues",
+      "invoices",
+      "requests",
+    ];
+    for (const t of childTables) {
+      const { error } = await supabase.from(t).delete().in("booking_id", bookingIds);
+      if (error && !/does not exist|relation .* does not exist/i.test(error.message)) {
+        console.warn(`[delete-client] ${t} cleanup warning:`, error.message);
+      }
+    }
+
+    const { error: bkErr } = await supabase.from("bookings").delete().in("id", bookingIds);
+    if (bkErr) return res.status(400).json({ error: `Failed to delete client bookings: ${bkErr.message}` });
   }
+
+  // Direct client-scoped child rows (follow-ups can be created without a booking).
+  await supabase.from("follow_ups").delete().eq("client_id", id);
 
   const { error } = await supabase.from("clients").delete().eq("id", id);
   if (error) return res.status(400).json({ error: error.message });
 
-  await auditLog("delete_client", "client", id, user?.id ?? null, `Deleted client ${id}`);
-  return res.json({ success: true });
+  const summary = `Client ${clientRow.name ?? id} permanently deleted by ${user.name ?? user.email ?? user.id} (${user.role}). ` +
+    `Cascade removed ${bookingIds.length} booking(s) and all linked invoices, follow-ups & related rows.`;
+  await auditLog("delete_client", "client", id, user.id, summary);
+  return res.json({ success: true, cascaded_bookings: bookingIds.length });
 });
 
 export default router;

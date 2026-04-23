@@ -67,8 +67,6 @@ interface ClientSummary {
 }
 
 export default function Analytics() {
-  const [bookings, setBookings] = useState<Booking[]>([]);
-  const [loading, setLoading] = useState(true);
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
 
   const forecastQuery = useQuery<ForecastResponse>({
@@ -86,22 +84,25 @@ export default function Analytics() {
   const forecast = forecastQuery.data;
   const sortedServices = [...(forecast?.by_service_type ?? [])].sort((a, b) => b.revenue - a.revenue);
 
-  useEffect(() => {
-    const yearStart = `${selectedYear}-01-01T00:00:00`;
-    const yearEnd   = `${selectedYear}-12-31T23:59:59`;
-
-    supabase
-      .from("bookings")
-      .select("id, service_type, price, date_time, status, client_id, clients(name)")
-      .gte("date_time", yearStart)
-      .lte("date_time", yearEnd)
-      .not("status", "eq", "Cancelled")
-      .order("date_time", { ascending: true })
-      .then(({ data }) => {
-        setBookings((data ?? []) as unknown as Booking[]);
-        setLoading(false);
-      });
-  }, [selectedYear]);
+  // Wrapped in react-query so queryClient.invalidateQueries() (fired by
+  // every bulk-delete handler) refreshes the Intel page immediately.
+  const bookingsQuery = useQuery<Booking[]>({
+    queryKey: ["analytics-bookings", selectedYear],
+    queryFn: async () => {
+      const yearStart = `${selectedYear}-01-01T00:00:00`;
+      const yearEnd   = `${selectedYear}-12-31T23:59:59`;
+      const { data } = await supabase
+        .from("bookings")
+        .select("id, service_type, price, date_time, status, client_id, clients(name)")
+        .gte("date_time", yearStart)
+        .lte("date_time", yearEnd)
+        .not("status", "eq", "Cancelled")
+        .order("date_time", { ascending: true });
+      return (data ?? []) as unknown as Booking[];
+    },
+  });
+  const bookings = bookingsQuery.data ?? [];
+  const loading = bookingsQuery.isLoading;
 
   // ── Build monthly data ──────────────────────────────────────────────────
   const monthlyData: MonthData[] = MONTHS.map((month, idx) => {

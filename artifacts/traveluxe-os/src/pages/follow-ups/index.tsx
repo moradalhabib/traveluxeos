@@ -147,6 +147,8 @@ export default function FollowUps() {
     const fail = results.length - ok;
     bulk.exitSelectMode();
     fetchData();
+    // Refresh stats counters + every other page that derives from follow-ups.
+    queryClient.invalidateQueries();
     if (fail === 0) {
       toast({ title: `Deleted ${ok} follow-up${ok === 1 ? "" : "s"}` });
     } else {

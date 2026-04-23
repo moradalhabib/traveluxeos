@@ -62,9 +62,7 @@ export default function Requests() {
     const fail = results.length - ok;
     if (fail === 0) toast.success(`${ok} request${ok === 1 ? "" : "s"} deleted`);
     else toast.error(`${ok} deleted, ${fail} failed`);
-    queryClient.invalidateQueries({
-      predicate: (q) => Array.isArray(q.queryKey) && typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/api/requests"),
-    });
+    queryClient.invalidateQueries();
     bulk.exitSelectMode();
   };
 

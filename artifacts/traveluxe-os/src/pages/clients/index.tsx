@@ -64,9 +64,9 @@ export default function Clients() {
       description: fail === 0 ? `${ok} client${ok === 1 ? "" : "s"} permanently removed` : "Some deletions failed — check audit log",
       variant: fail === 0 ? undefined : "destructive",
     });
-    queryClient.invalidateQueries({
-      predicate: (q) => Array.isArray(q.queryKey) && typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/api/clients"),
-    });
+    // Client delete cascades to bookings/invoices/follow-ups on the
+    // server, so refresh every query so dashboards/intel stay in sync.
+    queryClient.invalidateQueries();
     bulk.exitSelectMode();
   };
 

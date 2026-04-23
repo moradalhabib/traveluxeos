@@ -78,9 +78,8 @@ export default function Invoices() {
       description: fail === 0 ? `${ok} invoice${ok === 1 ? "" : "s"} permanently removed` : "Some deletions failed",
       variant: fail === 0 ? undefined : "destructive",
     });
-    queryClient.invalidateQueries({
-      predicate: (q) => Array.isArray(q.queryKey) && typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/api/invoices"),
-    });
+    // Invalidate everything so dashboards/stats/analytics re-derive.
+    queryClient.invalidateQueries();
     bulk.exitSelectMode();
   };
 
