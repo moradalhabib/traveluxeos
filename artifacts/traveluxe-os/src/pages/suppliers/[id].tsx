@@ -724,18 +724,27 @@ function SupplierProductsSection({
                   {PRODUCT_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
                 </select>
               </div>
-              <div>
-                <Label className="text-xs">Daily rate £</Label>
-                <Input type="number" step="0.01" min="0" value={draft.daily_rate ?? ""} onChange={e => setDraft({ ...draft, daily_rate: e.target.value === "" ? null : Number(e.target.value) })} />
-              </div>
-              <div>
-                <Label className="text-xs">Hourly rate £</Label>
-                <Input type="number" step="0.01" min="0" value={draft.hourly_rate ?? ""} onChange={e => setDraft({ ...draft, hourly_rate: e.target.value === "" ? null : Number(e.target.value) })} />
-              </div>
-              <div className="sm:col-span-2">
-                <Label className="text-xs">Plate / ref (optional)</Label>
-                <Input value={draft.plate ?? ""} onChange={e => setDraft({ ...draft, plate: e.target.value })} />
-              </div>
+              {(draft.kind === "Car" || draft.kind === "Driver") ? (
+                <>
+                  <div>
+                    <Label className="text-xs">Daily rate £</Label>
+                    <Input type="number" step="0.01" min="0" value={draft.daily_rate ?? ""} onChange={e => setDraft({ ...draft, daily_rate: e.target.value === "" ? null : Number(e.target.value) })} />
+                  </div>
+                  <div>
+                    <Label className="text-xs">Hourly rate £</Label>
+                    <Input type="number" step="0.01" min="0" value={draft.hourly_rate ?? ""} onChange={e => setDraft({ ...draft, hourly_rate: e.target.value === "" ? null : Number(e.target.value) })} />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label className="text-xs">Plate / ref (optional)</Label>
+                    <Input value={draft.plate ?? ""} onChange={e => setDraft({ ...draft, plate: e.target.value })} />
+                  </div>
+                </>
+              ) : (
+                <div className="sm:col-span-2">
+                  <Label className="text-xs">Price £</Label>
+                  <Input type="number" step="0.01" min="0" placeholder="e.g. 250" value={draft.daily_rate ?? ""} onChange={e => setDraft({ ...draft, daily_rate: e.target.value === "" ? null : Number(e.target.value), hourly_rate: null, plate: "" })} />
+                </div>
+              )}
               <div className="sm:col-span-2">
                 <Label className="text-xs">Notes (optional)</Label>
                 <Input value={draft.notes ?? ""} onChange={e => setDraft({ ...draft, notes: e.target.value })} />
@@ -776,18 +785,27 @@ function SupplierProductsSection({
                         {PRODUCT_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
                       </select>
                     </div>
-                    <div>
-                      <Label className="text-xs">Daily £</Label>
-                      <Input type="number" step="0.01" min="0" value={editDraft.daily_rate ?? ""} onChange={e => setEditDraft({ ...editDraft, daily_rate: e.target.value === "" ? null : Number(e.target.value) })} />
-                    </div>
-                    <div>
-                      <Label className="text-xs">Hourly £</Label>
-                      <Input type="number" step="0.01" min="0" value={editDraft.hourly_rate ?? ""} onChange={e => setEditDraft({ ...editDraft, hourly_rate: e.target.value === "" ? null : Number(e.target.value) })} />
-                    </div>
-                    <div className="sm:col-span-2">
-                      <Label className="text-xs">Plate</Label>
-                      <Input value={editDraft.plate ?? ""} onChange={e => setEditDraft({ ...editDraft, plate: e.target.value })} />
-                    </div>
+                    {(editDraft.kind === "Car" || editDraft.kind === "Driver") ? (
+                      <>
+                        <div>
+                          <Label className="text-xs">Daily £</Label>
+                          <Input type="number" step="0.01" min="0" value={editDraft.daily_rate ?? ""} onChange={e => setEditDraft({ ...editDraft, daily_rate: e.target.value === "" ? null : Number(e.target.value) })} />
+                        </div>
+                        <div>
+                          <Label className="text-xs">Hourly £</Label>
+                          <Input type="number" step="0.01" min="0" value={editDraft.hourly_rate ?? ""} onChange={e => setEditDraft({ ...editDraft, hourly_rate: e.target.value === "" ? null : Number(e.target.value) })} />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <Label className="text-xs">Plate</Label>
+                          <Input value={editDraft.plate ?? ""} onChange={e => setEditDraft({ ...editDraft, plate: e.target.value })} />
+                        </div>
+                      </>
+                    ) : (
+                      <div className="sm:col-span-2">
+                        <Label className="text-xs">Price £</Label>
+                        <Input type="number" step="0.01" min="0" placeholder="e.g. 250" value={editDraft.daily_rate ?? ""} onChange={e => setEditDraft({ ...editDraft, daily_rate: e.target.value === "" ? null : Number(e.target.value), hourly_rate: null, plate: "" })} />
+                      </div>
+                    )}
                     <div className="sm:col-span-2">
                       <Label className="text-xs">Notes</Label>
                       <Input value={editDraft.notes ?? ""} onChange={e => setEditDraft({ ...editDraft, notes: e.target.value })} />
@@ -822,8 +840,14 @@ function SupplierProductsSection({
                       {!p.is_active && <Badge variant="outline" className="text-[10px] py-0 px-1.5 border-amber-500/40 text-amber-400">Inactive</Badge>}
                     </div>
                     <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-3">
-                      {p.daily_rate != null && <span>£{Number(p.daily_rate).toLocaleString()}/day</span>}
-                      {p.hourly_rate != null && <span>£{Number(p.hourly_rate).toLocaleString()}/hr</span>}
+                      {(p.kind === "Car" || p.kind === "Driver") ? (
+                        <>
+                          {p.daily_rate != null && <span>£{Number(p.daily_rate).toLocaleString()}/day</span>}
+                          {p.hourly_rate != null && <span>£{Number(p.hourly_rate).toLocaleString()}/hr</span>}
+                        </>
+                      ) : (
+                        p.daily_rate != null && <span>£{Number(p.daily_rate).toLocaleString()}</span>
+                      )}
                       {p.notes && <span className="truncate">{p.notes}</span>}
                     </div>
                   </div>
