@@ -286,13 +286,50 @@ export async function sendConfirmationEmail(
   invoiceNumber: string | null,
   opts: { triggeredBy?: string | null; force?: boolean; triggerSource?: "auto" | "manual" } = {}
 ) {
+  // Multi-vehicle roster lookup — when extra cars on this booking have a
+  // pickup, drop-off, or pickup time of their own, the email will include
+  // a "Per-Vehicle Routes" section so the client knows which car collects
+  // them where. Failure here is non-fatal: we still send the standard email.
+  let vehicleLegs: import("../templates/emailTemplates").EmailVehicleLeg[] = [];
+  try {
+    const { data: vrows } = await supabase
+      .from("booking_vehicles")
+      .select("vehicle_type, pickup, dropoff, date_time, drivers(name), created_at")
+      .eq("booking_id", booking.id)
+      .order("created_at", { ascending: true });
+    if (Array.isArray(vrows) && vrows.length > 0) {
+      vehicleLegs.push({
+        car_no: 1,
+        driver_name: booking.driver_name ?? null,
+        vehicle_type: booking.vehicle_type ?? null,
+        pickup: booking.pickup ?? null,
+        dropoff: booking.dropoff ?? booking.destination ?? null,
+        date_time: booking.date_time ?? null,
+        is_override: false,
+      });
+      vrows.forEach((row: any, idx: number) => {
+        vehicleLegs.push({
+          car_no: idx + 2,
+          driver_name: row?.drivers?.name ?? null,
+          vehicle_type: row?.vehicle_type ?? null,
+          pickup: row?.pickup ?? null,
+          dropoff: row?.dropoff ?? null,
+          date_time: row?.date_time ?? null,
+          is_override: !!(row?.pickup || row?.dropoff || row?.date_time),
+        });
+      });
+    }
+  } catch (e) {
+    console.warn("[sendConfirmationEmail] vehicle roster lookup failed", e);
+  }
+
   return sendBookingEmail({
     bookingId: booking.id,
     tvlRef: booking.tvl_ref ?? null,
     kind: "booking_confirmation",
     to: booking.client_email,
     subject: `Booking Confirmed — ${booking.tvl_ref ?? ""} — ${booking.service_type}`,
-    html: bookingConfirmationHtml(booking, invoiceNumber ?? undefined),
+    html: bookingConfirmationHtml(booking, invoiceNumber ?? undefined, vehicleLegs),
     triggeredBy: opts.triggeredBy ?? null,
     triggerSource: opts.triggerSource ?? "auto",
     force: !!opts.force,

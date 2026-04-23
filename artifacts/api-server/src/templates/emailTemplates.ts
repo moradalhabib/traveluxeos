@@ -102,7 +102,21 @@ function formatDate(dt: string | null | undefined): string {
 // ─────────────────────────────────────────────────────────────────────────────
 // BOOKING CONFIRMATION
 // ─────────────────────────────────────────────────────────────────────────────
-export function bookingConfirmationHtml(booking: any, invoiceNumber?: string): string {
+export type EmailVehicleLeg = {
+  car_no: number;
+  driver_name: string | null;
+  vehicle_type: string | null;
+  pickup: string | null;
+  dropoff: string | null;
+  date_time: string | null;
+  is_override: boolean;
+};
+
+export function bookingConfirmationHtml(
+  booking: any,
+  invoiceNumber?: string,
+  vehicleLegs: EmailVehicleLeg[] = [],
+): string {
   const clientName = booking.client_name || booking.clients?.name || "Valued Guest";
   const firstName = esc(clientName.split(" ")[0]);
   const svc = booking.service_type;
@@ -201,6 +215,36 @@ export function bookingConfirmationHtml(booking: any, invoiceNumber?: string): s
       with any updates closer to your journey.
     </p>` : "";
 
+  // Per-vehicle routes — only when this is a transport booking with extra
+  // cars whose pickup, drop-off, or pickup time deviates from the parent
+  // route. Renders a labelled section so the client knows which car picks
+  // them up where, mirroring the "PER-VEHICLE ROUTES" panel in the PDF.
+  const overrideLegs = vehicleLegs.filter(v => v.is_override);
+  const perVehicleSection = isTransport && overrideLegs.length > 0 ? `
+    <div class="section-title">Per-Vehicle Routes</div>
+    <p style="font-size:13px;color:#666;margin:0 0 10px">
+      ${overrideLegs.length} of ${vehicleLegs.length} cars on this booking pick up at a different location or time.
+    </p>
+    ${overrideLegs.map(leg => {
+      const heading = `Car #${leg.car_no}` +
+        (leg.driver_name ? ` &middot; ${esc(leg.driver_name)}` : "") +
+        (leg.vehicle_type ? ` &middot; ${esc(leg.vehicle_type)}` : "");
+      const pickup  = leg.pickup  ?? booking.pickup  ?? "—";
+      const dropoff = leg.dropoff ?? booking.dropoff ?? booking.destination ?? "—";
+      const when    = leg.date_time ?? booking.date_time;
+      return `
+        <div style="border:1px solid #e2dccd;border-radius:6px;padding:12px 14px;margin-bottom:10px;background:#f9f6ef">
+          <div style="font-weight:700;color:${BRAND_GOLD};font-size:13px;margin-bottom:6px">${heading}</div>
+          <table class="detail-grid" style="margin:0">
+            ${row("Pickup", esc(String(pickup)))}
+            ${row("Drop-off", esc(String(dropoff)))}
+            ${when ? row("Pickup time", formatDateTime(when)) : ""}
+          </table>
+        </div>
+      `;
+    }).join("")}
+  ` : "";
+
   const content = `
     <div class="greeting">Dear ${firstName},</div>
     <p class="intro">
@@ -214,6 +258,8 @@ export function bookingConfirmationHtml(booking: any, invoiceNumber?: string): s
     <table class="detail-grid">
       ${detailsRows}
     </table>
+
+    ${perVehicleSection}
 
     ${driverSection}
 

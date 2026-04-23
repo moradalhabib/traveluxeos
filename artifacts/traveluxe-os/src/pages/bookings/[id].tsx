@@ -24,6 +24,7 @@ import { useState, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
 import { BookingVehiclesRoster } from "@/components/booking/BookingVehiclesRoster";
+import { BookingRouteOverridesHint } from "@/components/booking/BookingRouteOverridesHint";
 import { BookingActivityPanel } from "@/components/booking/BookingActivityPanel";
 import { Phone, MessageCircle, Mail, Pencil, Plus, Trash2, FileDown } from "lucide-react";
 import { getVipBadgeColor } from "@/lib/vip";
@@ -2006,6 +2007,9 @@ export default function BookingDetail() {
       <Card className="border-primary/10 bg-card">
         <CardHeader className="pb-2"><CardTitle className="text-base">{accommodation ? "Property Details" : "Journey"}</CardTitle></CardHeader>
         <CardContent className="space-y-3">
+          {!accommodation && id && (
+            <BookingRouteOverridesHint bookingId={id} />
+          )}
           {!accommodation && (
             <div className="grid grid-cols-2 gap-3 text-sm">
               <div>

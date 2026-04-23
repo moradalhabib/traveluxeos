@@ -56,7 +56,22 @@ function paintChrome(doc: any, pageNum: number, total: number) {
   doc.restore();
 }
 
-export function buildPdf(b: any, client: any, driver: any): Promise<Buffer> {
+type VehicleLeg = {
+  car_no: number;            // 1 = primary, 2+ = extras
+  driver_name: string | null;
+  vehicle_type: string | null;
+  pickup: string | null;
+  dropoff: string | null;
+  date_time: string | null;
+  is_override: boolean;      // true if this leg deviates from the primary
+};
+
+export function buildPdf(
+  b: any,
+  client: any,
+  driver: any,
+  vehicleLegs: VehicleLeg[] = [],
+): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const doc = new PDFDocument({ size: "A4", margin: 50, bufferPages: true });
     const chunks: Buffer[] = [];
@@ -155,6 +170,75 @@ export function buildPdf(b: any, client: any, driver: any): Promise<Buffer> {
       y += rowH;
     }
     y = panelTop + panelH + 22;
+
+    // ── Per-vehicle routes (multi-car bookings only) ───────────────────
+    // When the booking has extra cars whose pickup, drop-off, or pickup time
+    // deviates from the parent route, list each car's leg here so the client
+    // knows exactly which car collects them where. Hidden for single-car
+    // bookings and for accommodation-type services (where this doesn't apply).
+    const overrideLegs = vehicleLegs.filter(v => v.is_override);
+    if (!isAccom && overrideLegs.length > 0) {
+      // Page-break safety: this section can be tall for 3+ cars.
+      const estH = 30 + overrideLegs.length * 70;
+      if (y + estH > doc.page.height - 80) {
+        doc.addPage();
+        doc.rect(0, 0, doc.page.width, doc.page.height).fill(COLOR_BG);
+        doc.rect(0, 0, doc.page.width, 6).fill(COLOR_GOLD);
+        y = 60;
+      }
+
+      doc.fillColor(COLOR_GOLD).font("Helvetica-Bold").fontSize(11)
+        .text("PER-VEHICLE ROUTES", 50, y);
+      y += 6;
+      doc.fillColor(COLOR_MUTED).font("Helvetica-Oblique").fontSize(9)
+        .text(
+          `${overrideLegs.length} of ${vehicleLegs.length} cars on this booking pick up at a different location or time.`,
+          50, y + 6, { width: doc.page.width - 100 },
+        );
+      y += 24;
+
+      const legsTop = y;
+      // Reserve enough height for each leg block + padding.
+      const legW = doc.page.width - 100;
+      doc.roundedRect(50, legsTop, legW, overrideLegs.length * 70 + 12, 6).fill(COLOR_PANEL);
+      let ly = legsTop + 12;
+      for (const leg of overrideLegs) {
+        // Heading: Car # · Driver · Vehicle
+        const heading = `Car #${leg.car_no}` +
+          (leg.driver_name ? ` · ${leg.driver_name}` : "") +
+          (leg.vehicle_type ? ` · ${leg.vehicle_type}` : "");
+        doc.fillColor(COLOR_GOLD).font("Helvetica-Bold").fontSize(10)
+          .text(heading, 64, ly, { width: legW - 28 });
+        ly += 14;
+
+        // Render the override fields, falling back to the parent value when
+        // a particular field wasn't overridden so the client always sees a
+        // complete leg description (not just "pickup changed, drop-off ?").
+        const pickup  = leg.pickup  ?? b.pickup  ?? "—";
+        const dropoff = leg.dropoff ?? b.dropoff ?? b.destination ?? "—";
+        const when    = leg.date_time ?? b.date_time;
+
+        doc.fillColor(COLOR_MUTED).font("Helvetica").fontSize(9)
+          .text("Pickup:", 64, ly, { width: 60, continued: true })
+          .fillColor(COLOR_TEXT).font("Helvetica-Bold")
+          .text(` ${pickup}`, { width: legW - 80 });
+        ly = doc.y + 2;
+        doc.fillColor(COLOR_MUTED).font("Helvetica").fontSize(9)
+          .text("Drop-off:", 64, ly, { width: 60, continued: true })
+          .fillColor(COLOR_TEXT).font("Helvetica-Bold")
+          .text(` ${dropoff}`, { width: legW - 80 });
+        ly = doc.y + 2;
+        if (when) {
+          doc.fillColor(COLOR_MUTED).font("Helvetica").fontSize(9)
+            .text("Pickup time:", 64, ly, { width: 70, continued: true })
+            .fillColor(COLOR_TEXT).font("Helvetica-Bold")
+            .text(` ${fmtDateTime(when)}`, { width: legW - 90 });
+          ly = doc.y + 2;
+        }
+        ly += 8;
+      }
+      y = legsTop + overrideLegs.length * 70 + 12 + 14;
+    }
 
     // ── Pricing block ──────────────────────────────────────────────────
     doc.fillColor(COLOR_GOLD).font("Helvetica-Bold").fontSize(11).text("PRICING", 50, y);
@@ -438,8 +522,40 @@ router.get("/:id/confirmation.pdf", async (req: Request, res: Response) => {
     driver = data;
   }
 
+  // Multi-vehicle roster — only the rows that actually deviate from the
+  // parent route end up in the PDF. We always include the primary car as
+  // car #1 so "X of N" totals match what the operator sees on the booking
+  // detail screen.
+  const { data: vrows } = await supabase
+    .from("booking_vehicles")
+    .select("driver_id, vehicle_type, pickup, dropoff, date_time, drivers(name), created_at")
+    .eq("booking_id", id)
+    .order("created_at", { ascending: true });
+
+  const vehicleLegs: VehicleLeg[] = [];
+  vehicleLegs.push({
+    car_no: 1,
+    driver_name: driver?.name ?? (b as any).driver_name ?? null,
+    vehicle_type: (b as any).vehicle_type ?? null,
+    pickup: (b as any).pickup ?? null,
+    dropoff: (b as any).dropoff ?? (b as any).destination ?? null,
+    date_time: (b as any).date_time ?? null,
+    is_override: false, // primary is the baseline by definition
+  });
+  (vrows ?? []).forEach((row: any, idx: number) => {
+    vehicleLegs.push({
+      car_no: idx + 2,
+      driver_name: row?.drivers?.name ?? null,
+      vehicle_type: row?.vehicle_type ?? null,
+      pickup: row?.pickup ?? null,
+      dropoff: row?.dropoff ?? null,
+      date_time: row?.date_time ?? null,
+      is_override: !!(row?.pickup || row?.dropoff || row?.date_time),
+    });
+  });
+
   try {
-    const buf = await buildPdf(b, client, driver);
+    const buf = await buildPdf(b, client, driver, vehicleLegs);
     const filename = `traveluxe-${b.tvl_ref ?? id}.pdf`;
     res.setHeader("Content-Type", "application/pdf");
     res.setHeader("Content-Disposition", `inline; filename="${filename}"`);

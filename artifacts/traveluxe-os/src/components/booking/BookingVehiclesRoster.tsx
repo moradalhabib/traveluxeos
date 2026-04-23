@@ -360,7 +360,7 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
       );
     }
     return (
-      <Card className="border-primary/10 bg-card">
+      <Card id="vehicle-roster" className="border-primary/10 bg-card transition-shadow scroll-mt-20">
         <CardHeader className="pb-2">
           <CardTitle className="text-base flex items-center justify-between gap-2">
             <span className="flex items-center gap-2">
@@ -473,7 +473,7 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
 
   // ─── EDIT MODE ──────────────────────────────────────────────────────────
   return (
-    <Card className="border-primary/30 bg-card">
+    <Card id="vehicle-roster" className="border-primary/30 bg-card scroll-mt-20">
       <CardHeader className="pb-2">
         <CardTitle className="text-base flex items-center justify-between gap-2">
           <span className="flex items-center gap-2">
