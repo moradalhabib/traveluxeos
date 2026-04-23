@@ -200,7 +200,7 @@ export default function Analytics() {
           {availableYears.map(y => (
             <button
               key={y}
-              onClick={() => { setLoading(true); setSelectedYear(y); }}
+              onClick={() => { setSelectedYear(y); }}
               className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
                 y === selectedYear
                   ? "bg-primary text-primary-foreground"

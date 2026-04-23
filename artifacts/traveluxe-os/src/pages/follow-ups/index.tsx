@@ -19,6 +19,7 @@ import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
+import { RecentActivityFeed } from "@/components/activity/RecentActivityFeed";
 import { format, formatDistanceToNow } from "date-fns";
 import { getVipPillClass } from "@/lib/vip";
 import * as XLSX from "xlsx";
@@ -148,7 +149,7 @@ export default function FollowUps() {
     bulk.exitSelectMode();
     fetchData();
     // Refresh stats counters + every other page that derives from follow-ups.
-    queryClient.invalidateQueries();
+    qc.invalidateQueries();
     if (fail === 0) {
       toast({ title: `Deleted ${ok} follow-up${ok === 1 ? "" : "s"}` });
     } else {
@@ -695,6 +696,8 @@ export default function FollowUps() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <RecentActivityFeed entityType="task" title="Recent follow-up activity" />
 
       <BulkActionBar
         count={bulk.count}

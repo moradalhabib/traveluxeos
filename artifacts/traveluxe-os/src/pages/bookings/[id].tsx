@@ -5,6 +5,9 @@ import {
   useUpdateBookingStatus, useCancelBooking,
   useAddWaitingTime, useGenerateInvoice, useRateDriver,
   useUpdateBooking, useListDrivers, getListDriversQueryKey,
+  getListBookingsQueryKey, getListCommissionsQueryKey,
+  getListInvoicesQueryKey, getListTasksQueryKey, getListAuditLogQueryKey,
+  getGetDriverQueryKey,
 } from "@workspace/api-client-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
@@ -445,6 +448,25 @@ export default function BookingDetail() {
     qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
   }, [qc, id]);
 
+  // Broader sweep used after status / driver / completion / invoice changes.
+  // Targets only the lists/details we know depend on this booking instead of
+  // a blanket qc.invalidateQueries() which refetches every active query
+  // (heavy on the dashboard tabs that mount many lists at once). The audit
+  // log is included so the in-page activity panel re-renders too. Pass
+  // `driverId` to also bust the driver's own page when assignment changes.
+  const invalidateBookingFanout = useCallback((driverId?: string | null) => {
+    qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
+    qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+    qc.invalidateQueries({ queryKey: getListBookingsQueryKey() });
+    qc.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
+    qc.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
+    qc.invalidateQueries({ queryKey: getListTasksQueryKey() });
+    qc.invalidateQueries({ queryKey: getListAuditLogQueryKey() });
+    if (driverId) {
+      qc.invalidateQueries({ queryKey: getGetDriverQueryKey(driverId) });
+    }
+  }, [qc, id]);
+
   const { data: booking, isLoading, refetch } = useGetBooking(id, {
     query: { enabled: !!id, queryKey: getGetBookingQueryKey(id) }
   });
@@ -525,10 +547,8 @@ export default function BookingDetail() {
       }
       // Driver assignment ripples into: dashboard "no driver" alert,
       // /drivers/:id job history, /jobs roster, follow-ups (assignment
-      // resets the alert), commissions ledger and audit feed. Sweep
-      // everything so each page rederives from truth instead of relying
-      // on a per-page refresh.
-      qc.invalidateQueries();
+      // resets the alert), commissions ledger and audit feed.
+      invalidateBookingFanout(value || (booking as any)?.driver_id);
       toast({
         title: value ? "Driver assigned" : "Driver unassigned",
         description: value
@@ -551,7 +571,7 @@ export default function BookingDetail() {
       }
       // Same fan-out as the regular assign — override path also touches
       // amendments, conflicts, dashboard alerts.
-      qc.invalidateQueries();
+      invalidateBookingFanout(conflictDialog.driverId);
       toast({
         title: "Driver assigned (override)",
         description: `${conflictDialog.driverName} assigned despite conflict — logged in amendments.`,
@@ -582,8 +602,8 @@ export default function BookingDetail() {
     }
     // Driver acceptance toggles the dashboard "awaiting confirmation"
     // counter, the driver's own dashboard, follow-ups (re-flag), and
-    // intel funnel — sweep all queries.
-    qc.invalidateQueries();
+    // intel funnel.
+    invalidateBookingFanout((booking as any)?.driver_id);
     if (next === "Driver Declined") {
       toast({
         title: "Driver declined",
@@ -690,9 +710,8 @@ export default function BookingDetail() {
       // Completion ripples into: dashboard completion counter, finance
       // (revenue moves from forecast → realised), profit, intel funnel,
       // commissions ledger (commission becomes payable), drivers
-      // dashboard (job marked done), follow-ups (closes the chase). Sweep
-      // every query so each page rederives.
-      qc.invalidateQueries();
+      // dashboard (job marked done), follow-ups (closes the chase).
+      invalidateBookingFanout((booking as any)?.driver_id);
       reloadIssues();
       reloadAmendments();
       refetch();
@@ -961,9 +980,7 @@ export default function BookingDetail() {
         //                           finance + profit, commissions become
         //                           payable, dashboard completion counter,
         //                           intel conversion %.
-        // Sweep every cached query so every page rederives instead of
-        // showing stale numbers.
-        qc.invalidateQueries();
+        invalidateBookingFanout((booking as any)?.driver_id);
         // Auto-generate invoice when booking is confirmed or completed
         if ((status === "Confirmed" || status === "Completed") && !booking?.invoice) {
           generateInvoice.mutate({ data: { booking_id: id } }, {
@@ -971,7 +988,7 @@ export default function BookingDetail() {
               toast({ title: `Invoice ${(inv as any).invoice_number} auto-generated` });
               // Invoice creation is its own cascade — finance receivables,
               // dashboard cash-in counter, client outstanding balance etc.
-              qc.invalidateQueries();
+              invalidateBookingFanout((booking as any)?.driver_id);
             },
           });
         }
@@ -1006,10 +1023,8 @@ export default function BookingDetail() {
         setIsCancelOpen(false);
         refetch();
         // Cancelling a booking removes it from headline KPIs across Intel,
-        // Finance, Profit, Drivers, Follow-ups and the Dashboard. Sweep
-        // every cached query so every page re-derives from the new truth
-        // instead of showing stale revenue/booking counts.
-        qc.invalidateQueries();
+        // Finance, Profit, Drivers, Follow-ups and the Dashboard.
+        invalidateBookingFanout((booking as any)?.driver_id);
       }
     });
   };
@@ -1021,8 +1036,8 @@ export default function BookingDetail() {
         setIsWaitingOpen(false);
         refetch();
         // Waiting charges add to the booking total → invoice line, finance
-        // receivables, dashboard revenue counter, profit. Sweep all queries.
-        qc.invalidateQueries();
+        // receivables, dashboard revenue counter, profit.
+        invalidateBookingFanout((booking as any)?.driver_id);
       }
     });
   };
@@ -2523,7 +2538,7 @@ export default function BookingDetail() {
                 className="text-purple-400 border-purple-500/30 hover:bg-purple-500/10"
                 disabled={generateInvoice.isPending}
                 onClick={() => generateInvoice.mutate({ data: { booking_id: id } }, {
-                  onSuccess: () => qc.invalidateQueries(),
+                  onSuccess: () => invalidateBookingFanout((booking as any)?.driver_id),
                 })}
               >
                 <FileText className="w-4 h-4 mr-2" />

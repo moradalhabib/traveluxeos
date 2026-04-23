@@ -13,6 +13,7 @@ import { format, isToday, isTomorrow, startOfDay, endOfDay, addDays, isBefore, i
 import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCircle } from "lucide-react";
 import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
+import { RecentActivityFeed } from "@/components/activity/RecentActivityFeed";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { getVipBadgeColor } from "@/lib/vip";
@@ -695,6 +696,8 @@ export default function Jobs() {
           </Button>
         </SheetContent>
       </Sheet>
+
+      <RecentActivityFeed entityType="booking" title="Recent job activity" />
     </div>
   );
 }

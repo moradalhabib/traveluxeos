@@ -2024,8 +2024,8 @@ export default function NewBooking() {
                     <div className="space-y-3 p-3 rounded-xl border border-primary/20 bg-primary/5">
                       <p className="text-xs font-semibold text-primary uppercase tracking-wider">Tour Details</p>
                       <div className="grid grid-cols-2 gap-3">
-                        <FormItem className="col-span-2">
-                          <FormLabel>Tour</FormLabel>
+                        <div className="col-span-2 space-y-2">
+                          <Label>Tour</Label>
                           <Select
                             value={selectedTourId ?? "__custom__"}
                             onValueChange={(v) => {
@@ -2055,11 +2055,11 @@ export default function NewBooking() {
                               <SelectItem value="__custom__">— Custom (not in catalogue) —</SelectItem>
                             </SelectContent>
                           </Select>
-                        </FormItem>
+                        </div>
 
                         {altOptions.length > 0 && (
-                          <FormItem className="col-span-2">
-                            <FormLabel>Vehicle for this tour</FormLabel>
+                          <div className="col-span-2 space-y-2">
+                            <Label>Vehicle for this tour</Label>
                             <Select
                               value={selectedAltLabel || "__std__"}
                               onValueChange={(v) => {
@@ -2084,7 +2084,7 @@ export default function NewBooking() {
                                 ))}
                               </SelectContent>
                             </Select>
-                          </FormItem>
+                          </div>
                         )}
 
                         <FormField control={bookingForm.control} name="tour_name" render={({ field }) => (

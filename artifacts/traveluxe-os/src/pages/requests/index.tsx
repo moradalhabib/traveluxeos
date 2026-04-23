@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
+import { RecentActivityFeed } from "@/components/activity/RecentActivityFeed";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import {
   useListRequests, PRIORITY_STYLES, STATUS_STYLES,
@@ -196,6 +197,8 @@ export default function Requests() {
           ))
         )}
       </div>
+
+      <RecentActivityFeed entityType="request" title="Recent request activity" />
 
       <BulkActionBar
         count={bulk.count}
