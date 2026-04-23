@@ -581,13 +581,20 @@ function SupplierBalanceTracker({
 type Product = {
   id: string;
   name: string;
-  kind: "Car" | "Driver" | "Other";
+  kind: "Car" | "Driver" | "Meet & Greet" | "Fast-Track" | "Lounge" | "Porter" | "Other";
   daily_rate: number | null;
   hourly_rate: number | null;
   plate: string | null;
   notes: string | null;
   is_active: boolean;
 };
+
+// All product kinds in display order. Cars/Drivers cover Car Rental;
+// Meet & Greet / Fast-Track / Lounge / Porter cover airport-internal
+// services for Airport Transfer suppliers (e.g. LHR VIP Services).
+const PRODUCT_KINDS: Array<Product["kind"]> = [
+  "Car", "Driver", "Meet & Greet", "Fast-Track", "Lounge", "Porter", "Other",
+];
 
 function emptyDraft(): Partial<Product> {
   return { name: "", kind: "Car", daily_rate: null, hourly_rate: null, plate: "", notes: "", is_active: true };
@@ -697,7 +704,7 @@ function SupplierProductsSection({
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          Cars, drivers and any other items this supplier provides. These appear in the supplier-product picker on Car Rental and As Directed bookings.
+          Cars, drivers, Meet &amp; Greet, Fast-Track, Lounge, Porter and any other items this supplier provides. These appear in the supplier-product picker on Car Rental, As Directed, and Airport Transfer bookings.
         </p>
 
         {adding && (
@@ -714,9 +721,7 @@ function SupplierProductsSection({
                   onChange={e => setDraft({ ...draft, kind: e.target.value as any })}
                   className="w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
                 >
-                  <option value="Car">Car</option>
-                  <option value="Driver">Driver</option>
-                  <option value="Other">Other</option>
+                  {PRODUCT_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
                 </select>
               </div>
               <div>
@@ -768,9 +773,7 @@ function SupplierProductsSection({
                         onChange={e => setEditDraft({ ...editDraft, kind: e.target.value as any })}
                         className="w-full h-9 rounded-md border border-border bg-background px-2 text-sm"
                       >
-                        <option value="Car">Car</option>
-                        <option value="Driver">Driver</option>
-                        <option value="Other">Other</option>
+                        {PRODUCT_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
                       </select>
                     </div>
                     <div>

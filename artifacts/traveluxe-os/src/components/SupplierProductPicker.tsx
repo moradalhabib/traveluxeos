@@ -5,16 +5,40 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Link } from "wouter";
 import { Package } from "lucide-react";
 
+export type SupplierProductKind =
+  | "Car"
+  | "Driver"
+  | "Meet & Greet"
+  | "Fast-Track"
+  | "Lounge"
+  | "Porter"
+  | "Other";
+
 export type SupplierProduct = {
   id: string;
   supplier_id: string;
   name: string;
-  kind: "Car" | "Driver" | "Other";
+  kind: SupplierProductKind;
   daily_rate: number | null;
   hourly_rate: number | null;
   plate: string | null;
   notes: string | null;
   is_active: boolean;
+};
+
+// Display order for grouped sections in the picker. Anything with a kind
+// not listed here falls into "Other" at the bottom.
+const KIND_ORDER: SupplierProductKind[] = [
+  "Car", "Driver", "Meet & Greet", "Fast-Track", "Lounge", "Porter", "Other",
+];
+const KIND_LABEL: Record<SupplierProductKind, string> = {
+  "Car": "Cars",
+  "Driver": "Drivers",
+  "Meet & Greet": "Meet & Greet",
+  "Fast-Track": "Fast-Track",
+  "Lounge": "Lounge",
+  "Porter": "Porter",
+  "Other": "Other",
 };
 
 type Props = {
@@ -56,9 +80,10 @@ export function SupplierProductPicker({ supplierId, value, onChange }: Props) {
     return () => { active = false; };
   }, [supplierId]);
 
-  const cars = products.filter(p => p.kind === "Car");
-  const drivers = products.filter(p => p.kind === "Driver");
-  const other = products.filter(p => p.kind === "Other");
+  // Group products by kind, preserving the canonical display order.
+  const grouped = KIND_ORDER
+    .map(k => ({ kind: k, items: products.filter(p => p.kind === k) }))
+    .filter(g => g.items.length > 0);
 
   return (
     <div className="rounded-md border border-border bg-secondary/20 p-3 space-y-2">
@@ -84,40 +109,25 @@ export function SupplierProductPicker({ supplierId, value, onChange }: Props) {
         }}
       >
         <SelectTrigger>
-          <SelectValue placeholder={loading ? "Loading…" : "Select car / driver…"} />
+          <SelectValue placeholder={loading ? "Loading…" : "Select product / service…"} />
         </SelectTrigger>
         <SelectContent className="max-h-[55vh] overflow-y-auto">
           <SelectItem value="none">None</SelectItem>
-          {cars.length > 0 && (
-            <>
-              <div className="px-2 py-1 text-[10px] uppercase text-muted-foreground tracking-wider">Cars</div>
-              {cars.map(p => (
+          {grouped.map(({ kind, items }) => (
+            <div key={kind}>
+              <div className="px-2 py-1 text-[10px] uppercase text-muted-foreground tracking-wider">
+                {KIND_LABEL[kind]}
+              </div>
+              {items.map(p => (
                 <SelectItem key={p.id} value={p.id}>
-                  {p.name}{p.plate ? ` · ${p.plate}` : ""}{p.daily_rate ? ` · £${p.daily_rate}/day` : ""}
+                  {p.name}
+                  {p.plate ? ` · ${p.plate}` : ""}
+                  {p.daily_rate ? ` · £${p.daily_rate}/day` : ""}
+                  {!p.daily_rate && p.hourly_rate ? ` · £${p.hourly_rate}/hr` : ""}
                 </SelectItem>
               ))}
-            </>
-          )}
-          {drivers.length > 0 && (
-            <>
-              <div className="px-2 py-1 text-[10px] uppercase text-muted-foreground tracking-wider">Drivers</div>
-              {drivers.map(p => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}{p.daily_rate ? ` · £${p.daily_rate}/day` : ""}
-                </SelectItem>
-              ))}
-            </>
-          )}
-          {other.length > 0 && (
-            <>
-              <div className="px-2 py-1 text-[10px] uppercase text-muted-foreground tracking-wider">Other</div>
-              {other.map(p => (
-                <SelectItem key={p.id} value={p.id}>
-                  {p.name}{p.daily_rate ? ` · £${p.daily_rate}/day` : ""}
-                </SelectItem>
-              ))}
-            </>
-          )}
+            </div>
+          ))}
         </SelectContent>
       </Select>
       {!loading && products.length === 0 && (

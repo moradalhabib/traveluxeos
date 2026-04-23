@@ -1495,24 +1495,30 @@ export default function NewBooking() {
                     }} />
                   )}
 
-                  {/* Supplier Product picker — shown for Car Rental & As Directed
-                      once a supplier is selected. Lets the operator pick the
-                      exact car (or driver) the supplier is providing, so the
-                      supplier KPI rolls up to the right product. */}
-                  {needsCostBreakdown && (bookingForm.watch("supplier_id" as any) || "") !== "" && (
+                  {/* Supplier Product picker — shown once a supplier is
+                      selected on Car Rental, As Directed, or Airport Transfer.
+                      Lets the operator pick the exact car / driver / Meet &
+                      Greet / Fast-Track service the supplier is providing,
+                      so the supplier KPI rolls up to the right product and
+                      the cost auto-fills. */}
+                  {(needsCostBreakdown || isAirportTransfer) && (bookingForm.watch("supplier_id" as any) || "") !== "" && (
                     <SupplierProductPicker
                       supplierId={String(bookingForm.watch("supplier_id" as any) || "")}
                       value={String(bookingForm.watch("supplier_product_id" as any) || "")}
                       onChange={(productId, product) => {
                         bookingForm.setValue("supplier_product_id" as any, productId || "");
                         if (product) {
-                          // Auto-fill base_daily_rate so the Cost Breakdown
-                          // reflects what we pay this supplier for this car.
-                          if (product.daily_rate != null) {
+                          if (needsCostBreakdown && product.daily_rate != null) {
+                            // Car Rental / As Directed: fill base_daily_rate
+                            // so Cost Breakdown maths use the supplier rate.
                             bookingForm.setValue("base_daily_rate" as any, Number(product.daily_rate));
+                          } else if (isAirportTransfer && product.daily_rate != null) {
+                            // Airport Transfer: there's no daily-rate maths,
+                            // so write the rate straight into supplier_cost.
+                            bookingForm.setValue("supplier_cost" as any, Number(product.daily_rate));
                           }
-                          // Mirror the product name into vehicle_type so the
-                          // Job Sheet still shows a human-readable vehicle.
+                          // Mirror Car name into vehicle_type so the Job
+                          // Sheet shows a human-readable vehicle.
                           if (product.kind === "Car" && product.name) {
                             bookingForm.setValue("vehicle_type", product.name);
                           }
