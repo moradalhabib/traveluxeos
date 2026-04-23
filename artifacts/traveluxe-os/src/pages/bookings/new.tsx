@@ -156,6 +156,7 @@ export default function NewBooking() {
   // (e.g. when re-rendering an edit) — handled at the render site below.
   const [showReferralSplit, setShowReferralSplit] = useState(false);
   const [showVehiclePref, setShowVehiclePref] = useState(false);
+  const [showVehicleOverride, setShowVehicleOverride] = useState(false);
   const [foundClient, setFoundClient] = useState<FoundClient | null>(null);
   const [confirmedClient, setConfirmedClient] = useState<FoundClient | null>(null);
   const [isEditingFound, setIsEditingFound] = useState(false);
@@ -3024,9 +3025,44 @@ export default function NewBooking() {
                         const hasDriver = !!did && did !== "unassigned";
                         if (hasDriver) return null;
                         return (
-                          <FormField control={bookingForm.control} name="vehicle_type" render={({ field }) => (
+                          <FormField control={bookingForm.control} name="vehicle_type" render={({ field }) => {
+                            const currentVal = field.value || "";
+                            // Hide by default — product picker / airport matrix
+                            // already set vehicle_type. Show the override input
+                            // only when operator explicitly opens it OR when
+                            // vehicle_type holds a value that DIDN'T come from
+                            // the structured pickers (free-text override).
+                            const show = showVehicleOverride;
+                            if (!show) {
+                              return (
+                                <FormItem>
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowVehicleOverride(true)}
+                                    className="text-xs text-primary hover:underline flex items-center gap-1"
+                                    data-testid="toggle-vehicle-override"
+                                  >
+                                    <Plus className="w-3 h-3" /> Override vehicle
+                                    {currentVal && (
+                                      <span className="text-muted-foreground font-normal">— current: {currentVal}</span>
+                                    )}
+                                  </button>
+                                </FormItem>
+                              );
+                            }
+                            return (
                         <FormItem>
-                          <FormLabel>Vehicle <span className="text-xs text-muted-foreground font-normal">(pick a driver to auto-fill)</span></FormLabel>
+                          <div className="flex items-center justify-between">
+                            <FormLabel>Vehicle <span className="text-xs text-muted-foreground font-normal">(override — pick a driver to auto-fill)</span></FormLabel>
+                            <button
+                              type="button"
+                              onClick={() => setShowVehicleOverride(false)}
+                              className="text-[11px] text-muted-foreground hover:text-foreground underline"
+                              data-testid="hide-vehicle-override"
+                            >
+                              Hide
+                            </button>
+                          </div>
                           <FormControl>
                             <Input
                               list="fleet-vehicles-list"
@@ -3051,7 +3087,8 @@ export default function NewBooking() {
                           </datalist>
                           <FormMessage />
                         </FormItem>
-                      )} />
+                            );
+                          }} />
                         );
                       })()}
 
