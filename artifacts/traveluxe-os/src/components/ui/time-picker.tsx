@@ -1,21 +1,20 @@
+import { useEffect, useRef, useState } from "react";
+import { Clock } from "lucide-react";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 interface TimePickerProps {
   value: string;
   onChange: (next: string) => void;
   className?: string;
-  /** Quick-pick times shown as chips above the dropdowns. Empty array = no chips. */
-  presets?: string[];
   disabled?: boolean;
+  placeholder?: string;
+  /** Minute step in the picker. Default 5. Use 15 or 30 for shorter lists. */
+  minuteStep?: 5 | 10 | 15 | 30;
   "data-testid"?: string;
 }
 
-// No presets by default — opt-in via the `presets` prop. Chips were
-// breaking narrow column layouts (forms that put time into 1/3 of a row).
-const DEFAULT_PRESETS: string[] = [];
-
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
-const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
 
 function splitTime(v: string): { h: string; m: string } {
   const m = /^(\d{2}):(\d{2})$/.exec(v ?? "");
@@ -23,77 +22,133 @@ function splitTime(v: string): { h: string; m: string } {
   return { h: m[1], m: m[2] };
 }
 
-function snapMinute(min: string): string {
+function snapMinute(min: string, step: number): string {
   const n = parseInt(min, 10);
   if (Number.isNaN(n)) return "00";
-  const snapped = Math.round(n / 5) * 5;
-  return String(Math.min(55, snapped)).padStart(2, "0");
+  const snapped = Math.round(n / step) * step;
+  return String(Math.min(60 - step, snapped)).padStart(2, "0");
 }
 
 export function TimePicker({
   value,
   onChange,
   className,
-  presets = DEFAULT_PRESETS,
   disabled,
+  placeholder = "--:--",
+  minuteStep = 5,
   ...rest
 }: TimePickerProps) {
+  const [open, setOpen] = useState(false);
   const { h, m } = splitTime(value);
-  const minSnapped = m ? snapMinute(m) : "";
+  const minSnapped = m ? snapMinute(m, minuteStep) : "";
+  const display = h && minSnapped ? `${h}:${minSnapped}` : placeholder;
+
+  const minutes = Array.from({ length: 60 / minuteStep }, (_, i) =>
+    String(i * minuteStep).padStart(2, "0"),
+  );
+
+  const hourColRef = useRef<HTMLDivElement>(null);
+  const minColRef = useRef<HTMLDivElement>(null);
+
+  // Scroll selected items into view when the popover opens.
+  useEffect(() => {
+    if (!open) return;
+    const t = setTimeout(() => {
+      hourColRef.current?.querySelector<HTMLElement>("[data-selected=true]")?.scrollIntoView({ block: "center" });
+      minColRef.current?.querySelector<HTMLElement>("[data-selected=true]")?.scrollIntoView({ block: "center" });
+    }, 10);
+    return () => clearTimeout(t);
+  }, [open]);
 
   const setHour = (next: string) => onChange(`${next}:${minSnapped || "00"}`);
-  const setMin = (next: string) => onChange(`${h || "09"}:${next}`);
+  const setMin = (next: string) => {
+    onChange(`${h || "09"}:${next}`);
+    // Close after picking minute — both halves selected = done.
+    setOpen(false);
+  };
 
   return (
-    <div className={cn("space-y-2", className)} data-testid={rest["data-testid"]}>
-      {presets.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {presets.map((p) => {
-            const active = value === p;
-            return (
-              <button
-                key={p}
-                type="button"
-                onClick={() => onChange(p)}
-                disabled={disabled}
-                className={cn(
-                  "px-2.5 py-1 rounded-full text-xs font-medium border transition-colors",
-                  active
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-background text-foreground border-border hover:bg-muted",
-                )}
-                data-testid={`time-preset-${p}`}
-              >
-                {p}
-              </button>
-            );
-          })}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          disabled={disabled}
+          className={cn(
+            "flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground hover:bg-muted focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-50 disabled:cursor-not-allowed",
+            !value && "text-muted-foreground font-normal",
+            className,
+          )}
+          data-testid={rest["data-testid"] ?? "time-picker-trigger"}
+        >
+          <span className="tabular-nums">{display}</span>
+          <Clock className="h-4 w-4 opacity-60 shrink-0 ml-2" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="start"
+        sideOffset={4}
+        className="w-44 p-0 overflow-hidden"
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
+        <div className="grid grid-cols-2 divide-x">
+          <Column
+            ref={hourColRef}
+            label="Hour"
+            options={HOURS}
+            selected={h}
+            onSelect={setHour}
+            testidPrefix="time-h"
+          />
+          <Column
+            ref={minColRef}
+            label="Min"
+            options={minutes}
+            selected={minSnapped}
+            onSelect={setMin}
+            testidPrefix="time-m"
+          />
         </div>
-      )}
+      </PopoverContent>
+    </Popover>
+  );
+}
 
-      <div className="grid grid-cols-2 gap-2">
-        <select
-          aria-label="Hour"
-          value={h}
-          onChange={(e) => setHour(e.target.value)}
-          disabled={disabled}
-          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-50"
-          data-testid="time-hour"
-        >
-          <option value="" disabled>HH</option>
-          {HOURS.map(hh => <option key={hh} value={hh}>{hh}</option>)}
-        </select>
-        <select
-          aria-label="Minute"
-          value={minSnapped}
-          onChange={(e) => setMin(e.target.value)}
-          disabled={disabled}
-          className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm font-medium text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 disabled:opacity-50"
-          data-testid="time-minute"
-        >
-          <option value="" disabled>MM</option>
-          {MINUTES.map(mm => <option key={mm} value={mm}>{mm}</option>)}
-        </select>
+interface ColumnProps {
+  label: string;
+  options: string[];
+  selected: string;
+  onSelect: (v: string) => void;
+  testidPrefix: string;
+  ref?: React.Ref<HTMLDivElement>;
+}
+
+function Column({ label, options, selected, onSelect, testidPrefix, ref }: ColumnProps) {
+  return (
+    <div className="flex flex-col">
+      <div className="px-2 py-1 text-[10px] uppercase tracking-wide text-muted-foreground border-b text-center">
+        {label}
+      </div>
+      <div ref={ref} className="h-48 overflow-y-auto py-1">
+        {options.map((opt) => {
+          const isSel = opt === selected;
+          return (
+            <button
+              key={opt}
+              type="button"
+              data-selected={isSel}
+              onClick={() => onSelect(opt)}
+              className={cn(
+                "w-full px-3 py-1.5 text-sm text-center tabular-nums transition-colors",
+                isSel
+                  ? "bg-primary text-primary-foreground font-semibold"
+                  : "hover:bg-muted text-foreground",
+              )}
+              data-testid={`${testidPrefix}-${opt}`}
+            >
+              {opt}
+            </button>
+          );
+        })}
       </div>
     </div>
   );
