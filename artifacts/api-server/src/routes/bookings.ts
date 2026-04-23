@@ -725,11 +725,13 @@ router.post("/", async (req, res) => {
   if (!body.payment_status) body.payment_status = "Unpaid";
 
   // Supplier-product integrity:
-  //  - Only meaningful for Car Rental / As Directed; clear otherwise.
+  //  - Meaningful for Car Rental / As Directed (vehicle picks) and
+  //    Airport Transfer (Meet & Greet / Fast-Track / Lounge / Porter
+  //    services from a third-party supplier). Cleared otherwise.
   //  - Must belong to the chosen supplier — reject mismatches.
   if (body.supplier_product_id) {
     const svc = body.service_type;
-    const usesSupplierProduct = svc === "Car Rental" || svc === "As Directed";
+    const usesSupplierProduct = svc === "Car Rental" || svc === "As Directed" || svc === "Airport Transfer";
     if (!usesSupplierProduct) {
       body.supplier_product_id = null;
     } else {
@@ -1042,7 +1044,7 @@ router.put("/:id", async (req, res) => {
   // supplier_id (incoming change OR previously-saved value).
   if (body.supplier_product_id) {
     const svc = body.service_type ?? (prev as any)?.service_type;
-    const usesSupplierProduct = svc === "Car Rental" || svc === "As Directed";
+    const usesSupplierProduct = svc === "Car Rental" || svc === "As Directed" || svc === "Airport Transfer";
     if (!usesSupplierProduct) {
       body.supplier_product_id = null;
     } else {
