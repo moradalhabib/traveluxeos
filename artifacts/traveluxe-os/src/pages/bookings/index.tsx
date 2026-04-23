@@ -18,9 +18,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Link, useSearch } from "wouter";
 import { format, startOfDay, isBefore } from "date-fns";
 import { Input } from "@/components/ui/input";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -273,86 +270,65 @@ export default function Bookings() {
         )}
       </div>
 
-      {/* Source tabs — keep imported Odoo data segregated from active ops.
-          Operators don't see the Imported tab; only super_admin can browse
-          legacy archived data. */}
-      {!isResidenceManager && isSuperAdmin && (
-        <div className="flex gap-1 border border-border rounded-xl p-1 bg-secondary/20 w-full sm:w-fit">
-          <button
-            onClick={() => setSource("active")}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-              source === "active"
-                ? "bg-card text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-            data-testid="tab-bookings-active"
-          >
-            Active
-          </button>
-          <button
-            onClick={() => setSource("imported")}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
-              source === "imported"
-                ? "bg-card text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-            data-testid="tab-bookings-imported"
-          >
-            Imported (Odoo)
-          </button>
-        </div>
-      )}
-
-      {/* Filters */}
-      <div className="flex flex-col md:flex-row gap-4">
+      {/* Search + filter row */}
+      <div className="flex flex-col md:flex-row md:items-center gap-3">
         <Input
           placeholder="Search by client, ref, pickup…"
           className="md:w-64"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <FilterDropdown
-          label="Status:"
-          value={status === "" ? "all" : status}
-          onChange={(v) => setStatus(v === "all" ? "" : v)}
-          options={[
-            { value: "all", label: "All" },
-            { value: "Pending", label: "Pending" },
-            { value: "Confirmed", label: "Confirmed" },
-            { value: "Active", label: "Active" },
-            { value: "Completed", label: "Completed" },
-            { value: "Cancelled", label: "Cancelled" },
-          ]}
-          testId="filter-bookings-status"
-        />
-      </div>
-
-      {/* Sort + Group controls (Fix 3) */}
-      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground whitespace-nowrap">Sort:</span>
-          <Select value={sortKey} onValueChange={(v) => setSortKey(v as SortKey)}>
-            <SelectTrigger className="h-9 w-44" data-testid="select-bookings-sort">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {SORT_OPTIONS.map(o => (
-                <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground whitespace-nowrap">Group by:</span>
-          <Select value={groupKey} onValueChange={(v) => setGroupKey(v as GroupKey)}>
-            <SelectTrigger className="h-9 w-44" data-testid="select-bookings-group">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="none">None</SelectItem>
-              <SelectItem value="service">Service Type</SelectItem>
-            </SelectContent>
-          </Select>
+        <div className="flex flex-wrap items-center gap-2">
+          {!isResidenceManager && isSuperAdmin && (
+            <FilterDropdown
+              label="Source:"
+              value={source}
+              onChange={(v) => {
+                if (v === "active" || v === "imported") setSource(v);
+              }}
+              options={[
+                { value: "active",   label: "Active" },
+                { value: "imported", label: "Imported (Odoo)" },
+              ]}
+              widthClass="w-44"
+              testId="filter-bookings-source"
+            />
+          )}
+          <FilterDropdown
+            label="Status:"
+            value={status === "" ? "all" : status}
+            onChange={(v) => setStatus(v === "all" ? "" : v)}
+            options={[
+              { value: "all", label: "All" },
+              { value: "Pending", label: "Pending" },
+              { value: "Confirmed", label: "Confirmed" },
+              { value: "Active", label: "Active" },
+              { value: "Completed", label: "Completed" },
+              { value: "Cancelled", label: "Cancelled" },
+            ]}
+            testId="filter-bookings-status"
+          />
+          <FilterDropdown
+            label="Sort:"
+            value={sortKey}
+            onChange={(v) => setSortKey(v as SortKey)}
+            options={SORT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
+            widthClass="w-44"
+            testId="filter-bookings-sort"
+          />
+          <FilterDropdown
+            label="Group by:"
+            value={groupKey}
+            onChange={(v) => {
+              if (v === "none" || v === "service") setGroupKey(v);
+            }}
+            options={[
+              { value: "none",    label: "None" },
+              { value: "service", label: "Service Type" },
+            ]}
+            widthClass="w-44"
+            testId="filter-bookings-group"
+          />
         </div>
       </div>
 

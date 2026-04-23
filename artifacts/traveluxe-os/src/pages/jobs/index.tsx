@@ -11,7 +11,6 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useLocation, useSearch, Link } from "wouter";
 import { format, isToday, isTomorrow, startOfDay, endOfDay, addDays, isBefore, isAfter } from "date-fns";
 import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCircle } from "lucide-react";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";

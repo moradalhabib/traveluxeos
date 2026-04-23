@@ -4,9 +4,6 @@ import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select, SelectTrigger, SelectValue, SelectContent, SelectItem,
-} from "@/components/ui/select";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
@@ -347,18 +344,27 @@ export default function MarketingHub() {
             {/* Last booking */}
             <div className="space-y-2">
               <Label>Last booking</Label>
-              <Select
+              <FilterDropdown
                 value={lastBookingMode}
-                onValueChange={(v: any) => setLastBookingMode(v)}
-              >
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="any">Any time</SelectItem>
-                  <SelectItem value="more_than">More than X days ago</SelectItem>
-                  <SelectItem value="within">Within last X days</SelectItem>
-                  <SelectItem value="between">Between X and Y days ago</SelectItem>
-                </SelectContent>
-              </Select>
+                onChange={(v) => {
+                  if (
+                    v === "any" ||
+                    v === "more_than" ||
+                    v === "within" ||
+                    v === "between"
+                  ) {
+                    setLastBookingMode(v);
+                  }
+                }}
+                options={[
+                  { value: "any",       label: "Any time" },
+                  { value: "more_than", label: "More than X days ago" },
+                  { value: "within",    label: "Within last X days" },
+                  { value: "between",   label: "Between X and Y days ago" },
+                ]}
+                widthClass="w-full"
+                testId="filter-marketing-last-booking-mode"
+              />
               {lastBookingMode === "more_than" && (
                 <Input
                   type="number" min="0" placeholder="e.g. 90"

@@ -12,6 +12,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { FilterDropdown } from "@/components/ui/filter-dropdown";
+// `Select` is still used by the "Generate invoice" dialog further down the
+// page; the inline status filter has been replaced with FilterDropdown so the
+// header chrome matches every other list page.
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
@@ -271,28 +274,10 @@ export default function Invoices() {
         </div>
       )}
 
-      {/* Source tabs — keep imported Odoo invoices out of the way */}
-      <div className="flex gap-1 bg-card border border-border rounded-lg p-1 w-fit">
-        {([
-          { key: "new", label: "New", count: newCount },
-          { key: "imported", label: "Imported (Odoo)", count: importedCount },
-          { key: "all", label: "All", count: invoices?.length ?? 0 },
-        ] as const).map(t => (
-          <button
-            key={t.key}
-            onClick={() => setSourceFilter(t.key)}
-            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-              sourceFilter === t.key
-                ? "bg-primary/15 text-primary font-semibold"
-                : "text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {t.label} <span className="text-xs opacity-70">({t.count})</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Search + Filter */}
+      {/* Search + Filters — single row of compact dropdowns + search input
+          so the chrome is identical to every other list page (Bookings,
+          Follow-ups, etc.). The Source filter (formerly a button-group of
+          New/Imported/All tabs) is now a dropdown alongside Status. */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -311,15 +296,31 @@ export default function Invoices() {
             </button>
           )}
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-full sm:w-40 h-11 bg-card border-border">
-            <SelectValue placeholder="All statuses" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="all">All Statuses</SelectItem>
-            {statuses.map(s => <SelectItem key={s} value={s}>{s}</SelectItem>)}
-          </SelectContent>
-        </Select>
+        <div className="flex flex-wrap items-center gap-2">
+          <FilterDropdown
+            label="Source:"
+            value={sourceFilter}
+            onChange={(v) => setSourceFilter(v as "new" | "imported" | "all")}
+            options={[
+              { value: "new",      label: "New",            count: newCount },
+              { value: "imported", label: "Imported (Odoo)", count: importedCount },
+              { value: "all",      label: "All",            count: invoices?.length ?? 0 },
+            ]}
+            widthClass="w-44"
+            testId="filter-invoices-source"
+          />
+          <FilterDropdown
+            label="Status:"
+            value={statusFilter}
+            onChange={setStatusFilter}
+            options={[
+              { value: "all", label: "All Statuses" },
+              ...statuses.map(s => ({ value: s, label: s })),
+            ]}
+            widthClass="w-40"
+            testId="filter-invoices-status"
+          />
+        </div>
       </div>
 
       {/* Invoice list */}

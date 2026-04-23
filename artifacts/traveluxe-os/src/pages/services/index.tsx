@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { format } from "date-fns";
 import {
-  ArrowLeft, ArrowRight, PlaneTakeoff, Car, Map as MapIcon, Building2, Hotel,
+  ArrowRight, PlaneTakeoff, Car, Map as MapIcon, Building2, Hotel,
   CalendarRange, Clock, CheckCircle2, Plus, Package, Tag, CheckSquare, Check
 } from "lucide-react";
 import { Link } from "wouter";
@@ -349,22 +349,38 @@ export default function Services() {
 
     return (
       <div className="space-y-5">
-        <div className="flex items-center gap-3">
-          <Button
-            variant="ghost" size="sm"
-            onClick={() => { setSelectedKey(null); setStatusFilter("All"); setActiveTab("bookings"); }}
-            className="-ml-2 text-muted-foreground"
-          >
-            <ArrowLeft className="w-4 h-4 mr-1.5" /> Services
-          </Button>
-        </div>
-
-        {/* Service header */}
-        <div className="flex items-center gap-4">
+        {/* Service header — title + a compact "Service:" dropdown so operators
+            can hop between service categories without going back to the
+            overview. Replaces the previous large category-tile navigation
+            with the same compact filter chrome used everywhere else. */}
+        <div className="flex items-center gap-3 flex-wrap">
           <div className={`w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0 ${svc.iconColor}`}>
             {svc.icon}
           </div>
           <h1 className="text-2xl font-bold text-foreground">{svc.label}</h1>
+          <FilterDropdown
+            label="Service:"
+            value={selectedKey}
+            onChange={(v) => {
+              setStatusFilter("All");
+              setActiveTab("bookings");
+              if (v === "__all__") {
+                setSelectedKey(null);
+              } else {
+                setSelectedKey(v as ServiceKey);
+              }
+            }}
+            options={[
+              { value: "__all__", label: "All services" },
+              ...SERVICES.map((s) => ({
+                value: s.key,
+                label: s.label,
+                count: bookings.filter(b => canonicalKey(b.service_type) === s.key).length,
+              })),
+            ]}
+            widthClass="w-44"
+            testId="filter-services-category"
+          />
           <Link href="/bookings/new" className="ml-auto">
             <Button size="sm" className="h-9">
               <Plus className="w-3.5 h-3.5 mr-1.5" /> New Booking
@@ -790,10 +806,15 @@ export default function Services() {
     );
   }
 
-  // ─── Overview grid ──────────────────────────────────────────────────────────
+  // ─── Overview ──────────────────────────────────────────────────────────────
+  // The previous large category tile grid has been replaced with a single
+  // compact "Service:" dropdown to match the filter chrome used app-wide.
+  // Selecting a category drops the operator straight into the per-service
+  // detail view (which has its own dropdown to swap categories without
+  // returning here).
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Services</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
@@ -807,41 +828,59 @@ export default function Services() {
         </Link>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        <FilterDropdown
+          label="Service:"
+          value="__placeholder__"
+          onChange={(v) => {
+            if (v && v !== "__placeholder__") setSelectedKey(v as ServiceKey);
+          }}
+          options={[
+            { value: "__placeholder__", label: "Choose a service…" },
+            ...SERVICES.map((s) => ({
+              value: s.key,
+              label: s.label,
+              count: bookings.filter(b => canonicalKey(b.service_type) === s.key).length,
+            })),
+          ]}
+          widthClass="w-56"
+          testId="filter-services-overview-category"
+        />
+        {loadingBookings && (
+          <span className="text-xs text-muted-foreground">Loading…</span>
+        )}
+      </div>
+
+      {/* Compact summary list — one row per service category with active +
+          total counts. Replaces the large tile grid; tapping any row opens
+          the same per-service detail view. */}
       {loadingBookings ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-36" />)}
+        <div className="space-y-2">
+          {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12" />)}
         </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="border border-border rounded-2xl bg-card divide-y divide-border overflow-hidden">
           {SERVICES.map(svc => {
             const stats = statsFor(svc.key);
             return (
               <button
                 key={svc.key}
                 onClick={() => setSelectedKey(svc.key)}
-                className={`text-left w-full rounded-2xl border bg-gradient-to-br ${svc.color} p-5 hover:shadow-[0_4px_20px_rgba(0,0,0,0.3)] transition-all group`}
+                className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-secondary/20 transition-colors text-left"
+                data-testid={`row-service-${svc.key}`}
               >
-                <div className="flex items-start justify-between mb-4">
-                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${svc.iconColor}`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${svc.iconColor}`}>
                     {svc.icon}
                   </div>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground group-hover:text-foreground group-hover:translate-x-0.5 transition-all mt-1" />
-                </div>
-
-                <div className="font-bold text-lg text-foreground leading-tight">{svc.label}</div>
-
-                <div className="grid gap-2 mt-4 pt-4 border-t border-white/10 grid-cols-2">
-                  <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Bookings</div>
-                    <div className="font-bold text-foreground">{stats.total}</div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide mb-0.5">Active</div>
-                    <div className={`font-bold ${stats.active > 0 ? "text-amber-400" : "text-muted-foreground"}`}>
-                      {stats.active}
+                  <div className="min-w-0">
+                    <div className="font-semibold text-sm text-foreground truncate">{svc.label}</div>
+                    <div className="text-[11px] text-muted-foreground">
+                      {stats.total} total · <span className={stats.active > 0 ? "text-amber-400" : ""}>{stats.active} active</span>
                     </div>
                   </div>
                 </div>
+                <ArrowRight className="w-4 h-4 text-muted-foreground/60 flex-shrink-0" />
               </button>
             );
           })}
