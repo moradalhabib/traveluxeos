@@ -456,12 +456,20 @@ export default function NewBooking() {
     const params = new URLSearchParams(search);
     const clientId = params.get("client_id");
     const fromRequestParam = params.get("from_request");
+    const clientNameParam = params.get("client_name");
     if (clientId) {
       // Auto-confirm and skip the WhatsApp lookup card whenever the caller
       // already knows which client owns this booking — i.e. anything that
       // arrives with `client_id` in the URL (request conversion, "New
       // Booking" from a client profile, etc.).
       loadClientById(clientId, { autoConfirm: true });
+    } else if (clientNameParam) {
+      // Convert-from-request without a resolved client_id (e.g. the request
+      // was created with a free-text name that has no matching client row).
+      // Pre-fill the lookup input so the debounce search runs against name
+      // OR whatsapp — operator instantly sees "no match" and can hit
+      // Register without retyping the name.
+      setWaInput(clientNameParam);
     }
 
     const fromRequest = fromRequestParam;
