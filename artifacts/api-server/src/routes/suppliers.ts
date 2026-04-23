@@ -353,11 +353,15 @@ router.post("/:id/balance/unmark-paid", async (req, res) => {
 router.delete("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
   if (!user) return res.status(401).json({ error: "Unauthorized" });
-  if (!["super_admin", "admin"].includes(user.role)) {
-    return res.status(403).json({ error: "Admin access required" });
-  }
   const { id } = req.params;
   const soft = req.query.soft === "1" || req.query.soft === "true";
+
+  // Hard delete is destructive — restrict to admins. Soft delete keeps the
+  // pre-existing access level (any authenticated user) so the per-supplier
+  // Deactivate button continues to work for operators.
+  if (!soft && !["super_admin", "admin"].includes(user.role)) {
+    return res.status(403).json({ error: "Admin access required to delete" });
+  }
 
   // Look up the supplier name once for the audit log message.
   const { data: existing } = await supabase
