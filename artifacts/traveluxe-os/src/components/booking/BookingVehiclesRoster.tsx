@@ -115,6 +115,17 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
   const [confirmDelete, setConfirmDelete] = useState<{ idx: number; id: string } | null>(null);
   const [confirmUnlock, setConfirmUnlock] = useState<{ idx: number; id: string; commission_status: string; payout_status: string } | null>(null);
   const [unlockingIdx, setUnlockingIdx] = useState<number | null>(null);
+  // Driver-conflict dialog: server returns 409 with { driver_conflict }
+  // when the leg's effective pickup time overlaps another live job for
+  // the same driver. Operator can cancel (pick a different driver/time)
+  // or override — re-submitting the same row with ?force=true.
+  const [conflictDialog, setConflictDialog] = useState<{
+    open: boolean;
+    idx: number | null;
+    conflicts: any[];
+    message: string;
+    driverName: string | null;
+  }>({ open: false, idx: null, conflicts: [], message: "", driverName: null });
 
   const { user } = useAuth();
   const { toast } = useToast();
@@ -219,19 +230,38 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
     };
   };
 
-  const saveRow = async (idx: number) => {
+  const saveRow = async (idx: number, opts: { force?: boolean } = {}) => {
     const d = drafts[idx];
     if (!d) return;
     setSavingIdx(idx);
     try {
       const token = await authToken();
       const isNew = !d.id;
-      const url = isNew ? "/api/booking-vehicles" : `/api/booking-vehicles/${d.id}`;
+      const base = isNew ? "/api/booking-vehicles" : `/api/booking-vehicles/${d.id}`;
+      const url = opts.force ? `${base}?force=true` : base;
       const r = await fetch(url, {
         method: isNew ? "POST" : "PATCH",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify(buildPayload(d)),
       });
+      // Server returns 409 with { driver_conflict } when the leg would
+      // overlap another live job for this driver. Open a confirm dialog
+      // so the operator can either cancel and re-pick, or explicitly
+      // override (re-submit with ?force=true).
+      if (r.status === 409) {
+        const body = await r.json().catch(() => ({} as any));
+        if (body?.driver_conflict) {
+          const driverName = (drivers as any[] | undefined)?.find((x: any) => x.id === d.driver_id)?.name ?? d.driver_name ?? null;
+          setConflictDialog({
+            open: true,
+            idx,
+            conflicts: body.driver_conflict.conflicts ?? [],
+            message: body.driver_conflict.message ?? "Driver already has overlapping jobs.",
+            driverName,
+          });
+          return;
+        }
+      }
       if (!r.ok) {
         const errText = await r.text().catch(() => "");
         toast({
@@ -242,7 +272,10 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
         return;
       }
       const saved: ExtraVehicle = await r.json();
-      toast({ title: isNew ? "Vehicle added" : "Vehicle saved" });
+      toast({
+        title: isNew ? "Vehicle added" : "Vehicle saved",
+        description: opts.force ? "Saved despite driver conflict — logged for review." : undefined,
+      });
       // Refresh the list so the read-only view stays in sync, but DO NOT
       // wipe other unsaved drafts — only replace the saved row in-place.
       // Other rows the user is still editing stay exactly as they typed.
@@ -253,6 +286,13 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
     } finally {
       setSavingIdx(null);
     }
+  };
+
+  const proceedConflictOverride = async () => {
+    const idx = conflictDialog.idx;
+    setConflictDialog({ open: false, idx: null, conflicts: [], message: "", driverName: null });
+    if (idx == null) return;
+    await saveRow(idx, { force: true });
   };
 
   const performDelete = async (idx: number, id: string) => {
@@ -748,6 +788,47 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
               data-testid="btn-roster-unlock-confirm"
             >
               Unlock row
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={conflictDialog.open} onOpenChange={(open) => !open && setConflictDialog({ open: false, idx: null, conflicts: [], message: "", driverName: null })}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Driver double-booked?</AlertDialogTitle>
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>
+                  {conflictDialog.driverName ? <><span className="font-medium">{conflictDialog.driverName}</span> already has </> : "This driver already has "}
+                  {conflictDialog.conflicts.length} job{conflictDialog.conflicts.length === 1 ? "" : "s"} within 90 min of this leg's pickup time.
+                </p>
+                <ul className="text-xs space-y-1 max-h-48 overflow-y-auto rounded-md border border-border/40 bg-muted/30 p-2">
+                  {conflictDialog.conflicts.map((c: any, i: number) => (
+                    <li key={i} className="flex flex-col">
+                      <span className="font-medium">
+                        {c.tvl_ref ?? "—"}
+                        {c.client_name ? ` · ${c.client_name}` : ""}
+                        {c.kind === "extra" ? <span className="ml-1 text-[10px] uppercase tracking-wider text-muted-foreground">(extra car)</span> : null}
+                      </span>
+                      <span className="text-muted-foreground">
+                        {c.date_time ? fmtLondon(c.date_time, "EEE d MMM · HH:mm") : "—"}
+                        {c.pickup ? ` · ${c.pickup}` : ""}
+                        {c.dropoff ? ` → ${c.dropoff}` : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-muted-foreground">
+                  You can cancel and pick a different driver / pickup time, or override and save anyway.
+                </p>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="btn-roster-conflict-cancel">Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={proceedConflictOverride} data-testid="btn-roster-conflict-override">
+              Save anyway
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -6,6 +6,123 @@ const router = Router();
 const SELECT_FIELDS =
   "id, booking_id, driver_id, vehicle_type, vehicle_product_id, client_share, cost_to_company, tvl_commission, driver_receives, commission_status, payout_status, notes, pickup, dropoff, date_time, created_at, updated_at, drivers(name, staff_no, vehicle_model, plate)";
 
+// Per-leg pickup times can differ from the parent booking. The
+// PUT /bookings/:id endpoint only checks the parent booking's date_time
+// against the driver's other live jobs, so a per-leg time that overlaps a
+// different job for the same driver would otherwise slip through silently.
+// This helper mirrors the parent booking's ±90 min conflict window but
+// also considers other booking_vehicles rows (per-leg pickup times) for
+// the same driver, so the operator gets a warning when assigning a driver
+// whose schedule clashes with this leg's effective pickup time.
+async function findDriverConflictsForLeg(opts: {
+  driverId: string;
+  effectiveIso: string;
+  durationMin: number;
+  excludeVehicleRowId?: string | null;
+}): Promise<{ conflicts: any[]; message: string } | null> {
+  const target = new Date(opts.effectiveIso);
+  if (isNaN(target.getTime())) return null;
+  const buffer = Math.max(opts.durationMin || 90, 90) * 60_000;
+  const winStart = new Date(target.getTime() - buffer).toISOString();
+  const winEnd = new Date(target.getTime() + buffer).toISOString();
+
+  // Primary-driver clashes (other bookings.driver_id == this driver).
+  const { data: bookingClashes } = await supabase
+    .from("bookings")
+    .select("id, tvl_ref, date_time, pickup, dropoff, status, clients(name)")
+    .eq("driver_id", opts.driverId)
+    .neq("status", "Cancelled")
+    .neq("status", "Completed")
+    .gte("date_time", winStart)
+    .lte("date_time", winEnd);
+
+  // Per-leg clashes with an explicit per-leg date_time set.
+  let vq = supabase
+    .from("booking_vehicles")
+    .select("id, booking_id, date_time, pickup, dropoff, bookings(tvl_ref, status, pickup, dropoff, clients(name))")
+    .eq("driver_id", opts.driverId)
+    .gte("date_time", winStart)
+    .lte("date_time", winEnd);
+  if (opts.excludeVehicleRowId) vq = vq.neq("id", opts.excludeVehicleRowId);
+  const { data: legClashesExplicit } = await vq;
+
+  // Per-leg rows that inherit (date_time IS NULL): include only when the
+  // parent booking's own date_time falls in the window.
+  let vqInherit = supabase
+    .from("booking_vehicles")
+    .select("id, booking_id, pickup, dropoff, bookings(tvl_ref, date_time, status, pickup, dropoff, clients(name))")
+    .eq("driver_id", opts.driverId)
+    .is("date_time", null);
+  if (opts.excludeVehicleRowId) vqInherit = vqInherit.neq("id", opts.excludeVehicleRowId);
+  const { data: legClashesInherit } = await vqInherit;
+
+  const conflicts: any[] = [];
+  for (const c of (bookingClashes ?? []) as any[]) {
+    conflicts.push({
+      id: c.id,
+      kind: "primary",
+      tvl_ref: c.tvl_ref,
+      date_time: c.date_time,
+      pickup: c.pickup,
+      dropoff: c.dropoff,
+      status: c.status,
+      client_name: c.clients?.name ?? null,
+    });
+  }
+  for (const v of (legClashesExplicit ?? []) as any[]) {
+    const parent: any = v.bookings;
+    if (!parent) continue;
+    if (parent.status === "Cancelled" || parent.status === "Completed") continue;
+    conflicts.push({
+      id: v.booking_id,
+      booking_vehicle_id: v.id,
+      kind: "extra",
+      tvl_ref: parent.tvl_ref ?? null,
+      date_time: v.date_time,
+      pickup: v.pickup ?? parent.pickup ?? null,
+      dropoff: v.dropoff ?? parent.dropoff ?? null,
+      status: parent.status ?? null,
+      client_name: parent.clients?.name ?? null,
+    });
+  }
+  for (const v of (legClashesInherit ?? []) as any[]) {
+    const parent: any = v.bookings;
+    if (!parent?.date_time) continue;
+    const t = new Date(parent.date_time).getTime();
+    if (t < target.getTime() - buffer || t > target.getTime() + buffer) continue;
+    if (parent.status === "Cancelled" || parent.status === "Completed") continue;
+    conflicts.push({
+      id: v.booking_id,
+      booking_vehicle_id: v.id,
+      kind: "extra",
+      tvl_ref: parent.tvl_ref ?? null,
+      date_time: parent.date_time,
+      pickup: v.pickup ?? parent.pickup ?? null,
+      dropoff: v.dropoff ?? parent.dropoff ?? null,
+      status: parent.status ?? null,
+      client_name: parent.clients?.name ?? null,
+    });
+  }
+
+  if (conflicts.length === 0) return null;
+  return {
+    conflicts,
+    message: `Driver already has ${conflicts.length} job${conflicts.length === 1 ? "" : "s"} within 90 min of this pickup time.`,
+  };
+}
+
+async function getParentBookingTiming(bookingId: string): Promise<{ date_time: string | null; duration: number }> {
+  const { data } = await supabase
+    .from("bookings")
+    .select("date_time, duration")
+    .eq("id", bookingId)
+    .single();
+  return {
+    date_time: data?.date_time ?? null,
+    duration: Number(data?.duration ?? 90) || 90,
+  };
+}
+
 function shape(row: any) {
   if (!row) return row;
   return {
@@ -37,6 +154,7 @@ router.get("/", async (req, res) => {
 
 router.post("/", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
+  const force = String(req.query.force ?? "").toLowerCase() === "true";
   const {
     booking_id,
     driver_id,
@@ -55,6 +173,27 @@ router.post("/", async (req, res) => {
   } = req.body || {};
 
   if (!booking_id) return res.status(400).json({ error: "booking_id is required" });
+
+  // ── Driver-conflict pre-check ───────────────────────────────────────────
+  // If a driver is being assigned to this leg, check that the leg's
+  // effective pickup time (per-leg date_time, falling back to the parent
+  // booking's date_time) doesn't overlap another live job for that
+  // driver — including other per-leg roster rows. Surface a 409 with the
+  // conflict payload so the UI can prompt the operator to override.
+  if (driver_id) {
+    const parent = await getParentBookingTiming(booking_id);
+    const effectiveIso = (date_time && String(date_time)) || parent.date_time;
+    if (effectiveIso) {
+      const conflict = await findDriverConflictsForLeg({
+        driverId: String(driver_id),
+        effectiveIso,
+        durationMin: parent.duration,
+      });
+      if (conflict && !force) {
+        return res.status(409).json({ driver_conflict: conflict });
+      }
+    }
+  }
 
   const payload: Record<string, any> = {
     booking_id,
@@ -122,6 +261,7 @@ async function assertNotLocked(id: string): Promise<{ ok: true } | { ok: false; 
 
 router.patch("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
+  const force = String(req.query.force ?? "").toLowerCase() === "true";
 
   // Block edits to settled/paid rows. Allow operations that ONLY change
   // commission_status or payout_status (the Commissions page uses these
@@ -135,7 +275,7 @@ router.patch("/:id", async (req, res) => {
   // specifically.
   const { data: prior } = await supabase
     .from("booking_vehicles")
-    .select("commission_status, payout_status")
+    .select("commission_status, payout_status, driver_id, date_time, booking_id")
     .eq("id", req.params.id)
     .single();
 
@@ -168,6 +308,42 @@ router.patch("/:id", async (req, res) => {
         return res.status(403).json({
           error: "Only admins can unlock a settled or paid vehicle row.",
         });
+      }
+    }
+  }
+
+  // ── Driver-conflict pre-check ───────────────────────────────────────────
+  // Skip for status-only PATCHes (settle/unlock flows). Otherwise, if the
+  // resulting row would have a driver assigned and an effective pickup
+  // time, check that time against the driver's other live jobs (primary
+  // bookings AND other per-leg roster rows). Surface a 409 unless the
+  // operator overrides via ?force=true.
+  if (!isStatusOnly && prior) {
+    const nextDriverId = "driver_id" in (req.body || {})
+      ? (req.body.driver_id || null)
+      : prior.driver_id;
+    const nextDateTime = "date_time" in (req.body || {})
+      ? (req.body.date_time || null)
+      : prior.date_time;
+
+    if (nextDriverId) {
+      const parent = await getParentBookingTiming(prior.booking_id);
+      const effectiveIso = nextDateTime || parent.date_time;
+      // Only re-check when the driver, the per-leg time, OR the parent
+      // booking time is involved in this update — otherwise we'd warn on
+      // every notes/cost edit. We check whenever a driver is set, since
+      // the leg's effective time may have inherited a parent that has
+      // since changed.
+      if (effectiveIso) {
+        const conflict = await findDriverConflictsForLeg({
+          driverId: String(nextDriverId),
+          effectiveIso,
+          durationMin: parent.duration,
+          excludeVehicleRowId: req.params.id,
+        });
+        if (conflict && !force) {
+          return res.status(409).json({ driver_conflict: conflict });
+        }
       }
     }
   }
