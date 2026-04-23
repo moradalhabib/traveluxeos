@@ -42,7 +42,10 @@ export function BulkActionBar({ count, noun, onClear, onDelete, warning }: BulkA
   return (
     <>
       <div
-        className="fixed bottom-4 inset-x-3 sm:inset-x-auto sm:right-6 sm:left-auto z-40 flex items-center gap-3 px-4 py-3 rounded-xl border border-primary/40 bg-card shadow-2xl shadow-primary/20"
+        // bottom-24 lifts the bar above the mobile bottom nav (~80px tall)
+        // so the Delete button isn't trapped behind it. Desktop reverts to
+        // bottom-4 since there's no nav bar at the bottom.
+        className="fixed bottom-24 sm:bottom-4 inset-x-3 sm:inset-x-auto sm:right-6 sm:left-auto z-50 flex items-center gap-3 px-4 py-3 rounded-xl border border-primary/40 bg-card shadow-2xl shadow-primary/20"
         data-testid="bulk-action-bar"
       >
         <div className="flex-1 sm:flex-initial text-sm font-semibold text-foreground">
