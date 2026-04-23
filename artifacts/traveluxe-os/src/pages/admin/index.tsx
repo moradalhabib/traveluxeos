@@ -1462,7 +1462,11 @@ function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const { toast } = useToast();
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeCategory, setActiveCategory] = useState("Vehicle");
+  // C2: Products Catalogue is now Tours-only.
+  // Vehicles are managed in Airport Pricing; Meet & Greet is also moved into
+  // Airport Pricing (C3). Add-ons live on the Services tab. So this tab is
+  // dedicated to the Tour catalogue, with per-tour alt-vehicle uplifts.
+  const activeCategory = "Tour";
   const [editing, setEditing] = useState<any | null>(null);
   const [saving, setSaving] = useState(false);
 
@@ -1476,12 +1480,12 @@ function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   useEffect(() => { fetchProducts(); }, []);
 
   const filtered = products.filter(p => p.category === activeCategory);
-  const categories = PRODUCT_CATEGORIES.filter(c => products.some(p => p.category === c));
 
   const startNew = () => setEditing({
     id: null, name: "", category: activeCategory, description: "", unit_price: 0, active: true,
     sort_order: filtered.length * 10 + 10,
     service_types: CATEGORY_DEFAULT_SERVICE_TYPES[activeCategory] ?? ALL_SERVICE_TYPES,
+    tour_alt_vehicles: [],
   });
   
   const toggleServiceType = (svc: string) => {
@@ -1493,7 +1497,27 @@ function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const startEdit = (p: any) => setEditing({
     ...p,
     service_types: p.service_types ?? CATEGORY_DEFAULT_SERVICE_TYPES[p.category] ?? ALL_SERVICE_TYPES,
+    tour_alt_vehicles: Array.isArray(p.tour_alt_vehicles) ? p.tour_alt_vehicles : [],
   });
+
+  // ── Tour alt-vehicle editor helpers (C2/C4) ─────────────────────────────
+  // Each alt-vehicle row is { label: string, uplift: number } and uplift is
+  // ADDED to the tour's standard (V Class) price during booking.
+  const addAltVehicle = () => setEditing((v: any) => ({
+    ...v,
+    tour_alt_vehicles: [...(v.tour_alt_vehicles ?? []), { label: "", uplift: 0 }],
+  }));
+  const updateAltVehicle = (idx: number, field: "label" | "uplift", value: any) =>
+    setEditing((v: any) => {
+      const arr = [...(v.tour_alt_vehicles ?? [])];
+      arr[idx] = { ...arr[idx], [field]: field === "uplift" ? Number(value) : value };
+      return { ...v, tour_alt_vehicles: arr };
+    });
+  const removeAltVehicle = (idx: number) =>
+    setEditing((v: any) => ({
+      ...v,
+      tour_alt_vehicles: (v.tour_alt_vehicles ?? []).filter((_: any, i: number) => i !== idx),
+    }));
 
   const saveProduct = async () => {
     if (!editing?.name) return;
@@ -1510,6 +1534,13 @@ function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
     // Only include service_types if the column exists (graceful — won't fail if column missing)
     if (editing.service_types !== undefined) {
       payload.service_types = editing.service_types;
+    }
+    // Tour alt-vehicles — JSONB column from migration-tour-alt-vehicles.sql.
+    // Sent as an array of {label, uplift}. Null/empty arrays are fine.
+    if (editing.category === "Tour") {
+      payload.tour_alt_vehicles = (editing.tour_alt_vehicles ?? []).filter(
+        (av: any) => av && String(av.label ?? "").trim().length > 0
+      );
     }
     let error;
     if (editing.id) {
@@ -1554,15 +1585,8 @@ function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
             <input className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-primary"
               value={editing.name} onChange={e => setEditing((v: any) => ({ ...v, name: e.target.value }))} placeholder="e.g. Mercedes Benz E Class" />
           </div>
-          <div>
-            <label className="text-xs text-muted-foreground block mb-1.5">Category</label>
-            <Select value={editing.category} onValueChange={v => setEditing((e: any) => ({ ...e, category: v }))}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {PRODUCT_CATEGORIES.map(c => <SelectItem key={c} value={c}>{CATEGORY_ICONS[c]} {c}</SelectItem>)}
-              </SelectContent>
-            </Select>
-          </div>
+          {/* Category is locked to Tour on this tab (Vehicles + M&G live in Airport Pricing). */}
+          <input type="hidden" value={editing.category} readOnly />
           <div>
             <label className="text-xs text-muted-foreground block mb-1.5">Description</label>
             <textarea className="w-full bg-background border border-border rounded-xl px-3 py-2.5 text-sm text-foreground focus:outline-none focus:border-primary resize-none"
@@ -1604,12 +1628,73 @@ function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
             </button>
           </div>
 
-          {editing.category === "Vehicle" && editing.id && (
-            <AirportPricingEditor productId={editing.id} productName={editing.name} />
-          )}
-          {editing.category === "Vehicle" && !editing.id && (
-            <div className="p-3 rounded-xl bg-muted/30 border border-dashed border-border text-xs text-muted-foreground">
-              💡 Save the vehicle first, then re-open it to set per-airport pricing (LHR / LGW / STN / LTN / LCY / OTHER).
+          {/* C2: Tour alt-vehicle editor — JSONB list of {label, uplift}.
+              Standard price (above) is the V Class price. Each row here is
+              an alternative vehicle the operator can offer for this tour at
+              checkout, with an uplift added to the standard price. */}
+          {editing.category === "Tour" && (
+            <div className="pt-4 border-t border-border space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <label className="text-sm font-semibold text-foreground">Alternative Vehicles</label>
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Standard price above is the V Class price. Add alt vehicles with an uplift (£) added at booking time.
+                  </p>
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={addAltVehicle}
+                  className="text-xs h-7 border-primary/30 text-primary hover:bg-primary/10 flex-shrink-0"
+                  data-testid="button-add-alt-vehicle"
+                >
+                  <Plus className="w-3 h-3 mr-1" /> Add alt
+                </Button>
+              </div>
+              <div className="space-y-2">
+                {(editing.tour_alt_vehicles ?? []).length === 0 && (
+                  <div className="text-center py-4 text-xs text-muted-foreground border border-dashed border-border rounded-xl">
+                    No alt vehicles — only V Class will be offered.
+                  </div>
+                )}
+                {(editing.tour_alt_vehicles ?? []).map((av: any, idx: number) => (
+                  <div key={idx} className="flex gap-2 items-center" data-testid={`alt-vehicle-row-${idx}`}>
+                    <input
+                      className="flex-1 bg-background border border-border rounded-lg px-2.5 py-2 text-sm text-foreground focus:outline-none focus:border-primary"
+                      placeholder="Vehicle label (e.g. Mercedes S Class)"
+                      value={av.label ?? ""}
+                      onChange={e => updateAltVehicle(idx, "label", e.target.value)}
+                      data-testid={`input-alt-label-${idx}`}
+                    />
+                    <div className="flex items-center gap-1">
+                      <span className="text-muted-foreground text-sm">+£</span>
+                      <input
+                        type="number"
+                        step="0.01"
+                        className="w-24 bg-background border border-border rounded-lg px-2.5 py-2 text-sm text-foreground focus:outline-none focus:border-primary"
+                        placeholder="0"
+                        value={av.uplift ?? 0}
+                        onChange={e => updateAltVehicle(idx, "uplift", e.target.value)}
+                        data-testid={`input-alt-uplift-${idx}`}
+                      />
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-destructive hover:bg-destructive/10 h-9 w-9 p-0 flex-shrink-0"
+                      onClick={() => removeAltVehicle(idx)}
+                      data-testid={`button-remove-alt-${idx}`}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              {!editing.id && (
+                <p className="text-[10px] text-muted-foreground italic">
+                  💡 If migration-tour-alt-vehicles.sql hasn't been run yet, alt vehicles will be silently dropped.
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -1625,46 +1710,33 @@ function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
     <div className="space-y-5">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-semibold text-foreground">Products Catalogue</h2>
+          <h2 className="font-semibold text-foreground">🗺 Tours Catalogue</h2>
           <p className="text-xs text-muted-foreground mt-0.5">
-            Vehicles, Meet &amp; Greet tiers, tours and add-ons — selectable during booking creation.
+            Tour packages with optional alt-vehicle uplifts.
             {!isSuperAdmin && " Admins can view and add. Only Super Admin can delete."}
           </p>
         </div>
-        {(isSuperAdmin || true) && (
-          <Button size="sm" onClick={startNew} className="text-xs h-8 flex-shrink-0">
-            <Plus className="w-3 h-3 mr-1" /> Add
-          </Button>
-        )}
+        <Button size="sm" onClick={startNew} className="text-xs h-8 flex-shrink-0" data-testid="button-add-tour">
+          <Plus className="w-3 h-3 mr-1" /> Add Tour
+        </Button>
       </div>
 
-      {products.length === 0 ? (
+      <div className="rounded-xl border border-primary/20 bg-primary/5 px-3 py-2.5 text-[11px] text-muted-foreground flex items-start gap-2">
+        <span className="text-primary">ℹ️</span>
+        <span>
+          Vehicles &amp; per-airport prices live in <a href="/admin/airport-pricing" className="text-primary underline">Airport Pricing</a>.
+          Meet &amp; Greet tiers and other Add-ons live in the same screen under <strong>Additional Services</strong>.
+        </span>
+      </div>
+
+      {filtered.length === 0 ? (
         <div className="text-center py-10 border border-dashed border-border rounded-xl text-muted-foreground">
-          <p className="text-sm">No products found. Run migration-products.sql in Supabase first.</p>
+          <p className="text-sm">No tours yet — click "Add Tour" to create one.</p>
         </div>
       ) : (
         <>
-          {/* Category filter */}
-          <div className="flex overflow-x-auto gap-2 pb-1">
-            {categories.map(cat => (
-              <button key={cat}
-                onClick={() => setActiveCategory(cat)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all flex-shrink-0 border ${
-                  activeCategory === cat ? "bg-primary text-primary-foreground border-primary" : "border-border text-muted-foreground hover:border-primary/50 hover:text-foreground"
-                }`}
-              >
-                {CATEGORY_ICONS[cat]} {cat} ({products.filter(p => p.category === cat).length})
-              </button>
-            ))}
-          </div>
-
           {/* Product list */}
           <div className="space-y-2">
-            {filtered.length === 0 && (
-              <div className="text-center py-8 text-sm text-muted-foreground border border-dashed border-border rounded-xl">
-                No products in this category
-              </div>
-            )}
             {filtered.map(product => (
               <div key={product.id} className={`flex items-center gap-3 p-3 rounded-xl border ${product.active ? 'border-border bg-card' : 'border-border/40 bg-card opacity-50'}`}>
                 <div className="flex-1 min-w-0">

@@ -730,6 +730,25 @@ export default function BookingDetail() {
   const [editDuration, setEditDuration] = useState<number>(0);
   const [editTourName, setEditTourName] = useState("");
   const [editMeetingPoint, setEditMeetingPoint] = useState("");
+  const [editTourProductId, setEditTourProductId] = useState<string>("");
+  const [editTourBasePrice, setEditTourBasePrice] = useState<number>(0);
+  const [editTourAltLabel, setEditTourAltLabel] = useState<string>("");
+  const [editTourAltUplift, setEditTourAltUplift] = useState<number>(0);
+  const [tourCatalogue, setTourCatalogue] = useState<Array<{ id: string; name: string; unit_price: number | null; tour_alt_vehicles: Array<{ label: string; uplift: number }> | null }>>([]);
+  useEffect(() => {
+    if (booking?.service_type !== "Tour") return;
+    let active = true;
+    (async () => {
+      const { data } = await supabase
+        .from("products")
+        .select("id, name, unit_price, tour_alt_vehicles")
+        .eq("category", "Tour")
+        .eq("active", true)
+        .order("name");
+      if (active) setTourCatalogue((data ?? []) as any);
+    })();
+    return () => { active = false; };
+  }, [booking?.service_type]);
   // Common
   const [editPrice, setEditPrice] = useState<number>(0);
   const [editTvlCommission, setEditTvlCommission] = useState<number>(0);
@@ -759,6 +778,20 @@ export default function BookingDetail() {
     setEditDuration(Number(b.duration || 0));
     setEditTourName(b.tour_name || "");
     setEditMeetingPoint(b.meeting_point || "");
+    // Re-derive tour selection from notes if present
+    const noteStr = String(b.notes || "");
+    const altMatch = noteStr.match(/Vehicle:\s*([^|]+?)\s*\(\+£([\d.]+)\)/);
+    if (altMatch) {
+      setEditTourAltLabel(altMatch[1].trim());
+      setEditTourAltUplift(Number(altMatch[2]) || 0);
+    } else {
+      setEditTourAltLabel("");
+      setEditTourAltUplift(0);
+    }
+    // Best-effort match by tour_name
+    const matchedTour = tourCatalogue.find(t => t.name === (b.tour_name || ""));
+    setEditTourProductId(matchedTour?.id || "");
+    setEditTourBasePrice(matchedTour ? Number(matchedTour.unit_price ?? 0) : Number(b.price || 0) - (altMatch ? Number(altMatch[2]) || 0 : 0));
     // Common
     setEditPrice(Number(b.price || 0));
     setEditTvlCommission(Number(b.tvl_commission || 0));
@@ -823,6 +856,23 @@ export default function BookingDetail() {
         payload.tour_name = editTourName || undefined;
         payload.meeting_point = editMeetingPoint || undefined;
         payload.duration = editDuration || undefined;
+        // Re-stamp the alt vehicle line in notes so the marker survives edits
+        const noteStr = String((booking as any).notes || "");
+        const stripped = noteStr
+          .split("|")
+          .map(s => s.trim())
+          .filter(s => !/^Vehicle:\s*/i.test(s))
+          .join(" | ");
+        const vehicleLine = editTourAltLabel
+          ? `Vehicle: ${editTourAltLabel} (+£${Number(editTourAltUplift)})`
+          : (editTourProductId ? `Vehicle: V Class (standard)` : "");
+        payload.notes = vehicleLine
+          ? (stripped ? `${stripped} | ${vehicleLine}` : vehicleLine)
+          : (stripped || undefined);
+        // Recompute price from base + uplift if a catalogue tour is picked
+        if (editTourProductId) {
+          payload.price = Number(editTourBasePrice) + Number(editTourAltUplift || 0);
+        }
       }
       if (svcType === "As Directed") {
         payload.duration = editDuration || undefined;
@@ -1517,18 +1567,86 @@ export default function BookingDetail() {
                   </div>
                 )}
 
-                {svc === "Tour" && (
+                {svc === "Tour" && (() => {
+                  const selTour = tourCatalogue.find(t => t.id === editTourProductId);
+                  const altOpts = selTour?.tour_alt_vehicles ?? [];
+                  return (
                   <>
                     <div>
-                      <p className="text-xs text-muted-foreground mb-1">Tour Name</p>
-                      <Input value={editTourName} onChange={e => setEditTourName(e.target.value)} />
+                      <p className="text-xs text-muted-foreground mb-1">Tour</p>
+                      <Select
+                        value={editTourProductId || "__custom__"}
+                        onValueChange={(v) => {
+                          if (v === "__custom__") {
+                            setEditTourProductId("");
+                            setEditTourAltLabel("");
+                            setEditTourAltUplift(0);
+                            setEditTourBasePrice(0);
+                            return;
+                          }
+                          const t = tourCatalogue.find(x => x.id === v);
+                          if (!t) return;
+                          setEditTourProductId(t.id);
+                          setEditTourName(t.name);
+                          setEditTourBasePrice(Number(t.unit_price ?? 0));
+                          setEditTourAltLabel("");
+                          setEditTourAltUplift(0);
+                          setEditPrice(Number(t.unit_price ?? 0));
+                        }}
+                      >
+                        <SelectTrigger data-testid="select-edit-tour"><SelectValue placeholder="Select tour…" /></SelectTrigger>
+                        <SelectContent>
+                          {tourCatalogue.map(t => (
+                            <SelectItem key={t.id} value={t.id}>{t.name}{t.unit_price ? ` — £${Number(t.unit_price).toLocaleString()}` : ""}</SelectItem>
+                          ))}
+                          <SelectItem value="__custom__">— Custom (not in catalogue) —</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </div>
+
+                    {altOpts.length > 0 && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Vehicle for this tour</p>
+                        <Select
+                          value={editTourAltLabel || "__std__"}
+                          onValueChange={(v) => {
+                            if (v === "__std__") {
+                              setEditTourAltLabel("");
+                              setEditTourAltUplift(0);
+                              setEditPrice(Number(editTourBasePrice));
+                              return;
+                            }
+                            const opt = altOpts.find(o => o.label === v);
+                            if (!opt) return;
+                            setEditTourAltLabel(opt.label);
+                            setEditTourAltUplift(Number(opt.uplift) || 0);
+                            setEditPrice(Number(editTourBasePrice) + (Number(opt.uplift) || 0));
+                          }}
+                        >
+                          <SelectTrigger data-testid="select-edit-tour-alt"><SelectValue /></SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="__std__">V Class (standard) — £{Number(editTourBasePrice).toLocaleString()}</SelectItem>
+                            {altOpts.map((o, i) => (
+                              <SelectItem key={i} value={o.label}>{o.label} — +£{Number(o.uplift).toLocaleString()} (total £{(Number(editTourBasePrice) + Number(o.uplift)).toLocaleString()})</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    )}
+
+                    {!editTourProductId && (
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Tour Name (custom)</p>
+                        <Input value={editTourName} onChange={e => setEditTourName(e.target.value)} />
+                      </div>
+                    )}
                     <div>
                       <p className="text-xs text-muted-foreground mb-1">Meeting Point</p>
                       <Input value={editMeetingPoint} onChange={e => setEditMeetingPoint(e.target.value)} />
                     </div>
                   </>
-                )}
+                  );
+                })()}
 
                 <div className="grid grid-cols-2 gap-3">
                   <div>

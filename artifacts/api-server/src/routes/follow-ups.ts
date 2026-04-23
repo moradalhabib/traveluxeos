@@ -345,4 +345,19 @@ router.patch("/:id", async (req, res) => {
   return res.json(data);
 });
 
+// DELETE /follow-ups/:id — admin-only, used by bulk-select. Audit-logged.
+router.delete("/:id", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || (user.role !== "admin" && user.role !== "super_admin")) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const { id } = req.params;
+
+  const { error } = await supabase.from("follow_ups").delete().eq("id", id);
+  if (error) return res.status(400).json({ error: error.message });
+
+  await auditLog("delete_followup", "follow_up", id, user.id, `Deleted follow-up ${id}`);
+  return res.json({ success: true });
+});
+
 export default router;

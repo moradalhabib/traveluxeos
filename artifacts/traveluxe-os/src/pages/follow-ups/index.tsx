@@ -13,8 +13,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   PhoneCall, MessageCircle, CheckCheck, RotateCcw, PhoneOff, Clock,
-  ChevronRight, AlertTriangle, X, ArrowLeft, TrendingUp, CalendarRange, Download
+  ChevronRight, AlertTriangle, X, ArrowLeft, TrendingUp, CalendarRange, Download, CheckSquare
 } from "lucide-react";
+import { useBulkSelect } from "@/hooks/use-bulk-select";
+import { BulkActionBar } from "@/components/bulk-action-bar";
 import { format, formatDistanceToNow } from "date-fns";
 import { getVipPillClass } from "@/lib/vip";
 import * as XLSX from "xlsx";
@@ -62,6 +64,8 @@ export default function FollowUps() {
   const { toast } = useToast();
   const qc = useQueryClient();
   const [, navigate] = useLocation();
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
+  const bulk = useBulkSelect();
 
   // ── Filters ───────────────────────────────────────────────────────────────
   const [statusFilter, setStatusFilter] = useState("pending");
@@ -123,6 +127,34 @@ export default function FollowUps() {
   const getToken = async () => {
     const { data: { session } } = await supabase.auth.getSession();
     return session?.access_token ?? "";
+  };
+
+  // ── Bulk delete fan-out ───────────────────────────────────────────────────
+  const handleBulkDelete = async () => {
+    const ids = bulk.ids;
+    const token = await getToken();
+    const results = await Promise.allSettled(
+      ids.map(id =>
+        fetch(`${API_BASE}/follow-ups/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        }).then(async r => {
+          if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Failed");
+        })
+      )
+    );
+    const ok = results.filter(r => r.status === "fulfilled").length;
+    const fail = results.length - ok;
+    bulk.exitSelectMode();
+    fetchData();
+    if (fail === 0) {
+      toast({ title: `Deleted ${ok} follow-up${ok === 1 ? "" : "s"}` });
+    } else {
+      toast({
+        title: `Deleted ${ok}, ${fail} failed`,
+        variant: "destructive",
+      });
+    }
   };
 
   // ── Patch a follow-up ─────────────────────────────────────────────────────
@@ -272,17 +304,44 @@ export default function FollowUps() {
             Arrival clients to check in with and convert to return bookings
           </p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={handleExport}
-          disabled={loading || followUps.length === 0}
-          className="gap-2 flex-shrink-0"
-          data-testid="button-export-followups"
-        >
-          <Download className="w-4 h-4" />
-          <span className="hidden sm:inline">Export</span>
-        </Button>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {isAdmin && (
+            bulk.selectMode ? (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={bulk.exitSelectMode}
+                className="gap-2"
+                data-testid="button-bulk-cancel"
+              >
+                <X className="w-4 h-4" />
+                <span className="hidden sm:inline">Cancel</span>
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={bulk.enterSelectMode}
+                className="gap-2"
+                data-testid="button-bulk-select"
+              >
+                <CheckSquare className="w-4 h-4" />
+                <span className="hidden sm:inline">Select</span>
+              </Button>
+            )
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleExport}
+            disabled={loading || followUps.length === 0}
+            className="gap-2"
+            data-testid="button-export-followups"
+          >
+            <Download className="w-4 h-4" />
+            <span className="hidden sm:inline">Export</span>
+          </Button>
+        </div>
       </div>
 
       {/* Daily digest banner — tap to filter, ✕ to clear.
@@ -445,11 +504,31 @@ export default function FollowUps() {
             const busy = busyId === fu.id;
             const isPending = fu.status === "pending";
 
+            const sel = bulk.isSelected(fu.id);
             return (
               <Card
                 key={fu.id}
-                className={`border-border bg-card ${isOverdue(fu) ? "border-l-4 border-l-destructive" : isDueToday(fu) ? "border-l-4 border-l-amber-500" : ""}`}
+                className={`relative border-border bg-card ${isOverdue(fu) ? "border-l-4 border-l-destructive" : isDueToday(fu) ? "border-l-4 border-l-amber-500" : ""} ${sel ? "ring-2 ring-primary" : ""} ${bulk.selectMode ? "cursor-pointer" : ""}`}
+                data-testid={`followup-card-${fu.id}`}
               >
+                {bulk.selectMode && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => bulk.toggle(fu.id)}
+                      className="absolute inset-0 z-20 w-full h-full"
+                      aria-label="Toggle selection"
+                      data-testid={`select-followup-${fu.id}`}
+                    />
+                    <div
+                      className={`absolute top-2 right-2 z-30 w-6 h-6 rounded-md border-2 flex items-center justify-center pointer-events-none ${
+                        sel ? "bg-primary border-primary" : "border-border bg-background"
+                      }`}
+                    >
+                      {sel && <CheckSquare className="w-4 h-4 text-primary-foreground" />}
+                    </div>
+                  </>
+                )}
                 <CardContent className="p-4 space-y-3">
                   {/* Top row */}
                   <div className="flex items-start justify-between gap-3">
@@ -647,6 +726,13 @@ export default function FollowUps() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <BulkActionBar
+        count={bulk.count}
+        noun="follow-up"
+        onClear={bulk.exitSelectMode}
+        onDelete={handleBulkDelete}
+      />
     </div>
   );
 }

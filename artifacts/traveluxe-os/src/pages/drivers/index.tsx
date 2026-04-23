@@ -3,7 +3,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, MessageSquare, Star, Car, RefreshCw, Loader2 } from "lucide-react";
+import { Search, Plus, MessageSquare, Star, Car, RefreshCw, Loader2, CheckSquare, X } from "lucide-react";
+import { useBulkSelect } from "@/hooks/use-bulk-select";
+import { BulkActionBar } from "@/components/bulk-action-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   AlertDialog,
@@ -33,8 +35,41 @@ export default function Drivers() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const isSuperAdmin = user?.role === "super_admin";
+  const isAdmin = user?.role === "admin" || isSuperAdmin;
   const [resetOpen, setResetOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const bulk = useBulkSelect();
+
+  const handleBulkDelete = async () => {
+    const ids = bulk.ids;
+    const base = (import.meta as any).env?.VITE_API_URL ?? "";
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token ?? "";
+    const results = await Promise.allSettled(
+      ids.map(id =>
+        fetch(`${base}/api/drivers/${id}`, {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${token}` },
+        }).then(async r => {
+          if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Failed");
+        })
+      )
+    );
+    const ok = results.filter(r => r.status === "fulfilled").length;
+    const fail = results.length - ok;
+    queryClient.invalidateQueries({ queryKey: getListDriversQueryKey({}) });
+    bulk.exitSelectMode();
+    if (fail === 0) {
+      toast({ title: `Deleted ${ok} driver${ok === 1 ? "" : "s"}` });
+    } else {
+      const firstErr = results.find(r => r.status === "rejected") as PromiseRejectedResult | undefined;
+      toast({
+        title: `Deleted ${ok}, ${fail} failed`,
+        description: firstErr?.reason?.message ?? "Some drivers could not be deleted (likely have active bookings).",
+        variant: "destructive",
+      });
+    }
+  };
   const { data: drivers, isLoading } = useListDrivers(
     {},
     { query: { enabled: true, queryKey: getListDriversQueryKey({}) } }
@@ -101,6 +136,29 @@ export default function Drivers() {
               <RefreshCw className="w-4 h-4 mr-2" />
               Reset TVL Numbers
             </Button>
+          )}
+          {isAdmin && (
+            bulk.selectMode ? (
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto h-12"
+                onClick={bulk.exitSelectMode}
+                data-testid="button-bulk-cancel"
+              >
+                <X className="w-4 h-4 mr-2" />
+                Cancel
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto h-12"
+                onClick={bulk.enterSelectMode}
+                data-testid="button-bulk-select"
+              >
+                <CheckSquare className="w-4 h-4 mr-2" />
+                Select
+              </Button>
+            )
           )}
           <Link href="/drivers/new">
             <Button className="w-full sm:w-auto h-12 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
@@ -175,8 +233,26 @@ export default function Drivers() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {isLoading ? (
           [...Array(6)].map((_, i) => <Skeleton key={i} className="h-32" />)
-        ) : filtered?.map((driver: any) => (
-          <Card key={driver.id} className="border-primary/10 hover:border-primary/30 transition-colors bg-card overflow-hidden flex flex-col">
+        ) : filtered?.map((driver: any) => {
+          const sel = bulk.isSelected(driver.id);
+          return (
+          <Card
+            key={driver.id}
+            className={`relative border-primary/10 hover:border-primary/30 transition-colors bg-card overflow-hidden flex flex-col ${
+              bulk.selectMode ? "cursor-pointer" : ""
+            } ${sel ? "ring-2 ring-primary border-primary" : ""}`}
+            onClick={bulk.selectMode ? () => bulk.toggle(driver.id) : undefined}
+            data-testid={`driver-card-${driver.id}`}
+          >
+            {bulk.selectMode && (
+              <div
+                className={`absolute top-2 right-2 z-10 w-6 h-6 rounded-md border-2 flex items-center justify-center ${
+                  sel ? "bg-primary border-primary" : "border-border bg-background"
+                }`}
+              >
+                {sel && <CheckSquare className="w-4 h-4 text-primary-foreground" />}
+              </div>
+            )}
             <CardContent className="p-5 flex-1 flex flex-col">
               <div className="flex justify-between items-start mb-4">
                 <div>
@@ -223,28 +299,39 @@ export default function Drivers() {
                 </div>
               </div>
 
-              <div className="flex gap-2 mt-auto pt-4 border-t border-border/50">
-                <Link href={`/drivers/${driver.id}`} className="flex-1">
-                  <Button variant="outline" className="w-full h-10">View Profile</Button>
-                </Link>
-                {driver.whatsapp && (
-                  <a
-                    href={`https://wa.me/${driver.whatsapp.replace(/\D/g, "")}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex-1"
-                  >
-                    <Button variant="secondary" className="w-full h-10 bg-green-900/20 text-green-500 hover:bg-green-900/40 border border-green-900/50">
-                      <MessageSquare className="w-4 h-4 mr-2" />
-                      Chat
-                    </Button>
-                  </a>
-                )}
-              </div>
+              {!bulk.selectMode && (
+                <div className="flex gap-2 mt-auto pt-4 border-t border-border/50">
+                  <Link href={`/drivers/${driver.id}`} className="flex-1">
+                    <Button variant="outline" className="w-full h-10">View Profile</Button>
+                  </Link>
+                  {driver.whatsapp && (
+                    <a
+                      href={`https://wa.me/${driver.whatsapp.replace(/\D/g, "")}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1"
+                    >
+                      <Button variant="secondary" className="w-full h-10 bg-green-900/20 text-green-500 hover:bg-green-900/40 border border-green-900/50">
+                        <MessageSquare className="w-4 h-4 mr-2" />
+                        Chat
+                      </Button>
+                    </a>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
       </div>
+
+      <BulkActionBar
+        count={bulk.count}
+        noun="driver"
+        onClear={bulk.exitSelectMode}
+        onDelete={handleBulkDelete}
+        warning={`This permanently removes ${bulk.count} driver${bulk.count === 1 ? "" : "s"}. Drivers with active (non-cancelled) bookings will be skipped.`}
+      />
     </div>
   );
 }

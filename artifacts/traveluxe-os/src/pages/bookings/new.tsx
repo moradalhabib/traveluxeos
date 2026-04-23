@@ -80,6 +80,10 @@ const bookingSchema = z.object({
   chauffeuring_notes: z.string().optional(),
   // Tour fields
   tour_name: z.string().optional(),
+  tour_product_id: z.string().optional(),
+  tour_alt_label: z.string().optional(),
+  tour_alt_uplift: z.coerce.number().optional(),
+  tour_base_price: z.coerce.number().optional(),
   meeting_point: z.string().optional(),
   guide_included: z.boolean().optional(),
   itinerary: z.string().optional(),
@@ -289,6 +293,37 @@ export default function NewBooking() {
     : carRentalDerivedSubtotal;
   const clientPriceWatch = bookingForm.watch("price") || 0;
   const carRentalMargin = Number(clientPriceWatch) - carRentalSubtotal;
+
+  // ─── Tour catalogue fetch (Tours-only, active) ──────────────────────────
+  const [tourList, setTourList] = useState<Array<{ id: string; name: string; description: string | null; unit_price: number | null; tour_alt_vehicles: Array<{ label: string; uplift: number }> | null }>>([]);
+  useEffect(() => {
+    if (!isTourType) return;
+    let active = true;
+    (async () => {
+      const { data } = await supabase
+        .from("products")
+        .select("id, name, description, unit_price, tour_alt_vehicles")
+        .eq("category", "Tour")
+        .eq("active", true)
+        .order("sort_order")
+        .order("name");
+      if (active) setTourList((data ?? []) as any);
+    })();
+    return () => { active = false; };
+  }, [isTourType]);
+
+  // Recompute price when tour or alt vehicle changes — only when a catalogue
+  // tour is picked, so custom-name tours can still be manually priced.
+  const tourProductIdWatch = bookingForm.watch("tour_product_id" as any) as string | undefined;
+  const tourBasePriceWatch = bookingForm.watch("tour_base_price" as any) || 0;
+  const tourAltUpliftWatch = bookingForm.watch("tour_alt_uplift" as any) || 0;
+  useEffect(() => {
+    if (!isTourType) return;
+    if (!tourProductIdWatch) return;
+    const total = Number(tourBasePriceWatch) + Number(tourAltUpliftWatch);
+    bookingForm.setValue("price", total, { shouldDirty: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTourType, tourProductIdWatch, tourBasePriceWatch, tourAltUpliftWatch]);
 
   // ─── Suppliers fetch (used by picker) ────────────────────────────────────
   const [supplierList, setSupplierList] = useState<any[]>([]);
@@ -885,6 +920,11 @@ export default function NewBooking() {
     }
     if (values.service_type === "Tour") {
       if (values.tour_name) extraDetails.push(`Tour: ${values.tour_name}`);
+      if (values.tour_alt_label) {
+        extraDetails.push(`Vehicle: ${values.tour_alt_label} (+£${Number(values.tour_alt_uplift ?? 0)})`);
+      } else if (values.tour_product_id) {
+        extraDetails.push(`Vehicle: V Class (standard)`);
+      }
       if (values.meeting_point) extraDetails.push(`Meeting Point: ${values.meeting_point}`);
       if (values.itinerary) extraDetails.push(`Itinerary: ${values.itinerary}`);
       if (values.guide_included) extraDetails.push(`Guide: Included`);
@@ -1832,13 +1872,81 @@ export default function NewBooking() {
                     </>
                   )}
 
-                  {isTourType && (
+                  {isTourType && (() => {
+                    const selectedTourId = bookingForm.watch("tour_product_id" as any) as string | undefined;
+                    const selectedTour = tourList.find(t => t.id === selectedTourId);
+                    const altOptions = selectedTour?.tour_alt_vehicles ?? [];
+                    const selectedAltLabel = bookingForm.watch("tour_alt_label" as any) as string | undefined;
+                    return (
                     <div className="space-y-3 p-3 rounded-xl border border-primary/20 bg-primary/5">
                       <p className="text-xs font-semibold text-primary uppercase tracking-wider">Tour Details</p>
                       <div className="grid grid-cols-2 gap-3">
-                        <FormField control={bookingForm.control} name="tour_name" render={({ field }) => (
+                        <FormItem className="col-span-2">
+                          <FormLabel>Tour</FormLabel>
+                          <Select
+                            value={selectedTourId ?? "__custom__"}
+                            onValueChange={(v) => {
+                              if (v === "__custom__") {
+                                bookingForm.setValue("tour_product_id" as any, "", { shouldDirty: true });
+                                bookingForm.setValue("tour_base_price" as any, 0, { shouldDirty: true });
+                                bookingForm.setValue("tour_alt_label" as any, "", { shouldDirty: true });
+                                bookingForm.setValue("tour_alt_uplift" as any, 0, { shouldDirty: true });
+                                return;
+                              }
+                              const t = tourList.find(x => x.id === v);
+                              if (!t) return;
+                              bookingForm.setValue("tour_product_id" as any, t.id, { shouldDirty: true });
+                              bookingForm.setValue("tour_name", t.name, { shouldDirty: true });
+                              bookingForm.setValue("tour_base_price" as any, Number(t.unit_price ?? 0), { shouldDirty: true });
+                              bookingForm.setValue("tour_alt_label" as any, "", { shouldDirty: true });
+                              bookingForm.setValue("tour_alt_uplift" as any, 0, { shouldDirty: true });
+                            }}
+                          >
+                            <SelectTrigger data-testid="select-tour-product"><SelectValue placeholder="Select a tour…" /></SelectTrigger>
+                            <SelectContent>
+                              {tourList.map(t => (
+                                <SelectItem key={t.id} value={t.id} data-testid={`option-tour-${t.id}`}>
+                                  {t.name}{t.unit_price ? ` — £${Number(t.unit_price).toLocaleString()}` : ""}
+                                </SelectItem>
+                              ))}
+                              <SelectItem value="__custom__">— Custom (not in catalogue) —</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </FormItem>
+
+                        {altOptions.length > 0 && (
                           <FormItem className="col-span-2">
-                            <FormLabel>Tour Name</FormLabel>
+                            <FormLabel>Vehicle for this tour</FormLabel>
+                            <Select
+                              value={selectedAltLabel || "__std__"}
+                              onValueChange={(v) => {
+                                if (v === "__std__") {
+                                  bookingForm.setValue("tour_alt_label" as any, "", { shouldDirty: true });
+                                  bookingForm.setValue("tour_alt_uplift" as any, 0, { shouldDirty: true });
+                                  return;
+                                }
+                                const opt = altOptions.find(o => o.label === v);
+                                if (!opt) return;
+                                bookingForm.setValue("tour_alt_label" as any, opt.label, { shouldDirty: true });
+                                bookingForm.setValue("tour_alt_uplift" as any, Number(opt.uplift) || 0, { shouldDirty: true });
+                              }}
+                            >
+                              <SelectTrigger data-testid="select-tour-alt-vehicle"><SelectValue /></SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__std__">V Class (standard) — £{Number(tourBasePriceWatch || 0).toLocaleString()}</SelectItem>
+                                {altOptions.map((o, i) => (
+                                  <SelectItem key={i} value={o.label} data-testid={`option-alt-${i}`}>
+                                    {o.label} — +£{Number(o.uplift || 0).toLocaleString()} (total £{(Number(tourBasePriceWatch || 0) + Number(o.uplift || 0)).toLocaleString()})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </FormItem>
+                        )}
+
+                        <FormField control={bookingForm.control} name="tour_name" render={({ field }) => (
+                          <FormItem className={selectedTourId ? "hidden" : "col-span-2"}>
+                            <FormLabel>Tour Name (custom)</FormLabel>
                             <FormControl><Input placeholder="e.g. Oxford & Cotswolds Day Trip" {...field} /></FormControl>
                             <FormMessage />
                           </FormItem>
@@ -1881,8 +1989,22 @@ export default function NewBooking() {
                           <label htmlFor="guide_included" className="text-sm font-medium cursor-pointer">Guide included</label>
                         </div>
                       </div>
+                      {selectedTour && (
+                        <div className="text-[11px] text-muted-foreground border-t border-primary/10 pt-2 flex items-center justify-between">
+                          <span>
+                            Base £{Number(tourBasePriceWatch || 0).toLocaleString()}
+                            {Number(tourAltUpliftWatch) > 0 && (
+                              <> + uplift £{Number(tourAltUpliftWatch).toLocaleString()}</>
+                            )}
+                          </span>
+                          <span className="font-semibold text-foreground">
+                            Tour total £{(Number(tourBasePriceWatch || 0) + Number(tourAltUpliftWatch || 0)).toLocaleString()}
+                          </span>
+                        </div>
+                      )}
                     </div>
-                  )}
+                    );
+                  })()}
 
                   {isAsDirected && (() => {
                     const baseRate = Number((bookingForm.watch("base_daily_rate" as any) as any) || 0);

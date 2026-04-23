@@ -400,4 +400,51 @@ router.post("/:id/rate", async (req, res) => {
   return res.status(201).json(data);
 });
 
+// DELETE /drivers/:id — admin-only hard delete used by bulk-select.
+// Refuses if the driver is linked to any non-cancelled bookings so we
+// never orphan operational records. Audit-logged.
+router.delete("/:id", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || (user.role !== "admin" && user.role !== "super_admin")) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const { id } = req.params;
+
+  const { data: active } = await supabase
+    .from("bookings")
+    .select("id")
+    .eq("driver_id", id)
+    .neq("status", "Cancelled")
+    .limit(1);
+
+  if (active && active.length > 0) {
+    return res.status(409).json({ error: "Cannot delete a driver with active bookings. Reassign or cancel those bookings first." });
+  }
+
+  // Driver ratings have FK → driver; clear them first.
+  await supabase.from("driver_ratings").delete().eq("driver_id", id);
+
+  const { data: deleted, error } = await supabase
+    .from("drivers")
+    .delete()
+    .eq("id", id)
+    .select()
+    .single();
+
+  if (error) return res.status(400).json({ error: error.message });
+
+  await auditLog("delete_driver", "driver", id, user.id,
+    `Deleted driver ${deleted?.name ?? id}`);
+  await logActivity({
+    type: "driver_delete",
+    summary: `Driver ${deleted?.name ?? id} deleted`,
+    entity_type: "driver",
+    entity_id: id,
+    entity_label: deleted?.name ?? null,
+    operator_id: user.id,
+    operator_name: user.name ?? null,
+  });
+  return res.json({ success: true, ...deleted });
+});
+
 export default router;
