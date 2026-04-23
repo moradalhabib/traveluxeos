@@ -10,7 +10,9 @@ interface TimePickerProps {
   "data-testid"?: string;
 }
 
-const DEFAULT_PRESETS = ["06:00", "09:00", "12:00", "15:00", "18:00", "21:00"];
+// No presets by default — opt-in via the `presets` prop. Chips were
+// breaking narrow column layouts (forms that put time into 1/3 of a row).
+const DEFAULT_PRESETS: string[] = [];
 
 const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
 const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
