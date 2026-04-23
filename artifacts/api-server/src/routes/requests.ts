@@ -180,11 +180,37 @@ router.post("/:id/convert", async (req, res) => {
 
   if (error || !r) return res.status(404).json({ error: "Request not found" });
 
+  // If the request was logged without a client_id (e.g. typed in by name
+  // before a profile existed, or created via "New lead"), try to match an
+  // existing client by exact (case-insensitive) name. When we find exactly
+  // one we backfill the link on the request so the booking form, follow-ups,
+  // etc. all see the same client going forward — no more "type the WhatsApp
+  // number again" step on convert.
+  let resolvedClientId: string | null = r.client_id ?? null;
+  let resolvedClientName: string | null = r.clients?.name ?? r.client_name ?? null;
+  if (!resolvedClientId && resolvedClientName) {
+    const { data: matches } = await supabase
+      .from("clients")
+      .select("id, name")
+      .ilike("name", resolvedClientName)
+      .eq("inactive", false)
+      .limit(2);
+    if (matches && matches.length === 1) {
+      resolvedClientId = matches[0].id;
+      resolvedClientName = matches[0].name;
+      // Persist the link so the request and its detail page stay in sync.
+      await supabase
+        .from("requests")
+        .update({ client_id: resolvedClientId })
+        .eq("id", r.id);
+    }
+  }
+
   // Build a booking draft (not yet inserted — frontend opens /bookings/new prefilled)
   const draft = {
     request_id: r.id,
-    client_id: r.client_id,
-    client_name: r.clients?.name ?? r.client_name,
+    client_id: resolvedClientId,
+    client_name: resolvedClientName,
     service_type: r.service_type,
     date_time: r.requested_date_time,
     notes: r.notes,
