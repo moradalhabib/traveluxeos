@@ -87,11 +87,16 @@ export default function SuppliersList() {
       else if (r.value.deactivated) deactivated++;
       else deleted++; // legacy/unknown success → assume deleted
     }
-    const parts: string[] = [];
-    if (deleted) parts.push(`${deleted} deleted`);
-    if (deactivated) parts.push(`${deactivated} deactivated (linked to bookings)`);
-    if (failed) parts.push(`${failed} failed`);
-    const msg = parts.join(", ") || "No changes";
+    let msg: string;
+    if (deactivated > 0 && deleted === 0 && failed === 0) {
+      msg = `Deactivated — ${deactivated} supplier${deactivated === 1 ? "" : "s"} had bookings`;
+    } else {
+      const parts: string[] = [];
+      if (deleted) parts.push(`${deleted} deleted`);
+      if (deactivated) parts.push(`${deactivated} deactivated (linked to bookings)`);
+      if (failed) parts.push(`${failed} failed`);
+      msg = parts.join(", ") || "No changes";
+    }
     if (failed > 0) toast.error(msg);
     else if (deactivated > 0 && deleted === 0) toast.warning(msg);
     else toast.success(msg);
