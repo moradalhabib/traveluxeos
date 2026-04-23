@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGr
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Check, UserPlus, AlertTriangle, ArrowLeft, Phone, Pencil, X } from "lucide-react";
+import { Loader2, Search, Check, UserPlus, AlertTriangle, ArrowLeft, Phone, Pencil, X, Plus } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { format } from "date-fns";
 import { isoToLondonInput, londonInputToIso } from "@/lib/datetime";
