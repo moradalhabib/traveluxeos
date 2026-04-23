@@ -28,7 +28,7 @@ const OPERATOR_SIDEBAR = [
   { href: "/jobs",         label: "Jobs Board",   icon: Briefcase },
   { href: "/bookings",     label: "Bookings",     icon: CalendarRange },
   { href: "/follow-ups",   label: "Follow-Ups",   icon: PhoneCall, badge: true },
-  { href: "/services",     label: "Services",     icon: Layers },
+  { href: "/services",     label: "Service",      icon: Layers },
   { href: "/clients",      label: "Clients",      icon: Users },
   { href: "/analytics",    label: "Intel",        icon: LineChart },
   { href: "/search",       label: "Search",       icon: Search },
@@ -399,7 +399,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
             <Link href="/services" className={`flex flex-col items-center justify-center w-14 h-16 ${location.startsWith('/services') ? 'text-primary' : 'text-muted-foreground'}`}>
               <Layers className="w-5 h-5 mb-1" />
-              <span className="text-[10px] font-medium">Services</span>
+              <span className="text-[10px] font-medium">Service</span>
             </Link>
 
             <button

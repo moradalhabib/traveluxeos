@@ -2204,12 +2204,10 @@ export default function Admin() {
         </div>
       </div>
 
-      <Tabs defaultValue="products" className="w-full">
+      <Tabs defaultValue="service-list" className="w-full">
         <div className="overflow-x-auto -mx-2 px-2">
           <TabsList className="inline-flex w-auto min-w-full">
-            <TabsTrigger value="products" className="text-xs px-3 whitespace-nowrap">Tours</TabsTrigger>
-            <TabsTrigger value="airport" className="text-xs px-3 whitespace-nowrap">Airport</TabsTrigger>
-            <TabsTrigger value="services" className="text-xs px-3 whitespace-nowrap">Services</TabsTrigger>
+            <TabsTrigger value="service-list" className="text-xs px-3 whitespace-nowrap">Service List</TabsTrigger>
             <TabsTrigger value="import" className="text-xs px-3 whitespace-nowrap">Import</TabsTrigger>
             <TabsTrigger value="export" className="text-xs px-3 whitespace-nowrap">Export</TabsTrigger>
             <TabsTrigger value="fleet" className="text-xs px-3 whitespace-nowrap">Fleet</TabsTrigger>
@@ -2224,16 +2222,32 @@ export default function Admin() {
           </TabsList>
         </div>
 
-        <TabsContent value="products" className="mt-5">
-          <ProductsTab isSuperAdmin={isSuperAdmin} />
-        </TabsContent>
-
-        <TabsContent value="airport" className="mt-5">
-          <AirportPricingPanel />
-        </TabsContent>
-
-        <TabsContent value="services" className="mt-5">
-          <ServicesTab isSuperAdmin={isSuperAdmin} />
+        {/* Service List — the unified place to manage everything that
+            Traveluxe sells: the high-level Catalogue (service types and
+            add-ons), Tours (specific tour products), and Airport pricing
+            (vehicle class × tier matrix + meet & greet). Previously these
+            were three separate top-level tabs which was confusing — the
+            Service List is one logical product surface, just split into
+            sub-tabs by what's being edited. */}
+        <TabsContent value="service-list" className="mt-5">
+          <Tabs defaultValue="catalogue" className="w-full">
+            <div className="overflow-x-auto -mx-2 px-2 mb-4">
+              <TabsList className="inline-flex w-auto min-w-full bg-secondary/40">
+                <TabsTrigger value="catalogue" className="text-xs px-3 whitespace-nowrap">Catalogue</TabsTrigger>
+                <TabsTrigger value="tours" className="text-xs px-3 whitespace-nowrap">Tours</TabsTrigger>
+                <TabsTrigger value="airport" className="text-xs px-3 whitespace-nowrap">Airport</TabsTrigger>
+              </TabsList>
+            </div>
+            <TabsContent value="catalogue" className="mt-0">
+              <ServicesTab isSuperAdmin={isSuperAdmin} />
+            </TabsContent>
+            <TabsContent value="tours" className="mt-0">
+              <ProductsTab isSuperAdmin={isSuperAdmin} />
+            </TabsContent>
+            <TabsContent value="airport" className="mt-0">
+              <AirportPricingPanel />
+            </TabsContent>
+          </Tabs>
         </TabsContent>
 
         <TabsContent value="import" className="mt-5">
