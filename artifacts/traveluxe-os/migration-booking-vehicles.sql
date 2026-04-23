@@ -26,9 +26,20 @@ CREATE TABLE IF NOT EXISTS public.booking_vehicles (
   payout_status        TEXT NOT NULL DEFAULT 'Pending'
                          CHECK (payout_status IN ('Pending','Paid')),
   notes                TEXT,
+  pickup               TEXT,
+  dropoff              TEXT,
+  date_time            TIMESTAMPTZ,
   created_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at           TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+-- Per-leg pickup / drop-off / time overrides for multi-car bookings.
+-- Nullable: empty values mean the leg inherits the parent booking's route
+-- and pickup time (the common case).
+ALTER TABLE public.booking_vehicles
+  ADD COLUMN IF NOT EXISTS pickup    TEXT,
+  ADD COLUMN IF NOT EXISTS dropoff   TEXT,
+  ADD COLUMN IF NOT EXISTS date_time TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS booking_vehicles_booking_idx
   ON public.booking_vehicles(booking_id);

@@ -4,7 +4,7 @@ import { supabase, auditLog, getUserFromToken } from "../lib/supabase";
 const router = Router();
 
 const SELECT_FIELDS =
-  "id, booking_id, driver_id, vehicle_type, vehicle_product_id, client_share, cost_to_company, tvl_commission, driver_receives, commission_status, payout_status, notes, created_at, updated_at, drivers(name, staff_no, vehicle_model, plate)";
+  "id, booking_id, driver_id, vehicle_type, vehicle_product_id, client_share, cost_to_company, tvl_commission, driver_receives, commission_status, payout_status, notes, pickup, dropoff, date_time, created_at, updated_at, drivers(name, staff_no, vehicle_model, plate)";
 
 function shape(row: any) {
   if (!row) return row;
@@ -49,6 +49,9 @@ router.post("/", async (req, res) => {
     commission_status,
     payout_status,
     notes,
+    pickup,
+    dropoff,
+    date_time,
   } = req.body || {};
 
   if (!booking_id) return res.status(400).json({ error: "booking_id is required" });
@@ -65,6 +68,10 @@ router.post("/", async (req, res) => {
     commission_status: commission_status || "Outstanding",
     payout_status: payout_status || "Pending",
     notes: notes || null,
+    // Per-leg overrides — empty/whitespace means "inherit from parent booking".
+    pickup: pickup && String(pickup).trim() ? String(pickup).trim() : null,
+    dropoff: dropoff && String(dropoff).trim() ? String(dropoff).trim() : null,
+    date_time: date_time || null,
   };
 
   const { data, error } = await supabase
@@ -176,6 +183,9 @@ router.patch("/:id", async (req, res) => {
     "commission_status",
     "payout_status",
     "notes",
+    "pickup",
+    "dropoff",
+    "date_time",
   ];
 
   const payload: Record<string, any> = {};
@@ -185,6 +195,11 @@ router.patch("/:id", async (req, res) => {
       if (["client_share", "cost_to_company", "tvl_commission", "driver_receives"].includes(k)) {
         payload[k] = v == null || v === "" ? 0 : Number(v);
       } else if (k === "driver_id" || k === "vehicle_product_id") {
+        payload[k] = v || null;
+      } else if (k === "pickup" || k === "dropoff") {
+        // Treat empty / whitespace as "clear override" (inherit from parent).
+        payload[k] = v && String(v).trim() ? String(v).trim() : null;
+      } else if (k === "date_time") {
         payload[k] = v || null;
       } else {
         payload[k] = v ?? null;

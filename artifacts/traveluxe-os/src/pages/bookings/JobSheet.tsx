@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { format } from "date-fns";
+import { fmtLondon } from "@/lib/datetime";
 import { toast } from "sonner";
 
 // ─── Driver Job Sheet ──────────────────────────────────────────────────────
@@ -61,6 +62,10 @@ const T: Record<Lang, Record<string, string>> = {
     primaryDriver: "Primary driver",
     extraCar: "Car",
     plate: "Plate",
+    sameAsPrimary: "Same as primary",
+    legPickup: "Pickup",
+    legDropoff: "Drop-off",
+    legTime: "Pickup time",
   },
   ar: {
     title: "ورقة مهمة السائق",
@@ -92,6 +97,10 @@ const T: Record<Lang, Record<string, string>> = {
     primaryDriver: "السائق الرئيسي",
     extraCar: "سيارة",
     plate: "اللوحة",
+    sameAsPrimary: "نفس مسار السيارة الرئيسية",
+    legPickup: "نقطة الانطلاق",
+    legDropoff: "نقطة الوصول",
+    legTime: "وقت الانطلاق",
   },
 };
 
@@ -104,6 +113,10 @@ type ExtraDriver = {
   driver_plate: string | null;
   vehicle_type: string | null;
   notes: string | null;
+  // Per-leg overrides — null means "inherit from parent booking".
+  pickup: string | null;
+  dropoff: string | null;
+  date_time: string | null;
 };
 
 async function authedFetch(path: string, init: RequestInit = {}) {
@@ -227,6 +240,15 @@ export default function JobSheet() {
           : (isAr ? "غير محدد" : "Unassigned");
         const veh = [e.vehicle_type || e.driver_vehicle, e.driver_plate].filter(Boolean).join(" · ");
         lines.push(`${i + 2}. ${name}${veh ? ` — ${veh}` : ""}`);
+        // Per-leg route / time overrides for this car. Skip the labels
+        // entirely when nothing is overridden — that car simply uses the
+        // primary route already listed above.
+        const legTime = e.date_time
+          ? fmtLondon(e.date_time, "EEE d MMM yyyy 'at' HH:mm")
+          : null;
+        if (e.pickup) lines.push(`   ${t.legPickup}: ${e.pickup}`);
+        if (e.dropoff) lines.push(`   ${t.legDropoff}: ${e.dropoff}`);
+        if (legTime) lines.push(`   ${t.legTime}: ${legTime}`);
       });
     }
 
@@ -429,6 +451,12 @@ export default function JobSheet() {
                   ? `${e.driver_staff_no ? `${e.driver_staff_no} · ` : ""}${e.driver_name}`
                   : (isAr ? "غير محدد" : "Unassigned");
                 const veh = e.vehicle_type || e.driver_vehicle;
+                const hasRouteOverride = !!(e.pickup || e.dropoff || e.date_time);
+                // Render in London time so operators in any timezone see
+                // the actual pickup time on the ground.
+                const legTimeStr = e.date_time
+                  ? fmtLondon(e.date_time, "EEE d MMM yyyy 'at' HH:mm")
+                  : null;
                 return (
                   <div key={e.id} className="rounded-md border border-border/60 bg-background/50 p-3 space-y-1">
                     <div className="flex items-center justify-between">
@@ -442,6 +470,38 @@ export default function JobSheet() {
                         {e.driver_plate ? <span> · {t.plate} {e.driver_plate}</span> : null}
                       </div>
                     )}
+
+                    {/* Per-leg route/time. Surface "Same as primary" when
+                        no overrides are set so the driver explicitly knows
+                        they share the booking's route, rather than wondering
+                        if the operator forgot to fill it in. */}
+                    {hasRouteOverride ? (
+                      <div className="pt-1.5 mt-1 border-t border-border/40 space-y-1">
+                        {e.pickup && (
+                          <div className="text-xs flex items-start gap-1.5">
+                            <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0 text-primary" />
+                            <span><span className="text-muted-foreground">{t.legPickup}:</span> <span className="font-medium">{e.pickup}</span></span>
+                          </div>
+                        )}
+                        {e.dropoff && (
+                          <div className="text-xs flex items-start gap-1.5">
+                            <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0 text-primary" />
+                            <span><span className="text-muted-foreground">{t.legDropoff}:</span> <span className="font-medium">{e.dropoff}</span></span>
+                          </div>
+                        )}
+                        {legTimeStr && (
+                          <div className="text-xs flex items-start gap-1.5">
+                            <Clock className="w-3 h-3 mt-0.5 flex-shrink-0 text-primary" />
+                            <span><span className="text-muted-foreground">{t.legTime}:</span> <span className="font-bold tabular-nums">{legTimeStr}</span></span>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-[11px] text-muted-foreground italic pt-1">
+                        {t.sameAsPrimary}
+                      </div>
+                    )}
+
                     {e.notes && (
                       <p className="text-xs text-muted-foreground italic pt-1">{e.notes}</p>
                     )}

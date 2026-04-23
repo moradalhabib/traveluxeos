@@ -168,6 +168,13 @@ export default function NewBooking() {
     driver_receives: string;
     tvl_commission: string;
     notes: string;
+    // Per-leg route + time overrides. Empty values mean "inherit from
+    // the parent booking" — the common case for single-route multi-car
+    // jobs. Operators only fill these in when one car starts at a
+    // different hotel or runs on a different schedule.
+    pickup: string;
+    dropoff: string;
+    date_time: string; // London-local "yyyy-MM-dd'T'HH:mm"
   };
   const blankExtraVehicle = (): ExtraVehicle => ({
     driver_id: "",
@@ -177,6 +184,9 @@ export default function NewBooking() {
     driver_receives: "",
     tvl_commission: "",
     notes: "",
+    pickup: "",
+    dropoff: "",
+    date_time: "",
   });
   const [extraVehicles, setExtraVehicles] = useState<ExtraVehicle[]>([]);
   const [foundClient, setFoundClient] = useState<FoundClient | null>(null);
@@ -1037,6 +1047,11 @@ export default function NewBooking() {
                   driver_receives: Number(v.driver_receives) || 0,
                   tvl_commission: Number(v.tvl_commission) || 0,
                   notes: v.notes || null,
+                  // Per-leg overrides — trimmed empty becomes null so the
+                  // leg inherits the parent booking's pickup/drop-off/time.
+                  pickup: v.pickup.trim() || null,
+                  dropoff: v.dropoff.trim() || null,
+                  date_time: v.date_time ? londonInputToIso(v.date_time) : null,
                 };
                 try {
                   const r = await fetch("/api/booking-vehicles", {
@@ -3288,6 +3303,46 @@ export default function NewBooking() {
                                     placeholder="0.00"
                                     value={row.tvl_commission}
                                     onChange={(e) => update({ tvl_commission: e.target.value })}
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Per-leg pickup / drop-off / pickup time
+                                  overrides. Leave blank to inherit from the
+                                  booking above — only fill in when one car
+                                  starts at a different hotel or runs on a
+                                  different schedule. */}
+                              <div className="space-y-2 rounded-md border border-dashed border-border/50 bg-card/40 p-2.5">
+                                <div className="text-[11px] font-medium text-muted-foreground">
+                                  Route override <span className="font-normal italic">(optional — leave blank to use the booking's pickup / drop-off / time)</span>
+                                </div>
+                                <div className="grid grid-cols-2 gap-2">
+                                  <div>
+                                    <label className="text-xs font-medium">Pickup</label>
+                                    <Input
+                                      className="h-9"
+                                      placeholder="Inherits from booking"
+                                      value={row.pickup}
+                                      onChange={(e) => update({ pickup: e.target.value })}
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="text-xs font-medium">Drop-off</label>
+                                    <Input
+                                      className="h-9"
+                                      placeholder="Inherits from booking"
+                                      value={row.dropoff}
+                                      onChange={(e) => update({ dropoff: e.target.value })}
+                                    />
+                                  </div>
+                                </div>
+                                <div>
+                                  <label className="text-xs font-medium">Pickup time</label>
+                                  <Input
+                                    className="h-9"
+                                    type="datetime-local"
+                                    value={row.date_time}
+                                    onChange={(e) => update({ date_time: e.target.value })}
                                   />
                                 </div>
                               </div>

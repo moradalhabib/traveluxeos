@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Car, Users, Plus, Pencil, Trash2, Lock, LockOpen, X, Save } from "lucide-react";
+import { Car, Users, Plus, Pencil, Trash2, Lock, LockOpen, X, Save, MapPin, Clock } from "lucide-react";
 import { Link } from "wouter";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -13,6 +13,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
+import { isoToLondonInput, londonInputToIso, fmtLondon } from "@/lib/datetime";
 import { useListDrivers, getListDriversQueryKey } from "@workspace/api-client-react";
 
 type ExtraVehicle = {
@@ -30,6 +31,10 @@ type ExtraVehicle = {
   commission_status: string;
   payout_status: string;
   notes: string | null;
+  // Per-leg overrides — null means "inherit from parent booking".
+  pickup: string | null;
+  dropoff: string | null;
+  date_time: string | null;
 };
 
 type DraftRow = {
@@ -47,6 +52,10 @@ type DraftRow = {
   driver_staff_no: string | null;
   driver_vehicle: string | null;
   driver_plate: string | null;
+  // Per-leg overrides — empty string means "inherit from parent booking".
+  pickup: string;
+  dropoff: string;
+  date_time: string; // London-local "yyyy-MM-dd'T'HH:mm" for the input
 };
 
 interface Props {
@@ -68,6 +77,9 @@ const blankDraft = (): DraftRow => ({
   driver_staff_no: null,
   driver_vehicle: null,
   driver_plate: null,
+  pickup: "",
+  dropoff: "",
+  date_time: "",
 });
 
 const isLocked = (r: { commission_status: string; payout_status: string }) =>
@@ -88,6 +100,9 @@ const toDraft = (r: ExtraVehicle): DraftRow => ({
   driver_staff_no: r.driver_staff_no,
   driver_vehicle: r.driver_vehicle,
   driver_plate: r.driver_plate,
+  pickup: r.pickup ?? "",
+  dropoff: r.dropoff ?? "",
+  date_time: r.date_time ? isoToLondonInput(r.date_time) : "",
 });
 
 export function BookingVehiclesRoster({ bookingId }: Props) {
@@ -196,6 +211,11 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
       driver_receives: driverPay,
       tvl_commission: commission,
       notes: d.notes || null,
+      // Per-leg overrides — trimmed empty becomes null so the API stores
+      // NULL and the leg inherits the parent booking's route/time.
+      pickup: d.pickup.trim() || null,
+      dropoff: d.dropoff.trim() || null,
+      date_time: d.date_time ? londonInputToIso(d.date_time) : null,
     };
   };
 
@@ -413,6 +433,32 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
                 </div>
               </div>
 
+              {(row.pickup || row.dropoff || row.date_time) && (
+                <div className="pt-1.5 border-t border-border/40 space-y-1 text-xs">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                    Route override
+                  </div>
+                  {row.pickup && (
+                    <div className="flex items-start gap-1.5">
+                      <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0 text-muted-foreground" />
+                      <span><span className="text-muted-foreground">Pickup:</span> {row.pickup}</span>
+                    </div>
+                  )}
+                  {row.dropoff && (
+                    <div className="flex items-start gap-1.5">
+                      <MapPin className="w-3 h-3 mt-0.5 flex-shrink-0 text-muted-foreground" />
+                      <span><span className="text-muted-foreground">Drop-off:</span> {row.dropoff}</span>
+                    </div>
+                  )}
+                  {row.date_time && (
+                    <div className="flex items-start gap-1.5">
+                      <Clock className="w-3 h-3 mt-0.5 flex-shrink-0 text-muted-foreground" />
+                      <span><span className="text-muted-foreground">Pickup time:</span> {fmtLondon(row.date_time, "EEE d MMM · HH:mm")}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {row.notes && (
                 <p className="text-xs text-muted-foreground pt-1.5 border-t border-border/40">
                   {row.notes}
@@ -615,6 +661,51 @@ export function BookingVehiclesRoster({ bookingId }: Props) {
 
               <div className="text-[11px] text-muted-foreground">
                 Driver pay (auto): £{Math.max(0, (Number(d.cost_to_company) || 0) - (Number(d.tvl_commission) || 0)).toFixed(2)}
+              </div>
+
+              {/* Per-leg route + time overrides. Leave blank to inherit
+                  the parent booking's pickup, drop-off, and pickup time —
+                  used for multi-car jobs where one car starts at a
+                  different hotel or runs on a different schedule. */}
+              <div className="space-y-2 rounded-md border border-dashed border-border/50 bg-card/30 p-2.5">
+                <div className="text-[11px] font-medium text-muted-foreground">
+                  Route override <span className="font-normal italic">(optional — leave blank to use the booking's pickup / drop-off / time)</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-xs font-medium">Pickup</label>
+                    <Input
+                      className="h-9"
+                      placeholder="Inherits from booking"
+                      disabled={locked}
+                      value={d.pickup}
+                      onChange={(e) => updateDraft(idx, { pickup: e.target.value })}
+                      data-testid={`roster-pickup-${idx}`}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium">Drop-off</label>
+                    <Input
+                      className="h-9"
+                      placeholder="Inherits from booking"
+                      disabled={locked}
+                      value={d.dropoff}
+                      onChange={(e) => updateDraft(idx, { dropoff: e.target.value })}
+                      data-testid={`roster-dropoff-${idx}`}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium">Pickup time</label>
+                  <Input
+                    className="h-9"
+                    type="datetime-local"
+                    disabled={locked}
+                    value={d.date_time}
+                    onChange={(e) => updateDraft(idx, { date_time: e.target.value })}
+                    data-testid={`roster-datetime-${idx}`}
+                  />
+                </div>
               </div>
 
               <div>
