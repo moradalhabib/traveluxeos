@@ -101,15 +101,23 @@ export async function notifyUser(userId: string, opts: NotifyOpts): Promise<void
   await insertRows([userId], opts);
 }
 
-/** Insert one notification per user across the given roles (active users only). */
-export async function notifyByRoles(roles: string[], opts: NotifyOpts): Promise<void> {
+/** Insert one notification per user across the given roles (active users only).
+ *  Pass `excludeUserId` to skip a single recipient — used by broadcast endpoints
+ *  so the actor (who already saw the local success toast) doesn't get pinged
+ *  again about their own action. */
+export async function notifyByRoles(
+  roles: string[],
+  opts: NotifyOpts,
+  excludeUserId?: string | null,
+): Promise<void> {
   const { data: users } = await notifClient()
     .from("users")
     .select("id")
     .in("role", roles)
     .eq("active", true);
 
-  const ids = (users ?? []).map((u: any) => u.id).filter(Boolean);
+  let ids = (users ?? []).map((u: any) => u.id).filter(Boolean);
+  if (excludeUserId) ids = ids.filter(id => id !== excludeUserId);
   if (ids.length === 0) return;
 
   const allowed = await filterByPrefs(ids, opts.type);

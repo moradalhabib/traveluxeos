@@ -21,13 +21,16 @@ router.post("/broadcast-staff", async (req, res) => {
   if (!type || !title || !message) {
     return res.status(400).json({ error: "type, title and message are required" });
   }
+  // Exclude the actor from their own broadcast — they already saw the
+  // local success toast on the page that triggered it. Without this they
+  // get a duplicate "X deleted" notification on top of the toast.
   await notifyByRoles(STAFF_ROLES, {
     type,
     title,
     message,
     link,
     severity: severity ?? "info",
-  }).catch((e) => console.warn("[broadcast-staff] notify error:", e?.message));
+  }, user.id).catch((e) => console.warn("[broadcast-staff] notify error:", e?.message));
   return res.json({ ok: true });
 });
 
