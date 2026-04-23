@@ -189,6 +189,9 @@ router.post("/:id/convert", async (req, res) => {
     date_time: r.requested_date_time,
     notes: r.notes,
     price: r.estimated_price ?? 0,
+    // Per-service-type structured fields captured at request time
+    // (pickup, dropoff, flight, check-in, vehicle_type, etc.).
+    details: r.details ?? {},
   };
 
   await supabase

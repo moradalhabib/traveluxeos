@@ -18,6 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { Loader2, Search, UserCheck, UserPlus, X } from "lucide-react";
 import { useCreateRequest } from "@/lib/requests-api";
+import { RequestDetailsFields, type RequestDetails } from "@/components/RequestDetailsFields";
 
 const SERVICE_TYPES = ["Airport Transfer","Tour","Car Rental","Apartment","Hotel","Other"] as const;
 const PRIORITIES = ["Low","Medium","High","Urgent"] as const;
@@ -150,9 +151,10 @@ export default function NewRequest() {
   };
 
   const [newName, setNewName] = useState("");
+  const [details, setDetails] = useState<RequestDetails>({});
 
   const onSubmit = (vals: FormVals) => {
-    const payload: any = { ...vals };
+    const payload: any = { ...vals, details };
     if (!payload.client_id) delete payload.client_id;
     if (!payload.requested_date_time) delete payload.requested_date_time;
     if (!payload.estimated_price) delete payload.estimated_price;
@@ -388,6 +390,12 @@ export default function NewRequest() {
                     )}
                   />
                 </div>
+
+                <RequestDetailsFields
+                  serviceType={form.watch("service_type")}
+                  value={details}
+                  onChange={setDetails}
+                />
 
                 <FormField
                   control={form.control}

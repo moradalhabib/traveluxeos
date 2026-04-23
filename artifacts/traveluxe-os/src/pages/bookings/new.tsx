@@ -467,7 +467,33 @@ export default function NewBooking() {
       if (dt)  bookingForm.setValue("date_time", isoToLondonInput(dt));
       if (notes) bookingForm.setValue("notes", notes);
       if (price) bookingForm.setValue("price", Number(price));
-      toast({ title: "Prefilled from request", description: "Edit and save to convert." });
+
+      // Per-service-type details captured at request time. Map only the
+      // keys the booking form actually has so a typo in `details` can
+      // never blow up the form. setValue with `as any` because some keys
+      // (rental_days, etc.) are not in the strict zod schema.
+      const detailsRaw = params.get("details");
+      if (detailsRaw) {
+        try {
+          const d = JSON.parse(detailsRaw) as Record<string, any>;
+          const PREFILLABLE = [
+            "direction", "airport_code", "pickup", "dropoff",
+            "flight_number", "vehicle_type", "passengers", "luggage",
+            "rental_days", "destination", "hotel_name", "nights",
+            "check_in", "check_out",
+          ];
+          for (const key of PREFILLABLE) {
+            const val = d[key];
+            if (val !== null && val !== undefined && val !== "") {
+              bookingForm.setValue(key as any, val);
+            }
+          }
+        } catch (e) {
+          console.warn("[from_request] failed to parse details param", e);
+        }
+      }
+
+      toast({ title: "Prefilled from request", description: "Confirm the details and save." });
     }
 
     // Return-journey prefill (from booking detail "Add Return Journey")

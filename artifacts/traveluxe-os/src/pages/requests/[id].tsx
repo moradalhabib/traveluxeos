@@ -20,6 +20,7 @@ import {
   PRIORITY_STYLES, STATUS_STYLES,
 } from "@/lib/requests-api";
 import { ActivityPanel } from "@/components/activity/ActivityPanel";
+import { RequestDetailsFields, type RequestDetails } from "@/components/RequestDetailsFields";
 
 const SERVICE_TYPES = ["Airport Transfer","Tour","Car Rental","Apartment","Hotel","Other"];
 const PRIORITIES = ["Low","Medium","High","Urgent"];
@@ -38,6 +39,7 @@ export default function RequestDetail() {
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<any>({});
+  const [draftDetails, setDraftDetails] = useState<RequestDetails>({});
 
   if (isLoading) return <Skeleton className="h-96" />;
   if (!r) return <div className="text-muted-foreground">Request not found.</div>;
@@ -53,12 +55,13 @@ export default function RequestDetail() {
       notes: r.notes ?? "",
       client_name: r.client_name ?? "",
     });
+    setDraftDetails(((r as any).details ?? {}) as RequestDetails);
     setEditing(true);
   };
 
   const saveEdit = () => {
     if (!id) return;
-    const patch: any = { ...draft };
+    const patch: any = { ...draft, details: draftDetails };
     if (patch.requested_date_time === "") delete patch.requested_date_time;
     if (patch.estimated_price === "") patch.estimated_price = null;
     update.mutate({ id, ...patch }, {
@@ -89,6 +92,9 @@ export default function RequestDetail() {
         if (draft.date_time) params.set("date_time", draft.date_time);
         if (draft.notes) params.set("notes", draft.notes);
         if (draft.price) params.set("price", String(draft.price));
+        if (draft.details && Object.keys(draft.details).length > 0) {
+          params.set("details", JSON.stringify(draft.details));
+        }
         setLocation(`/bookings/new?${params.toString()}`);
       },
       onError: (e: any) => toast({ title: "Convert failed", description: e?.message, variant: "destructive" }),
@@ -183,6 +189,22 @@ export default function RequestDetail() {
                 </div>
               )}
 
+              {(r as any).details && Object.keys((r as any).details).length > 0 && (
+                <div>
+                  <h4 className="text-xs uppercase tracking-wider text-muted-foreground mb-2">{r.service_type} details</h4>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                    {Object.entries((r as any).details as Record<string, any>)
+                      .filter(([, v]) => v !== null && v !== undefined && v !== "")
+                      .map(([k, v]) => (
+                        <div key={k} className="flex justify-between gap-2">
+                          <span className="text-muted-foreground capitalize">{k.replace(/_/g, " ")}</span>
+                          <span className="font-medium text-foreground text-right">{String(v)}</span>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              )}
+
               {r.notes && (
                 <div>
                   <h4 className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Notes</h4>
@@ -224,6 +246,12 @@ export default function RequestDetail() {
                   <Input type="number" step="0.01" value={draft.estimated_price ?? ""} onChange={e => setDraft({ ...draft, estimated_price: e.target.value })} />
                 </Labelled>
               </div>
+
+              <RequestDetailsFields
+                serviceType={draft.service_type ?? r.service_type}
+                value={draftDetails}
+                onChange={setDraftDetails}
+              />
 
               <Labelled label="Notes">
                 <Textarea rows={4} value={draft.notes ?? ""} onChange={e => setDraft({ ...draft, notes: e.target.value })} />
