@@ -457,18 +457,23 @@ export default function NewBooking() {
     const clientId = params.get("client_id");
     const fromRequestParam = params.get("from_request");
     const clientNameParam = params.get("client_name");
+    const clientWhatsappParam = params.get("client_whatsapp");
     if (clientId) {
       // Auto-confirm and skip the WhatsApp lookup card whenever the caller
       // already knows which client owns this booking — i.e. anything that
       // arrives with `client_id` in the URL (request conversion, "New
       // Booking" from a client profile, etc.).
       loadClientById(clientId, { autoConfirm: true });
+    } else if (clientWhatsappParam) {
+      // Prefer the WhatsApp number — the lookup card searches clients by
+      // whatsapp digits, so this triggers the auto-match flow and the
+      // operator only needs to confirm or register.
+      setWaInput(clientWhatsappParam);
     } else if (clientNameParam) {
-      // Convert-from-request without a resolved client_id (e.g. the request
-      // was created with a free-text name that has no matching client row).
-      // Pre-fill the lookup input so the debounce search runs against name
-      // OR whatsapp — operator instantly sees "no match" and can hit
-      // Register without retyping the name.
+      // Fallback: convert-from-request without a resolved client_id and no
+      // captured WhatsApp on the request (legacy rows). Drop the name into
+      // the lookup field so at least the operator doesn't retype it before
+      // hitting Register.
       setWaInput(clientNameParam);
     }
 

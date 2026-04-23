@@ -88,6 +88,7 @@ export default function RequestDetail() {
         params.set("from_request", id);
         if (draft.client_id) params.set("client_id", draft.client_id);
         if (draft.client_name) params.set("client_name", draft.client_name);
+        if (draft.client_whatsapp) params.set("client_whatsapp", draft.client_whatsapp);
         if (draft.service_type) params.set("service_type", draft.service_type);
         if (draft.date_time) params.set("date_time", draft.date_time);
         if (draft.notes) params.set("notes", draft.notes);

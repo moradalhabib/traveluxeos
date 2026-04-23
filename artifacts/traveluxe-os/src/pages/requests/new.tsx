@@ -154,7 +154,15 @@ export default function NewRequest() {
   const [details, setDetails] = useState<RequestDetails>({});
 
   const onSubmit = (vals: FormVals) => {
-    const payload: any = { ...vals, details };
+    // Stash the typed WhatsApp number on details so a later "Convert to
+    // booking" can prefill the lookup field — operator never has to retype
+    // the number, even when the lead has no client profile yet.
+    const detailsWithWa: any = { ...details };
+    const waTrimmed = waInput?.trim();
+    if (waTrimmed && !detailsWithWa.client_whatsapp) {
+      detailsWithWa.client_whatsapp = waTrimmed;
+    }
+    const payload: any = { ...vals, details: detailsWithWa };
     if (!payload.client_id) delete payload.client_id;
     if (!payload.requested_date_time) delete payload.requested_date_time;
     if (!payload.estimated_price) delete payload.estimated_price;

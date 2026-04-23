@@ -188,6 +188,30 @@ router.post("/:id/convert", async (req, res) => {
   // number again" step on convert.
   let resolvedClientId: string | null = r.client_id ?? null;
   let resolvedClientName: string | null = r.clients?.name ?? r.client_name ?? null;
+  // WhatsApp captured during request creation lives on details.client_whatsapp.
+  // Use it both for matching and to prefill the booking lookup field.
+  const draftWhatsapp: string | null =
+    r.clients?.whatsapp ?? (r.details as any)?.client_whatsapp ?? null;
+  if (!resolvedClientId && draftWhatsapp) {
+    // Phone is the strongest identifier — try matching by digits first.
+    const digits = String(draftWhatsapp).replace(/\D/g, "");
+    if (digits.length >= 6) {
+      const { data: byPhone } = await supabase
+        .from("clients")
+        .select("id, name")
+        .or(`whatsapp.ilike.%${digits}%,whatsapp.ilike.%${draftWhatsapp}%`)
+        .eq("inactive", false)
+        .limit(2);
+      if (byPhone && byPhone.length === 1) {
+        resolvedClientId = byPhone[0].id;
+        resolvedClientName = byPhone[0].name;
+        await supabase
+          .from("requests")
+          .update({ client_id: resolvedClientId })
+          .eq("id", r.id);
+      }
+    }
+  }
   if (!resolvedClientId && resolvedClientName) {
     const { data: matches } = await supabase
       .from("clients")
@@ -211,6 +235,7 @@ router.post("/:id/convert", async (req, res) => {
     request_id: r.id,
     client_id: resolvedClientId,
     client_name: resolvedClientName,
+    client_whatsapp: draftWhatsapp,
     service_type: r.service_type,
     date_time: r.requested_date_time,
     notes: r.notes,
