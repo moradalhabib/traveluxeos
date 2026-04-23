@@ -157,6 +157,28 @@ export default function NewBooking() {
   const [showReferralSplit, setShowReferralSplit] = useState(false);
   const [showVehiclePref, setShowVehiclePref] = useState(false);
   const [showVehicleOverride, setShowVehicleOverride] = useState(false);
+  // MV3 — multi-vehicle bookings: extra cars beyond the primary driver.
+  // Each row will be POSTed to /api/booking-vehicles after the booking is
+  // created. Empty by default — the operator opts in via "+ Add vehicle".
+  type ExtraVehicle = {
+    driver_id: string;
+    vehicle_type: string;
+    client_share: string;
+    cost_to_company: string;
+    driver_receives: string;
+    tvl_commission: string;
+    notes: string;
+  };
+  const blankExtraVehicle = (): ExtraVehicle => ({
+    driver_id: "",
+    vehicle_type: "",
+    client_share: "",
+    cost_to_company: "",
+    driver_receives: "",
+    tvl_commission: "",
+    notes: "",
+  });
+  const [extraVehicles, setExtraVehicles] = useState<ExtraVehicle[]>([]);
   const [foundClient, setFoundClient] = useState<FoundClient | null>(null);
   const [confirmedClient, setConfirmedClient] = useState<FoundClient | null>(null);
   const [isEditingFound, setIsEditingFound] = useState(false);
@@ -909,13 +931,9 @@ export default function NewBooking() {
       } : {}),
     };
 
-    // Fold service-specific details into notes so data is preserved
+    // Fold service-specific details into notes so data is preserved.
+    // (Multi-vehicle bookings now use the booking_vehicles table — POSTed in onSuccess below.)
     const extraDetails: string[] = [];
-    // 2nd/3rd driver — all transport types (multi-vehicle bookings)
-    if (!["Hotel", "Apartment"].includes(values.service_type)) {
-      if (values.driver2_name) extraDetails.push(`Driver 2: ${values.driver2_name}`);
-      if (values.driver3_name) extraDetails.push(`Driver 3: ${values.driver3_name}`);
-    }
     if (values.service_type === "As Directed") {
       if (values.check_in_date) extraDetails.push(`Rental Start: ${values.check_in_date}`);
       if (values.check_out_date) extraDetails.push(`Rental Return: ${values.check_out_date}`);
@@ -999,6 +1017,57 @@ export default function NewBooking() {
               notes: l.notes ?? null,
             }));
             await supabase.from("booking_products").insert(lines);
+          }
+
+          // MV3 — persist additional vehicles for multi-car bookings.
+          // Track failures and surface them to the operator so partial saves
+          // are visible (booking is already created at this point).
+          let extraVehicleFailures = 0;
+          if (extraVehicles.length > 0) {
+            try {
+              const { data: { session } } = await supabase.auth.getSession();
+              const token = session?.access_token ?? "";
+              for (const v of extraVehicles) {
+                const body = {
+                  booking_id: booking.id,
+                  driver_id: v.driver_id || null,
+                  vehicle_type: v.vehicle_type || null,
+                  client_share: Number(v.client_share) || 0,
+                  cost_to_company: Number(v.cost_to_company) || 0,
+                  driver_receives: Number(v.driver_receives) || 0,
+                  tvl_commission: Number(v.tvl_commission) || 0,
+                  notes: v.notes || null,
+                };
+                try {
+                  const r = await fetch("/api/booking-vehicles", {
+                    method: "POST",
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${token}`,
+                    },
+                    body: JSON.stringify(body),
+                  });
+                  if (!r.ok) {
+                    extraVehicleFailures += 1;
+                    const errText = await r.text().catch(() => "");
+                    console.warn("[booking-vehicles] failed to save extra vehicle", errText);
+                  }
+                } catch (e) {
+                  extraVehicleFailures += 1;
+                  console.warn("[booking-vehicles] error posting extra vehicle", e);
+                }
+              }
+            } catch (e) {
+              extraVehicleFailures = extraVehicles.length;
+              console.warn("[booking-vehicles] error posting extra vehicles", e);
+            }
+          }
+          if (extraVehicleFailures > 0) {
+            toast({
+              title: "Some additional vehicles didn't save",
+              description: `${extraVehicleFailures} of ${extraVehicles.length} extra vehicle row(s) failed to save. Open the booking and re-add them.`,
+              variant: "destructive",
+            });
           }
 
           // If we came from a Request conversion, mark it Converted
@@ -3092,44 +3161,158 @@ export default function NewBooking() {
                         );
                       })()}
 
-                      {/* 2nd & 3rd Driver — all transport types (multi-vehicle bookings) */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <FormField control={bookingForm.control} name="driver2_name" render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>2nd Driver <span className="text-xs text-muted-foreground font-normal">(optional — multi-vehicle)</span></FormLabel>
-                            <Select onValueChange={(val) => field.onChange(val === "none" ? "" : val)} value={field.value || "none"}>
-                              <FormControl><SelectTrigger><SelectValue placeholder="None" /></SelectTrigger></FormControl>
-                              <SelectContent>
-                                <SelectItem value="none">None</SelectItem>
-                                {drivers?.map((driver: any) => (
-                                  <SelectItem key={driver.id} value={driver.name}>
-                                    {driver.staff_no ? `${driver.staff_no} · ` : ""}{driver.name} · {driver.vehicle_model || driver.vehicle_type}
-                                    {driver.plate ? ` (${driver.plate})` : ""}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
-                        <FormField control={bookingForm.control} name="driver3_name" render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>3rd Driver <span className="text-xs text-muted-foreground font-normal">(optional — multi-vehicle)</span></FormLabel>
-                            <Select onValueChange={(val) => field.onChange(val === "none" ? "" : val)} value={field.value || "none"}>
-                              <FormControl><SelectTrigger><SelectValue placeholder="None" /></SelectTrigger></FormControl>
-                              <SelectContent>
-                                <SelectItem value="none">None</SelectItem>
-                                {drivers?.map((driver: any) => (
-                                  <SelectItem key={driver.id} value={driver.name}>
-                                    {driver.staff_no ? `${driver.staff_no} · ` : ""}{driver.name} · {driver.vehicle_model || driver.vehicle_type}
-                                    {driver.plate ? ` (${driver.plate})` : ""}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
+                      {/* Additional Vehicles — multi-car bookings (e.g. group of 6 needs 2× V Class).
+                          Each row gets its own driver, vehicle, client share, cost, and commission.
+                          Posted to /api/booking-vehicles after the booking is created. */}
+                      <div className="space-y-3 rounded-md border border-border/40 bg-card/40 p-3">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <div className="text-sm font-semibold">Additional Vehicles</div>
+                            <div className="text-xs text-muted-foreground">
+                              For multi-car jobs. Primary driver above is car #1. Each row below is an extra car with its own driver and pay.
+                            </div>
+                          </div>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setExtraVehicles(prev => [...prev, blankExtraVehicle()])}
+                          >
+                            <Plus className="w-3.5 h-3.5 mr-1" /> Add vehicle
+                          </Button>
+                        </div>
+
+                        {extraVehicles.length === 0 && (
+                          <div className="text-xs text-muted-foreground italic">No additional vehicles. Single-car booking.</div>
+                        )}
+
+                        {extraVehicles.map((row, idx) => {
+                          const update = (patch: Partial<ExtraVehicle>) => {
+                            setExtraVehicles(prev => prev.map((r, i) => i === idx ? { ...r, ...patch } : r));
+                          };
+                          const remove = () => {
+                            setExtraVehicles(prev => prev.filter((_, i) => i !== idx));
+                          };
+                          return (
+                            <div key={idx} className="rounded-md border border-border/60 bg-background/50 p-3 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div className="text-xs font-semibold text-primary">Car #{idx + 2}</div>
+                                <Button type="button" size="sm" variant="ghost" className="h-7 text-destructive hover:text-destructive" onClick={remove}>
+                                  Remove
+                                </Button>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-xs font-medium">Driver</label>
+                                  <Select
+                                    value={row.driver_id || "unassigned"}
+                                    onValueChange={(val) => {
+                                      const d = drivers?.find((x: any) => x.id === val);
+                                      update({
+                                        driver_id: val === "unassigned" ? "" : val,
+                                        // auto-fill vehicle from driver default if blank
+                                        vehicle_type: row.vehicle_type || (d?.vehicle_model || d?.vehicle_type || ""),
+                                      });
+                                    }}
+                                  >
+                                    <SelectTrigger className="h-9"><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="unassigned">Unassigned</SelectItem>
+                                      {drivers?.map((driver: any) => (
+                                        <SelectItem key={driver.id} value={driver.id}>
+                                          {driver.staff_no ? `${driver.staff_no} · ` : ""}{driver.name} · {driver.vehicle_model || driver.vehicle_type}
+                                        </SelectItem>
+                                      ))}
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                                <div>
+                                  <label className="text-xs font-medium">Vehicle</label>
+                                  <Input
+                                    className="h-9"
+                                    placeholder="e.g. MB V Class"
+                                    value={row.vehicle_type}
+                                    onChange={(e) => update({ vehicle_type: e.target.value })}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-xs font-medium">Client share £</label>
+                                  <Input
+                                    className="h-9"
+                                    type="number"
+                                    inputMode="decimal"
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    value={row.client_share}
+                                    onChange={(e) => update({ client_share: e.target.value })}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs font-medium">Cost to TVL £</label>
+                                  <Input
+                                    className="h-9"
+                                    type="number"
+                                    inputMode="decimal"
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    value={row.cost_to_company}
+                                    onChange={(e) => update({ cost_to_company: e.target.value })}
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-2">
+                                <div>
+                                  <label className="text-xs font-medium">Driver pay £</label>
+                                  <Input
+                                    className="h-9"
+                                    type="number"
+                                    inputMode="decimal"
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    value={row.driver_receives}
+                                    onChange={(e) => update({ driver_receives: e.target.value })}
+                                  />
+                                </div>
+                                <div>
+                                  <label className="text-xs font-medium">TVL commission £</label>
+                                  <Input
+                                    className="h-9"
+                                    type="number"
+                                    inputMode="decimal"
+                                    step="0.01"
+                                    placeholder="0.00"
+                                    value={row.tvl_commission}
+                                    onChange={(e) => update({ tvl_commission: e.target.value })}
+                                  />
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="text-xs font-medium">Notes <span className="text-muted-foreground font-normal">(optional)</span></label>
+                                <Input
+                                  className="h-9"
+                                  placeholder="e.g. Convoy lead car"
+                                  value={row.notes}
+                                  onChange={(e) => update({ notes: e.target.value })}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {extraVehicles.length > 0 && (
+                          <div className="text-xs text-muted-foreground pt-1 border-t border-border/40">
+                            Extra vehicles total client share: £
+                            {extraVehicles.reduce((s, r) => s + (Number(r.client_share) || 0), 0).toFixed(2)}
+                            {" · "}Extra cost: £
+                            {extraVehicles.reduce((s, r) => s + (Number(r.cost_to_company) || 0), 0).toFixed(2)}
+                          </div>
+                        )}
                       </div>
                     </>
                   )}

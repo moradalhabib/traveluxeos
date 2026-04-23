@@ -26,6 +26,7 @@ import settingsRouter from "./settings";
 import bookingPdfRouter from "./booking-pdf";
 import issuesRouter from "./issues";
 import amendmentsRouter from "./amendments";
+import bookingVehiclesRouter from "./booking-vehicles";
 
 const router: IRouter = Router();
 
@@ -57,5 +58,6 @@ router.use("/settings", settingsRouter);
 router.use("/bookings", bookingPdfRouter);
 router.use("/issues", issuesRouter);
 router.use("/amendments", amendmentsRouter);
+router.use("/booking-vehicles", bookingVehiclesRouter);
 
 export default router;

@@ -31,6 +31,10 @@ type Job = {
   payment_method: string | null;
   commission_status: string | null;
   payout_status: string | null;
+  // Set when this row represents an additional-vehicle leg of a multi-car booking.
+  // Used to route settlement/payout to the booking_vehicles table instead of bookings.
+  is_extra_vehicle?: boolean;
+  booking_vehicle_id?: string;
 };
 
 type Driver = {
@@ -181,8 +185,14 @@ export default function Commissions() {
     const pendingCash = driver.jobs.filter(
       (j) => j.payment_method === "Cash" && j.commission_status !== "Settled"
     );
-    const ids = pendingCash.map((j) => j.booking_id);
-    if (ids.length === 0) {
+    // Split jobs into primary bookings and extra-vehicle legs so the API
+    // can update the right table (bookings vs booking_vehicles) for each.
+    const bookingIds = pendingCash.filter((j) => !j.is_extra_vehicle).map((j) => j.booking_id);
+    const vehicleIds = pendingCash
+      .filter((j) => j.is_extra_vehicle && j.booking_vehicle_id)
+      .map((j) => j.booking_vehicle_id as string);
+    const totalLegs = bookingIds.length + vehicleIds.length;
+    if (totalLegs === 0) {
       setSettleNotesDriver(null);
       return;
     }
@@ -197,13 +207,14 @@ export default function Commissions() {
           driver_id: driver.driver_id,
           week_start: weekStart.toISOString().slice(0, 10),
           week_end: today.toISOString().slice(0, 10),
-          booking_ids: ids,
+          booking_ids: bookingIds,
+          booking_vehicle_ids: vehicleIds,
           ...(notes ? { notes } : {}),
         } as any,
       },
       {
         onSuccess: () => {
-          toast({ title: "Marked as Settled", description: `${ids.length} job(s) settled for ${driver.driver_name}` });
+          toast({ title: "Marked as Settled", description: `${totalLegs} job(s) settled for ${driver.driver_name}` });
           setSettleNotesDriver(null);
           setDialogDriver(null);
           setSettleConfirm({ driver, jobsSettled: pendingCash, total });
@@ -243,10 +254,15 @@ export default function Commissions() {
   };
 
   const handlePayoutAll = (driver: Driver) => {
-    const ids = driver.jobs
-      .filter((j) => j.payment_method !== "Cash" && j.payout_status !== "Paid")
-      .map((j) => j.booking_id);
-    if (ids.length === 0) {
+    const pending = driver.jobs.filter(
+      (j) => j.payment_method !== "Cash" && j.payout_status !== "Paid"
+    );
+    const bookingIds = pending.filter((j) => !j.is_extra_vehicle).map((j) => j.booking_id);
+    const vehicleIds = pending
+      .filter((j) => j.is_extra_vehicle && j.booking_vehicle_id)
+      .map((j) => j.booking_vehicle_id as string);
+    const totalLegs = bookingIds.length + vehicleIds.length;
+    if (totalLegs === 0) {
       toast({ title: "Nothing to pay out", description: "No pending bank/card jobs for this driver." });
       return;
     }
@@ -259,12 +275,13 @@ export default function Commissions() {
           driver_id: driver.driver_id,
           week_start: weekStart.toISOString().slice(0, 10),
           week_end: today.toISOString().slice(0, 10),
-          booking_ids: ids,
-        },
+          booking_ids: bookingIds,
+          booking_vehicle_ids: vehicleIds,
+        } as any,
       },
       {
         onSuccess: () => {
-          toast({ title: "Marked as Paid", description: `${ids.length} job(s) paid out to ${driver.driver_name}` });
+          toast({ title: "Marked as Paid", description: `${totalLegs} job(s) paid out to ${driver.driver_name}` });
           setDialogDriver(null);
           refetch();
         },
