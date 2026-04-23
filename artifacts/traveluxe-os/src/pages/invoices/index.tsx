@@ -42,7 +42,9 @@ export default function Invoices() {
     mutation: {
       onSuccess: (data: any) => {
         toast({ title: "Invoice deleted", description: data?.invoice_number ? `${data.invoice_number} permanently removed` : "Removed" });
-        queryClient.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
+        queryClient.invalidateQueries({
+          predicate: (q) => Array.isArray(q.queryKey) && typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/api/invoices"),
+        });
       },
       onError: (err: any) => {
         toast({ title: "Delete failed", description: err?.response?.data?.error ?? err?.message ?? "Unknown error", variant: "destructive" });

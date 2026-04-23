@@ -53,7 +53,9 @@ export default function Bookings() {
     mutation: {
       onSuccess: (data: any) => {
         toast({ title: "Booking deleted", description: data?.tvl_ref ? `${data.tvl_ref} permanently removed` : "Removed" });
-        queryClient.invalidateQueries({ queryKey: ["listBookings"] });
+        queryClient.invalidateQueries({
+          predicate: (q) => Array.isArray(q.queryKey) && typeof q.queryKey[0] === "string" && (q.queryKey[0] as string).startsWith("/api/bookings"),
+        });
       },
       onError: (err: any) => {
         toast({ title: "Delete failed", description: err?.response?.data?.error ?? err?.message ?? "Unknown error", variant: "destructive" });
