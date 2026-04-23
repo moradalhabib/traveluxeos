@@ -50,9 +50,40 @@ async function authHeader(): Promise<Record<string, string>> {
   return session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {};
 }
 
+// Inner panel — exported so the new "Airport" tab inside the main Admin
+// page can embed exactly the same UI without the standalone page wrapper.
+// Mobile: TabsList overflows horizontally; trigger labels collapse to icons
+// at sub-sm widths so all three tabs fit on a 360px screen (Samsung S25).
+export function AirportPricingPanel() {
+  return (
+    <Tabs defaultValue="matrix" className="space-y-4">
+      <div className="overflow-x-auto -mx-1 px-1">
+        <TabsList className="inline-flex w-auto min-w-full">
+          <TabsTrigger value="matrix" data-testid="tab-matrix" className="text-xs px-3 whitespace-nowrap">
+            <Grid3x3 className="w-4 h-4 mr-1.5" />Price Matrix
+          </TabsTrigger>
+          <TabsTrigger value="vehicles" data-testid="tab-vehicles" className="text-xs px-3 whitespace-nowrap">
+            <Car className="w-4 h-4 mr-1.5" />Vehicles
+          </TabsTrigger>
+          <TabsTrigger value="extras" data-testid="tab-extras" className="text-xs px-3 whitespace-nowrap">
+            <Sparkles className="w-4 h-4 mr-1.5" />Additional Services
+          </TabsTrigger>
+        </TabsList>
+      </div>
+
+      <TabsContent value="matrix"><PriceMatrixTab /></TabsContent>
+      <TabsContent value="vehicles"><VehiclesTab /></TabsContent>
+      <TabsContent value="extras"><ExtrasTab /></TabsContent>
+    </Tabs>
+  );
+}
+
+// Standalone page kept for the legacy /admin/airport-pricing route so any
+// existing bookmarks still work; the same panel is now also embedded as a
+// tab inside the main Admin page.
 export default function AirportPricingAdmin() {
   return (
-    <div className="container mx-auto p-4 md:p-6 max-w-7xl">
+    <div className="container mx-auto p-3 sm:p-4 md:p-6 max-w-7xl">
       <div className="mb-4">
         <Link href="/admin">
           <Button variant="ghost" size="sm" className="mb-2" data-testid="button-back-admin">
@@ -64,18 +95,7 @@ export default function AirportPricingAdmin() {
           Manage vehicles, per-airport prices, and Additional Services (Meet &amp; Greet, etc.) used on Airport Transfer bookings.
         </p>
       </div>
-
-      <Tabs defaultValue="matrix" className="space-y-4">
-        <TabsList>
-          <TabsTrigger value="matrix" data-testid="tab-matrix"><Grid3x3 className="w-4 h-4 mr-1.5" />Price Matrix</TabsTrigger>
-          <TabsTrigger value="vehicles" data-testid="tab-vehicles"><Car className="w-4 h-4 mr-1.5" />Vehicles</TabsTrigger>
-          <TabsTrigger value="extras" data-testid="tab-extras"><Sparkles className="w-4 h-4 mr-1.5" />Additional Services</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="matrix"><PriceMatrixTab /></TabsContent>
-        <TabsContent value="vehicles"><VehiclesTab /></TabsContent>
-        <TabsContent value="extras"><ExtrasTab /></TabsContent>
-      </Tabs>
+      <AirportPricingPanel />
     </div>
   );
 }
@@ -483,22 +503,38 @@ function ServiceTypesTab() {
                 </div>
                 <div className="divide-y divide-border">
                   {tiers.map(t => (
-                    <div key={t.id} className="flex items-center justify-between gap-3 p-3" data-testid={`tier-row-${t.id}`}>
+                    // Mobile (default): name above, then a price+actions row
+                    // beneath it so the description is never squeezed into a
+                    // 60px column (the "broken into a paragraph" complaint).
+                    // Desktop (sm+): everything on one row as before.
+                    <div
+                      key={t.id}
+                      className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3 p-3"
+                      data-testid={`tier-row-${t.id}`}
+                    >
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-medium">{t.name}</span>
                           {!t.active && <Badge variant="outline" className="text-[10px]">Inactive</Badge>}
                         </div>
-                        {t.description && <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{t.description}</p>}
+                        {t.description && (
+                          <p className="text-xs text-muted-foreground line-clamp-2 mt-0.5 break-words">
+                            {t.description}
+                          </p>
+                        )}
                       </div>
-                      <div className="text-right font-semibold text-primary">£{Number(t.unit_price ?? 0).toLocaleString()}</div>
-                      <div className="flex items-center gap-1">
-                        <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => { setEditingTier(t); setTierFormDefaultType(null); setTierFormOpen(true); }} data-testid={`edit-tier-${t.id}`}>
-                          <Pencil className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => setDeletingTier(t)} data-testid={`delete-tier-${t.id}`}>
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
+                      <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
+                        <div className="text-right font-semibold text-primary tabular-nums">
+                          £{Number(t.unit_price ?? 0).toLocaleString()}
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button size="icon" variant="ghost" className="h-8 w-8" onClick={() => { setEditingTier(t); setTierFormDefaultType(null); setTierFormOpen(true); }} data-testid={`edit-tier-${t.id}`}>
+                            <Pencil className="w-3.5 h-3.5" />
+                          </Button>
+                          <Button size="icon" variant="ghost" className="h-8 w-8 text-destructive" onClick={() => setDeletingTier(t)} data-testid={`delete-tier-${t.id}`}>
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </Button>
+                        </div>
                       </div>
                     </div>
                   ))}

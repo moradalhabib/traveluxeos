@@ -20,6 +20,7 @@ import { Link } from "wouter";
 import { supabase } from "@/lib/supabase";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import { AirportPricingPanel } from "./airport-pricing";
 
 // ─── CSV utilities ────────────────────────────────────────────────────────────
 function parseCSVRow(line: string): string[] {
@@ -2180,33 +2181,34 @@ export default function Admin() {
   );
 
   return (
-    <div className="space-y-5 max-w-3xl mx-auto">
-      <div className="flex items-start justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Admin Panel</h1>
+    // Wider container + smaller side padding on mobile so the airport pricing
+    // matrix and tier rows have room to breathe on a 360px Samsung S25 screen
+    // instead of being squeezed by the previous max-w-3xl ceiling.
+    <div className="space-y-5 max-w-6xl mx-auto px-2 sm:px-4">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">Admin Panel</h1>
           {isSuperAdmin && (
             <Badge variant="outline" className="border-amber-500/30 text-amber-500 text-xs mt-1">Super Admin</Badge>
           )}
         </div>
-        <div className="flex items-center gap-2">
-          <Link href="/admin/airport-pricing">
-            <Button variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10" data-testid="link-airport-pricing">
-              Airport Pricing
-            </Button>
-          </Link>
+        <div className="flex items-center gap-2 shrink-0">
+          {/* Airport Pricing now lives inside its own tab below — separate
+              top-right link removed to declutter the header. */}
           <Link href="/">
             <Button variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10">
-              <LayoutDashboard className="w-4 h-4 mr-2" />
-              Dashboard
+              <LayoutDashboard className="w-4 h-4 sm:mr-2" />
+              <span className="hidden sm:inline">Dashboard</span>
             </Button>
           </Link>
         </div>
       </div>
 
       <Tabs defaultValue="products" className="w-full">
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto -mx-2 px-2">
           <TabsList className="inline-flex w-auto min-w-full">
-            <TabsTrigger value="products" className="text-xs px-3 whitespace-nowrap">Products</TabsTrigger>
+            <TabsTrigger value="products" className="text-xs px-3 whitespace-nowrap">Tours</TabsTrigger>
+            <TabsTrigger value="airport" className="text-xs px-3 whitespace-nowrap">Airport</TabsTrigger>
             <TabsTrigger value="services" className="text-xs px-3 whitespace-nowrap">Services</TabsTrigger>
             <TabsTrigger value="import" className="text-xs px-3 whitespace-nowrap">Import</TabsTrigger>
             <TabsTrigger value="export" className="text-xs px-3 whitespace-nowrap">Export</TabsTrigger>
@@ -2224,6 +2226,10 @@ export default function Admin() {
 
         <TabsContent value="products" className="mt-5">
           <ProductsTab isSuperAdmin={isSuperAdmin} />
+        </TabsContent>
+
+        <TabsContent value="airport" className="mt-5">
+          <AirportPricingPanel />
         </TabsContent>
 
         <TabsContent value="services" className="mt-5">

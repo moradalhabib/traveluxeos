@@ -133,10 +133,15 @@ router.get("/:id", async (req, res) => {
 
   if (error || !driver) return res.status(404).json({ error: "Driver not found" });
 
+  // Multi-vehicle awareness: a driver who is assigned only to an additional
+  // car on a booking (booking_vehicles row, not bookings.driver_id) must
+  // still see that job in their profile and commission ledger. Pull both
+  // pools in parallel and merge below.
   const [
     { data: bookings },
     { data: ratings },
     { data: commissionData },
+    { data: extraVehicleRows },
   ] = await Promise.all([
     supabase.from("bookings")
       .select("*, clients(name)")
@@ -150,6 +155,9 @@ router.get("/:id", async (req, res) => {
       .select("id, tvl_ref, date_time, price, additional_charges, tvl_commission, driver_receives, payment_method, commission_status, payout_status, clients(name)")
       .eq("driver_id", req.params.id)
       .order("date_time", { ascending: false }),
+    supabase.from("booking_vehicles")
+      .select("id, booking_id, vehicle_type, client_share, tvl_commission, driver_receives, commission_status, payout_status, bookings(id, tvl_ref, date_time, status, payment_method, clients(name))")
+      .eq("driver_id", req.params.id),
   ]);
 
   const enrichedBookings = (bookings ?? []).map((b: any) => ({
@@ -169,7 +177,7 @@ router.get("/:id", async (req, res) => {
     ? validRatings.reduce((s, r) => s + r.rating, 0) / validRatings.length
     : 0;
 
-  const commissionLedger = (commissionData ?? []).map((b: any) => ({
+  const primaryLedger = (commissionData ?? []).map((b: any) => ({
     booking_id: b.id,
     tvl_ref: b.tvl_ref,
     date: b.date_time,
@@ -180,13 +188,64 @@ router.get("/:id", async (req, res) => {
     payment_method: b.payment_method,
     commission_status: b.commission_status,
     payout_status: b.payout_status,
+    role: "primary" as const,
   }));
+
+  // Each additional-vehicle row that this driver was assigned to becomes its
+  // own ledger entry, tied to the parent booking's tvl_ref/date so the row
+  // groups under the correct month and links back to the booking detail
+  // page on click.
+  const extraLedger = (extraVehicleRows ?? [])
+    .filter((v: any) => v.bookings)
+    .map((v: any) => ({
+      booking_id: v.booking_id,
+      booking_vehicle_id: v.id,
+      tvl_ref: v.bookings?.tvl_ref ?? null,
+      date: v.bookings?.date_time ?? null,
+      client_name: v.bookings?.clients?.name ?? null,
+      total_fare: Number(v.client_share) || 0,
+      tvl_commission: Number(v.tvl_commission) || 0,
+      driver_receives: Number(v.driver_receives) || 0,
+      payment_method: v.bookings?.payment_method ?? null,
+      commission_status: v.commission_status ?? "Outstanding",
+      payout_status: v.payout_status ?? "Pending",
+      vehicle_type: v.vehicle_type ?? null,
+      role: "extra" as const,
+    }));
+
+  const commissionLedger = [...primaryLedger, ...extraLedger]
+    .sort((a, b) => new Date(b.date ?? 0).getTime() - new Date(a.date ?? 0).getTime());
+
+  // Surface the extra-vehicle bookings in the bookings array too, so the
+  // driver's "Recent Jobs" view picks them up — de-duped against the
+  // primary set so a driver who's both primary and extra on the same
+  // booking only sees it once.
+  const primaryIds = new Set(enrichedBookings.map((b: any) => b.id));
+  const extraBookings = (extraVehicleRows ?? [])
+    .filter((v: any) => v.bookings && !primaryIds.has(v.bookings.id))
+    .map((v: any) => ({
+      id: v.bookings.id,
+      tvl_ref: v.bookings.tvl_ref,
+      date_time: v.bookings.date_time,
+      status: v.bookings.status,
+      payment_method: v.bookings.payment_method,
+      client_name: v.bookings?.clients?.name ?? null,
+      vehicle_type: v.vehicle_type,
+      tvl_commission: Number(v.tvl_commission) || 0,
+      driver_receives: Number(v.driver_receives) || 0,
+      _role: "extra",
+    }));
 
   return res.json({
     ...driver,
     avg_rating: Math.round(avg_rating * 10) / 10,
-    total_jobs: (bookings ?? []).filter((b: any) => b.status !== "Cancelled").length,
-    bookings: enrichedBookings,
+    // Total jobs counts both primary assignments and extra-vehicle
+    // assignments so a driver who only ever drives the second car still
+    // sees an honest job count in their profile.
+    total_jobs:
+      (bookings ?? []).filter((b: any) => b.status !== "Cancelled").length
+      + extraBookings.filter((b: any) => b.status !== "Cancelled").length,
+    bookings: [...enrichedBookings, ...extraBookings],
     ratings: enrichedRatings,
     commission_ledger: commissionLedger,
   });
