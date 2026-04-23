@@ -4,20 +4,26 @@ import { supabase, getServiceRoleClient } from "../lib/supabase";
 const router = Router();
 
 router.get("/", async (req, res) => {
-  const { operator_id, action_type, action, date_from, date_to } = req.query;
+  const { operator_id, action_type, action, date_from, date_to, entity_type, entity_id, limit } = req.query;
 
   // Use the service-role client so the join to `users(name)` always resolves.
   // The user-scoped JWT client is subject to RLS on `users` and would return
   // null for `users.name`, which surfaced as every audit row showing "System".
   const client = getServiceRoleClient() ?? supabase;
 
+  // Cap the limit to keep responses bounded. Default to 500 (legacy behaviour)
+  // but small panels (e.g. booking Activity) can request fewer.
+  const parsedLimit = Math.max(1, Math.min(500, Number(limit) || 500));
+
   let query = client
     .from("audit_log")
     .select("*, users:operator_id(name, email)")
     .order("created_at", { ascending: false })
-    .limit(500);
+    .limit(parsedLimit);
 
   if (operator_id) query = query.eq("operator_id", String(operator_id));
+  if (entity_type) query = query.eq("entity_type", String(entity_type));
+  if (entity_id) query = query.eq("entity_id", String(entity_id));
 
   // Accept either `action_type` (legacy) or `action` (new). Both support
   // comma-separated lists which we translate into an `IN (...)` filter.

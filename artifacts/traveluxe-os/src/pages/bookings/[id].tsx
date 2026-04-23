@@ -24,6 +24,7 @@ import { useState, useEffect } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
 import { BookingVehiclesRoster } from "@/components/booking/BookingVehiclesRoster";
+import { BookingActivityPanel } from "@/components/booking/BookingActivityPanel";
 import { Phone, MessageCircle, Mail, Pencil, Plus, Trash2, FileDown } from "lucide-react";
 import { getVipBadgeColor } from "@/lib/vip";
 import { Label } from "@/components/ui/label";
@@ -1991,6 +1992,7 @@ export default function BookingDetail() {
 
       {/* MV5 — Multi-vehicle roster. Renders nothing if booking has no extra vehicles. */}
       {id && <BookingVehiclesRoster bookingId={id} />}
+      {id && <BookingActivityPanel bookingId={id} />}
 
       {/* Journey / Property card.
           For Hotel and Apartment bookings the title becomes "Property Details"
