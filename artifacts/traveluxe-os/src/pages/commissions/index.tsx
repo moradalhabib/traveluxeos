@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { useListCommissions, getListCommissionsQueryKey, useCreateSettlement, useCreatePayout } from "@workspace/api-client-react";
+import {
+  useListCommissions,
+  getListCommissionsQueryKey,
+  useCreateSettlement,
+  useCreatePayout,
+  getGetDashboardSummaryQueryKey,
+  getGetFinanceSummaryQueryKey,
+} from "@workspace/api-client-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -160,6 +167,10 @@ export default function Commissions() {
   const payout = useCreatePayout();
   const { toast } = useToast();
   const { user } = useAuth();
+  // Top-level query client so handleSupplierToggle (declared further down)
+  // can fan-out invalidations to the dashboard / finance summaries after
+  // a supplier-commission state change.
+  const qc = useQueryClient();
   // Admin and Super Admin both see actual money figures and can settle.
   // Operator sees masked placeholders.
   const isSuperAdmin = user?.role === "super_admin" || user?.role === "admin";
@@ -236,6 +247,19 @@ export default function Commissions() {
     // cheap and keeps the page consistent if the booking touches both).
     supplierReceivablesQuery.refetch();
     refetch();
+    // Invalidate every cached query so any open page (bookings, suppliers,
+    // etc.) picks up the new outstanding total in the same beat. Active
+    // observers on the current page refetch automatically.
+    qc.invalidateQueries();
+    // The home dashboard and finance summary live behind their own keys,
+    // and the operator is on /commissions when this fires — those queries
+    // have NO active observer, so plain refetchQueries({ queryKey })
+    // would no-op (default type is "active"). Pass type: "all" to force
+    // an immediate background refetch on the inactive queries so the new
+    // totals are already in the cache when the operator navigates to /
+    // or /finance.
+    qc.refetchQueries({ queryKey: getGetDashboardSummaryQueryKey(), type: "all" });
+    qc.refetchQueries({ queryKey: getGetFinanceSummaryQueryKey(), type: "all" });
     // Keep the open dialog in sync — re-bind to the latest server payload
     // by supplier id once the refetch lands.
     if (supplierDialog) {

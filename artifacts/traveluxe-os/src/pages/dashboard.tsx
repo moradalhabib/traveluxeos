@@ -336,13 +336,15 @@ export default function Dashboard() {
                   {s?.outstanding_commissions > 0 ? "Outstanding" : "Clear"}
                 </div>
               )}
-              <p className="text-[11px] text-muted-foreground mt-0.5">Outstanding from cash jobs</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">Drivers + suppliers owing TVL</p>
               <div data-testid="text-drivers-with-pending" className="text-[11px] text-muted-foreground mt-1">
-                {(s as any)?.drivers_with_pending ?? 0} drivers owing
+                {(s as any)?.drivers_with_pending ?? 0} driver{((s as any)?.drivers_with_pending ?? 0) === 1 ? "" : "s"}
+                {" · "}
+                {(s as any)?.suppliers_with_pending ?? 0} supplier{((s as any)?.suppliers_with_pending ?? 0) === 1 ? "" : "s"}
               </div>
-              {((s as any)?.drivers_with_overdue ?? 0) > 0 && (
-                <div data-testid="text-drivers-overdue" className="text-[11px] text-destructive mt-0.5">
-                  {(s as any).drivers_with_overdue} overdue 30d+
+              {(((s as any)?.drivers_with_overdue ?? 0) + ((s as any)?.suppliers_with_overdue ?? 0)) > 0 && (
+                <div data-testid="text-commission-overdue" className="text-[11px] text-destructive mt-0.5">
+                  {((s as any)?.drivers_with_overdue ?? 0) + ((s as any)?.suppliers_with_overdue ?? 0)} overdue 30d+
                 </div>
               )}
             </CardContent>

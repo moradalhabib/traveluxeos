@@ -49,6 +49,19 @@ router.get("/summary", async (_req, res) => {
     supabase.from("bookings").select("commission_amount, arrangement_fee_status").in("service_type", ["Hotel", "Apartment"]).gt("commission_amount", 0).neq("status", "Cancelled"),
   ]);
 
+  // Suppliers owe TVL — outstanding supplier commissions across the live
+  // ledger. Same predicates as the /commissions/supplier-receivables route
+  // so the headline number on the dashboard always agrees with the page.
+  // Intentionally NOT date-filtered: a supplier-commission line is owed
+  // until it's collected, regardless of when the booking happened.
+  const { data: supplierOutstandingRows } = await supabase
+    .from("bookings")
+    .select("supplier_id, supplier_commission, date_time")
+    .not("supplier_id", "is", null)
+    .gt("supplier_commission", 0)
+    .neq("status", "Cancelled")
+    .is("supplier_commission_collected_at", null);
+
   const calcRevenue = (bookings: { price: number; additional_charges: number; status: string }[] | null) =>
     (bookings ?? []).filter(b => !["Cancelled"].includes(b.status)).reduce((sum, b) => sum + (b.price || 0) + (b.additional_charges || 0), 0);
 
@@ -72,7 +85,30 @@ router.get("/summary", async (_req, res) => {
   const arrangementFeeOutstanding = (arrangementFeeBookings ?? [])
     .filter((b: any) => (b.arrangement_fee_status ?? "Outstanding") === "Outstanding")
     .reduce((sum: number, b: any) => sum + (b.commission_amount || 0), 0);
-  const outstandingCommissions = driverCommissionOutstanding + arrangementFeeOutstanding;
+
+  // Supplier-side aggregates (suppliers owe TVL). Mirror the per-driver
+  // shape so the dashboard card can show "X drivers + Y suppliers owing"
+  // without a second round trip.
+  const supplierPendingMap: Record<string, { total: number; oldest: number }> = {};
+  (supplierOutstandingRows ?? []).forEach((b: any) => {
+    if (!b.supplier_id) return;
+    const cur = supplierPendingMap[b.supplier_id] ?? { total: 0, oldest: 0 };
+    cur.total += Number(b.supplier_commission || 0);
+    if (b.date_time) {
+      const age = Math.floor((Date.now() - new Date(b.date_time).getTime()) / dayMsLocal);
+      if (age > cur.oldest) cur.oldest = age;
+    }
+    supplierPendingMap[b.supplier_id] = cur;
+  });
+  const supplierCommissionOutstanding = Object.values(supplierPendingMap)
+    .reduce((sum, v) => sum + v.total, 0);
+  const suppliers_with_pending = Object.values(supplierPendingMap).filter(v => v.total > 0).length;
+  const suppliers_with_overdue = Object.values(supplierPendingMap).filter(v => v.total > 0 && v.oldest >= 30).length;
+
+  // Headline figure now spans every party that owes TVL commission:
+  // drivers (cash), arrangement-fee bookings, and third-party suppliers.
+  const outstandingCommissions =
+    driverCommissionOutstanding + arrangementFeeOutstanding + supplierCommissionOutstanding;
 
   // ── Today's Jobs (next 5 upcoming today, by pickup time) ─────────────────
   const todayEnd = new Date(todayStart);
@@ -315,8 +351,12 @@ router.get("/summary", async (_req, res) => {
         jobs_without_driver_first_id: noDriverJobsNew[0]?.id ?? null,
         pending_payments: (pendingPayments ?? []).length,
         outstanding_commissions: outstandingCommissions,
+        driver_commission_outstanding: driverCommissionOutstanding + arrangementFeeOutstanding,
+        supplier_commission_outstanding: supplierCommissionOutstanding,
         drivers_with_pending,
         drivers_with_overdue,
+        suppliers_with_pending,
+        suppliers_with_overdue,
         pending_payouts: pendingPayouts,
         unpaid_invoices_count: unpaidInvoicesNew.length,
         unpaid_invoices_count_total_including_odoo: (unpaidInvoices ?? []).length,
@@ -435,8 +475,12 @@ router.get("/summary", async (_req, res) => {
     jobs_without_driver_first_id: noDriverJobsNew[0]?.id ?? null,
     pending_payments: (pendingPayments ?? []).length,
     outstanding_commissions: outstandingCommissions,
+    driver_commission_outstanding: driverCommissionOutstanding + arrangementFeeOutstanding,
+    supplier_commission_outstanding: supplierCommissionOutstanding,
     drivers_with_pending,
     drivers_with_overdue,
+    suppliers_with_pending,
+    suppliers_with_overdue,
     pending_payouts: pendingPayouts,
     unpaid_invoices_count: unpaidInvoicesNew.length,
     unpaid_invoices_count_total_including_odoo: (unpaidInvoices ?? []).length,
