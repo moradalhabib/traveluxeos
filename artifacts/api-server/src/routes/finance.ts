@@ -44,8 +44,10 @@ router.get("/summary", async (req, res) => {
       payment_method, payment_status, cancellation_fee, status,
       commission_status, payout_status,
       operator_id, driver_id,
+      supplier_id, supplier_commission, supplier_commission_collected_at,
       clients(name),
       drivers(id, name),
+      suppliers(id, name),
       users!bookings_operator_id_fkey(name)
     `)
     .neq("status", "Cancelled")
@@ -62,9 +64,11 @@ router.get("/summary", async (req, res) => {
     ...b,
     client_name: b.clients?.name ?? null,
     driver_name: b.drivers?.name ?? null,
+    supplier_name: b.suppliers?.name ?? null,
     operator_name: b.users?.name ?? null,
     clients: undefined,
     drivers: undefined,
+    suppliers: undefined,
     users: undefined,
   }));
 
@@ -86,8 +90,20 @@ router.get("/summary", async (req, res) => {
 
   const total_revenue =
     bookings.reduce((s, b) => s + (b.price ?? 0) + (b.additional_charges ?? 0), 0) + extras_revenue;
-  const total_commission =
+  // Driver-side TVL commission only — kept as a separate field so the UI can
+  // still call out "from driver jobs" if it wants the breakdown.
+  const total_driver_commission =
     bookings.reduce((s, b) => s + (b.tvl_commission ?? 0), 0) + extras_commission;
+  // Supplier-side markup TVL earns from suppliers (e.g. £20 markup on a £480
+  // hotel cost we resell at £500). Filtered to the same period as everything
+  // else on the page; bookings without a supplier_id contribute 0.
+  const total_supplier_commission_in_period = bookings
+    .filter((b: any) => b.supplier_id)
+    .reduce((s: number, b: any) => s + (Number(b.supplier_commission) || 0), 0);
+  // Headline "TVL Commission" — drivers + suppliers combined so the Finance
+  // KPI matches what the dashboard shows. Old field name kept for callers
+  // that read s.total_commission expecting the combined figure.
+  const total_commission = total_driver_commission + total_supplier_commission_in_period;
   const total_driver_payouts =
     bookings.reduce((s, b) => s + (b.driver_receives ?? 0), 0) + extras_payouts;
 
@@ -96,23 +112,39 @@ router.get("/summary", async (req, res) => {
     .filter(b => b.payment_status === "Unpaid" || b.payment_status === "Partial")
     .sort((a, b) => new Date(a.date_time ?? 0).getTime() - new Date(b.date_time ?? 0).getTime());
 
-  // Supplier receivables (suppliers owe TVL the markup commission). Sourced
-  // independently from the `bookings` query above because we need rows
-  // without a status filter quirk and want to ignore the date range — the
-  // total reflects all-time outstanding markup until collected, mirroring
-  // how supplier payables are tracked.
-  const { data: supplierReceivableRows } = await supabase
+  // Supplier receivables (suppliers owe TVL the markup commission). Scoped
+  // to the SAME period as everything else on this page so the headline
+  // "Outstanding Commissions" KPI is consistent with the per-driver
+  // outstanding totals (which are also period-scoped via the parent query).
+  // The /commissions Suppliers tab still shows the all-time view through
+  // its own dedicated endpoint.
+  let supplierReceivablesQ = supabase
     .from("bookings")
-    .select("supplier_commission, supplier_commission_collected_at")
+    .select("supplier_id, supplier_commission, supplier_commission_collected_at, date_time, service_type, operator_id")
     .not("supplier_id", "is", null)
     .gt("supplier_commission", 0)
-    .neq("status", "Cancelled");
-  const total_supplier_receivables_outstanding = (supplierReceivableRows ?? [])
-    .filter((r: any) => !r.supplier_commission_collected_at)
+    .neq("status", "Cancelled")
+    .gte("date_time", effectiveFrom);
+  if (date_to)      supplierReceivablesQ = supplierReceivablesQ.lte("date_time",   String(date_to));
+  // Mirror the same service_type / operator_id predicates used on the main
+  // bookings query — otherwise the page applies a filter and the supplier
+  // outstanding total stays bigger than the visible booking set, which the
+  // operator reads as a double-count bug.
+  if (service_type) supplierReceivablesQ = supplierReceivablesQ.eq("service_type", String(service_type));
+  if (operator_id)  supplierReceivablesQ = supplierReceivablesQ.eq("operator_id",  String(operator_id));
+  const { data: supplierReceivableRows } = await supplierReceivablesQ;
+  const supplierOutstandingRows = (supplierReceivableRows ?? [])
+    .filter((r: any) => !r.supplier_commission_collected_at);
+  const total_supplier_receivables_outstanding = supplierOutstandingRows
     .reduce((s: number, r: any) => s + Number(r.supplier_commission ?? 0), 0);
   const total_supplier_receivables_collected = (supplierReceivableRows ?? [])
     .filter((r: any) => !!r.supplier_commission_collected_at)
     .reduce((s: number, r: any) => s + Number(r.supplier_commission ?? 0), 0);
+  // Number of distinct suppliers with at least one outstanding line in the
+  // period. Used by the dashboard-style subtitle on the Outstanding card.
+  const suppliers_with_pending = new Set(
+    supplierOutstandingRows.map((r: any) => r.supplier_id),
+  ).size;
 
   // Cancellation fees — gated by the same era cutoff so legacy Odoo
   // cancellations don't reappear in TVL-stack finance totals.
@@ -176,6 +208,40 @@ router.get("/summary", async (req, res) => {
   const driver_commission_breakdown = Object.values(driverMap)
     .sort((a, b) => b.commission_outstanding - a.commission_outstanding);
 
+  // Per-supplier markup breakdown — drives the new "Suppliers" tab on the
+  // Finance page. Mirrors the per-driver shape so the UI can render the same
+  // card pattern. "outstanding" = supplier_commission rows in the period
+  // that have NOT been collected yet.
+  const supplierMap: Record<string, {
+    supplier_id: string;
+    supplier_name: string;
+    jobs: number;
+    commission_owed: number;        // Markup TVL earned from this supplier in period
+    commission_outstanding: number; // Of which still uncollected
+  }> = {};
+  bookings.forEach((b: any) => {
+    if (!b.supplier_id) return;
+    const amount = Number(b.supplier_commission) || 0;
+    if (amount <= 0) return;
+    if (!supplierMap[b.supplier_id]) {
+      supplierMap[b.supplier_id] = {
+        supplier_id: b.supplier_id,
+        supplier_name: b.supplier_name ?? "Unknown supplier",
+        jobs: 0,
+        commission_owed: 0,
+        commission_outstanding: 0,
+      };
+    }
+    const sup = supplierMap[b.supplier_id];
+    sup.jobs++;
+    sup.commission_owed += amount;
+    if (!b.supplier_commission_collected_at) {
+      sup.commission_outstanding += amount;
+    }
+  });
+  const supplier_commission_breakdown = Object.values(supplierMap)
+    .sort((a, b) => b.commission_outstanding - a.commission_outstanding);
+
   // Operator performance
   const operatorMap: Record<string, { name: string; count: number; revenue: number }> = {};
   bookings.forEach(b => {
@@ -194,15 +260,19 @@ router.get("/summary", async (req, res) => {
 
   return res.json({
     total_revenue,
-    total_commission,
+    total_commission,                      // Drivers + suppliers (combined)
+    total_driver_commission,               // Drivers only — for breakdown if UI wants it
+    total_supplier_commission_in_period,   // Suppliers only — same scope as the bookings query
     total_driver_payouts,
     outstanding_payments,
     cancellation_fees,
     service_breakdown,
     driver_commission_breakdown,
+    supplier_commission_breakdown,         // Per-supplier rows for the new Suppliers tab
     operator_performance,
-    total_supplier_receivables_outstanding,
+    total_supplier_receivables_outstanding, // Now period-scoped
     total_supplier_receivables_collected,
+    suppliers_with_pending,                // Distinct supplier count for subtitle
     bookings_detail: bookings,
   });
 });
@@ -239,19 +309,35 @@ router.get("/profit", requireSuperAdmin, async (req, res) => {
     return svc || "Other";
   };
 
-  const breakdown = (data ?? []).map((b: any) => ({
-    booking_id:     b.booking_id,
-    tvl_ref:        b.tvl_ref,
-    date_time:      b.date_time,
-    service_type:   b.service_type,
-    bucket:         bucketFor(b.service_type),
-    client_name:    b.client_name ?? "—",
-    price:          Number(b.price ?? 0),
-    tvl_commission: Number(b.tvl_commission ?? 0),
-    payment_status: b.payment_status,
-  }));
+  // Migration guard: detect whether the new RPC (with supplier_commission +
+  // loosened status filter) is live. If the column is missing on every row,
+  // the page must NOT claim "+ supplier markup" or it would understate.
+  const includes_supplier_markup = Array.isArray(data)
+    && data.length > 0
+    && Object.prototype.hasOwnProperty.call(data[0], "supplier_commission");
 
-  // Aggregate per bucket
+  const breakdown = (data ?? []).map((b: any) => {
+    const tvl     = Number(b.tvl_commission ?? 0);
+    const sup     = Number(b.supplier_commission ?? 0);
+    return {
+      booking_id:          b.booking_id,
+      tvl_ref:             b.tvl_ref,
+      date_time:           b.date_time,
+      service_type:        b.service_type,
+      bucket:              bucketFor(b.service_type),
+      client_name:         b.client_name ?? "—",
+      price:               Number(b.price ?? 0),
+      tvl_commission:      tvl,
+      supplier_commission: sup,
+      total_commission:    tvl + sup,
+      supplier_id:         b.supplier_id ?? null,
+      supplier_name:       b.supplier_name ?? null,
+      payment_status:      b.payment_status,
+      status:              b.status,
+    };
+  });
+
+  // Aggregate per bucket — combined profit = driver-side TVL commission + supplier markup
   const summary: Record<string, number> = {
     "Airport Transfer": 0,
     "Tour": 0,
@@ -261,18 +347,23 @@ router.get("/profit", requireSuperAdmin, async (req, res) => {
   };
   let other = 0;
   for (const r of breakdown) {
-    if (summary[r.bucket] !== undefined) summary[r.bucket] += r.tvl_commission;
-    else other += r.tvl_commission;
+    if (summary[r.bucket] !== undefined) summary[r.bucket] += r.total_commission;
+    else other += r.total_commission;
   }
   if (other > 0) summary["Other"] = other;
 
-  const total_profit = breakdown.reduce((s: number, r: { tvl_commission: number }) => s + r.tvl_commission, 0);
+  const total_driver_profit   = breakdown.reduce((s: number, r: { tvl_commission: number })      => s + r.tvl_commission,      0);
+  const total_supplier_profit = breakdown.reduce((s: number, r: { supplier_commission: number }) => s + r.supplier_commission, 0);
+  const total_profit          = total_driver_profit + total_supplier_profit;
 
   return res.json({
     summary,
     total_profit,
+    total_driver_profit,
+    total_supplier_profit,
     breakdown,
     booking_count: breakdown.length,
+    includes_supplier_markup,
   });
 });
 

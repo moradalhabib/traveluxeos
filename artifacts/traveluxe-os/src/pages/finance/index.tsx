@@ -63,7 +63,12 @@ const SERVICE_ICONS: Record<string, string> = {
 export default function Finance() {
   const { user } = useAuth();
   // Admin and Super Admin see all amounts. Profit tab still super_admin-only further down.
-  const isSuperAdmin = user?.role === "super_admin" || user?.role === "admin";
+  // Anyone in finance gets the regular tabs. The Profit tab is super_admin-only
+  // because the backend enforces requireSuperAdmin on /finance/profit — letting
+  // admins see the tab just produces a 403 error card.
+  const isFinanceRole   = user?.role === "super_admin" || user?.role === "admin";
+  const isSuperAdmin    = isFinanceRole; // legacy: keeps grid + revenue cards visible to admins
+  const isSuperAdminOnly = user?.role === "super_admin";
   // URL-backed filters so a refresh / shared link restores the same view.
   const [tab, setTab] = useFilterState("tab", "overview");
   const [period, setPeriod] = useFilterState<Period>("period", "month");
@@ -97,11 +102,19 @@ export default function Finance() {
 
   const s = summary as any;
   const driverBreakdown: any[] = s?.driver_commission_breakdown ?? [];
+  const supplierBreakdown: any[] = s?.supplier_commission_breakdown ?? [];
   const serviceBreakdown: any[] = s?.service_breakdown ?? [];
   const outstanding: any[] = s?.outstanding_payments ?? [];
   const operators: any[] = s?.operator_performance ?? [];
 
-  const totalOutstandingCommission = driverBreakdown.reduce((acc: number, d: any) => acc + (d.commission_outstanding ?? 0), 0);
+  const totalDriverOutstanding = driverBreakdown.reduce((acc: number, d: any) => acc + (d.commission_outstanding ?? 0), 0);
+  const totalSupplierOutstanding = Number(s?.total_supplier_receivables_outstanding ?? 0);
+  // Combined outstanding KPI — drivers + suppliers — to match what the
+  // /dashboard "Commission to Collect" card shows. The user explicitly
+  // asked for suppliers to be reflected in finance totals.
+  const totalOutstandingCommission = totalDriverOutstanding + totalSupplierOutstanding;
+  const driversWithPending = driverBreakdown.filter((d: any) => (d.commission_outstanding ?? 0) > 0).length;
+  const suppliersWithPending = Number(s?.suppliers_with_pending ?? 0);
   const totalPendingPayout = driverBreakdown.reduce((acc: number, d: any) => acc + (d.payout_pending ?? 0), 0);
 
   return (
@@ -193,21 +206,26 @@ export default function Finance() {
           </div>
           <div className="text-2xl font-bold text-foreground">£{(s?.total_revenue ?? 0).toLocaleString()}</div>
         </div>
-        <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+        <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4" data-testid="finance-kpi-tvl-commission">
           <div className="flex items-center gap-2 mb-1">
             <PoundSterling className="w-4 h-4 text-primary" />
             <span className="text-xs text-muted-foreground">TVL Commission</span>
           </div>
           <div className="text-2xl font-bold text-primary">£{(s?.total_commission ?? 0).toLocaleString()}</div>
+          <div className="text-[10px] text-muted-foreground mt-0.5">Drivers + suppliers</div>
         </div>
-        <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
-          <div className="flex items-center gap-2 mb-1">
-            <AlertCircle className="w-4 h-4 text-amber-500" />
-            <span className="text-xs text-muted-foreground">Outstanding Commissions</span>
+        <Link href="/commissions" data-testid="link-finance-outstanding">
+          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 hover:border-amber-500/40 transition-colors cursor-pointer h-full">
+            <div className="flex items-center gap-2 mb-1">
+              <AlertCircle className="w-4 h-4 text-amber-500" />
+              <span className="text-xs text-muted-foreground">Outstanding Commissions</span>
+            </div>
+            <div className="text-2xl font-bold text-amber-500" data-testid="finance-outstanding-total">£{totalOutstandingCommission.toLocaleString()}</div>
+            <div className="text-[10px] text-muted-foreground mt-0.5" data-testid="finance-outstanding-subtitle">
+              {driversWithPending} driver{driversWithPending === 1 ? "" : "s"} · {suppliersWithPending} supplier{suppliersWithPending === 1 ? "" : "s"}
+            </div>
           </div>
-          <div className="text-2xl font-bold text-amber-500">£{totalOutstandingCommission.toLocaleString()}</div>
-          <div className="text-[10px] text-muted-foreground mt-0.5">To collect from drivers</div>
-        </div>
+        </Link>
         <div className="rounded-2xl border border-border bg-card p-4">
           <div className="flex items-center gap-2 mb-1">
             <CreditCard className="w-4 h-4 text-muted-foreground" />
@@ -220,13 +238,14 @@ export default function Finance() {
 
       {/* Tabs */}
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className={`w-full grid ${isSuperAdmin ? "grid-cols-5" : "grid-cols-4"} bg-card border border-border`}>
-          <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="services">Services</TabsTrigger>
-          <TabsTrigger value="drivers">Drivers</TabsTrigger>
-          <TabsTrigger value="clients">Clients</TabsTrigger>
-          {isSuperAdmin && (
-            <TabsTrigger value="profit" className="bg-primary/5 text-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+        <TabsList className={`w-full grid ${isSuperAdminOnly ? "grid-cols-6" : "grid-cols-5"} bg-card border border-border`}>
+          <TabsTrigger value="overview" className="text-[11px] sm:text-sm">Overview</TabsTrigger>
+          <TabsTrigger value="services" className="text-[11px] sm:text-sm">Services</TabsTrigger>
+          <TabsTrigger value="drivers" className="text-[11px] sm:text-sm">Drivers</TabsTrigger>
+          <TabsTrigger value="suppliers" className="text-[11px] sm:text-sm" data-testid="tab-finance-suppliers">Suppliers</TabsTrigger>
+          <TabsTrigger value="clients" className="text-[11px] sm:text-sm">Clients</TabsTrigger>
+          {isSuperAdminOnly && (
+            <TabsTrigger value="profit" className="text-[11px] sm:text-sm bg-primary/5 text-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               Profit
             </TabsTrigger>
           )}
@@ -361,6 +380,60 @@ export default function Finance() {
           )}
         </TabsContent>
 
+        {/* SUPPLIER COMMISSIONS */}
+        <TabsContent value="suppliers" className="space-y-4 mt-4">
+          <p className="text-xs text-muted-foreground">
+            Markup commission TVL earns from suppliers in this period. Tap a card to manage collections.
+          </p>
+          {supplierBreakdown.length === 0 ? (
+            <div className="text-center py-12 text-muted-foreground text-sm">
+              No supplier commissions in this period yet
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {supplierBreakdown.map((sup: any) => (
+                <Link key={sup.supplier_id} href={`/commissions?tab=suppliers`} data-testid={`finance-supplier-row-${sup.supplier_id}`}>
+                  <div className="rounded-2xl border border-border bg-card overflow-hidden hover:border-primary/30 transition-colors cursor-pointer">
+                    <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                          <Wallet className="w-4 h-4 text-primary" />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="font-semibold text-sm truncate">{sup.supplier_name}</div>
+                          <div className="text-xs text-muted-foreground">{sup.jobs} {sup.jobs === 1 ? "booking" : "bookings"}</div>
+                        </div>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                    </div>
+                    <div className="grid grid-cols-2 divide-x divide-border">
+                      <div className="px-4 py-3">
+                        <div className="text-xs text-muted-foreground mb-1">Commission Earned</div>
+                        <div className="font-bold text-foreground">£{(sup.commission_owed ?? 0).toLocaleString()}</div>
+                      </div>
+                      <div className="px-4 py-3">
+                        <div className="text-xs text-muted-foreground mb-1">Outstanding</div>
+                        <div className="font-bold text-foreground">£{(sup.commission_outstanding ?? 0).toLocaleString()}</div>
+                        {(sup.commission_outstanding ?? 0) > 0 ? (
+                          <div className="flex items-center gap-1 mt-1">
+                            <Clock className="w-3 h-3 text-amber-500" />
+                            <span className="text-[10px] text-amber-500">to collect</span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 mt-1">
+                            <CheckCircle2 className="w-3 h-3 text-green-500" />
+                            <span className="text-[10px] text-green-500">All collected</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </TabsContent>
+
         {/* OUTSTANDING CLIENT PAYMENTS */}
         <TabsContent value="clients" className="space-y-4 mt-4">
           <div className="flex items-center justify-between">
@@ -419,7 +492,7 @@ export default function Finance() {
           )}
         </TabsContent>
         {/* PROFIT — Super Admin only */}
-        {isSuperAdmin && (
+        {isSuperAdminOnly && (
           <TabsContent value="profit" className="space-y-4 mt-4">
             <ProfitTab dateFrom={range.from} dateTo={range.to} periodLabel={range.label} />
           </TabsContent>
@@ -456,7 +529,7 @@ const BUCKET_COLORS: Record<string, string> = {
 type SortKey = "date" | "service" | "commission";
 
 function ProfitTab({ dateFrom, dateTo, periodLabel }: { dateFrom?: string; dateTo?: string; periodLabel: string }) {
-  const [data, setData] = useState<{ summary: Record<string, number>; total_profit: number; breakdown: any[]; booking_count: number } | null>(null);
+  const [data, setData] = useState<{ summary: Record<string, number>; total_profit: number; total_driver_profit?: number; total_supplier_profit?: number; breakdown: any[]; booking_count: number; includes_supplier_markup?: boolean } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("date");
@@ -500,7 +573,7 @@ function ProfitTab({ dateFrom, dateTo, periodLabel }: { dateFrom?: string; dateT
       let cmp = 0;
       if (sortKey === "date")        cmp = new Date(a.date_time ?? 0).getTime() - new Date(b.date_time ?? 0).getTime();
       else if (sortKey === "service") cmp = String(a.bucket).localeCompare(String(b.bucket));
-      else if (sortKey === "commission") cmp = (a.tvl_commission ?? 0) - (b.tvl_commission ?? 0);
+      else if (sortKey === "commission") cmp = (a.total_commission ?? a.tvl_commission ?? 0) - (b.total_commission ?? b.tvl_commission ?? 0);
       return sortDir === "asc" ? cmp : -cmp;
     });
     return arr;
@@ -548,8 +621,21 @@ function ProfitTab({ dateFrom, dateTo, periodLabel }: { dateFrom?: string; dateT
         </div>
         <div className="text-4xl font-bold text-primary">£{data.total_profit.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
         <div className="text-xs text-muted-foreground mt-1">
-          From {data.booking_count} completed / invoiced {data.booking_count === 1 ? "booking" : "bookings"} · TVL commission only
+          From {data.booking_count} {data.booking_count === 1 ? "booking" : "bookings"} ·{" "}
+          {data.includes_supplier_markup ? "Driver commission + supplier markup" : "TVL commission only"}
         </div>
+        {data.includes_supplier_markup && (
+          <div className="grid grid-cols-2 gap-2 mt-3 pt-3 border-t border-primary/15">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Driver side</div>
+              <div className="text-sm font-semibold text-foreground">£{(data.total_driver_profit ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Supplier markup</div>
+              <div className="text-sm font-semibold text-foreground">£{(data.total_supplier_profit ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Per-service summary cards */}
@@ -606,7 +692,7 @@ function ProfitTab({ dateFrom, dateTo, periodLabel }: { dateFrom?: string; dateT
       <Card className="border-border">
         <CardHeader className="pb-2 flex flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base">Booking Breakdown</CardTitle>
-          <Badge variant="outline" className="text-[10px]">Completed / Invoiced only</Badge>
+          <Badge variant="outline" className="text-[10px]">Drivers + suppliers</Badge>
         </CardHeader>
         <CardContent className="px-0 pb-0">
           {sorted.length === 0 ? (
@@ -628,13 +714,14 @@ function ProfitTab({ dateFrom, dateTo, periodLabel }: { dateFrom?: string; dateT
                       </button>
                     </th>
                     <th className="text-left px-3 py-2 font-semibold">Client</th>
+                    <th className="text-left px-3 py-2 font-semibold">Supplier</th>
                     <th className="text-right px-3 py-2 font-semibold">Fare</th>
                     <th className="text-right px-3 py-2 font-semibold">
                       <button onClick={() => toggleSort("commission")} className="flex items-center gap-1 ml-auto hover:text-foreground">
-                        TVL Commission <ArrowUpDown className="w-3 h-3" />
+                        TVL Profit <ArrowUpDown className="w-3 h-3" />
                       </button>
                     </th>
-                    <th className="text-left px-3 py-2 font-semibold">Payment</th>
+                    <th className="text-left px-3 py-2 font-semibold">Status</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -652,11 +739,19 @@ function ProfitTab({ dateFrom, dateTo, periodLabel }: { dateFrom?: string; dateT
                         </span>
                       </td>
                       <td className="px-3 py-2 text-foreground truncate max-w-[140px]">{row.client_name}</td>
+                      <td className="px-3 py-2 text-muted-foreground truncate max-w-[120px]">{row.supplier_name ?? "—"}</td>
                       <td className="px-3 py-2 text-right text-muted-foreground">£{Number(row.price).toLocaleString()}</td>
-                      <td className="px-3 py-2 text-right font-semibold text-primary">£{Number(row.tvl_commission).toLocaleString(undefined, { maximumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2 text-right">
+                        <div className="font-semibold text-primary">£{Number(row.total_commission ?? row.tvl_commission ?? 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+                        {(Number(row.tvl_commission ?? 0) > 0 && Number(row.supplier_commission ?? 0) > 0) && (
+                          <div className="text-[10px] text-muted-foreground mt-0.5">
+                            drv £{Number(row.tvl_commission).toLocaleString()} · sup £{Number(row.supplier_commission).toLocaleString()}
+                          </div>
+                        )}
+                      </td>
                       <td className="px-3 py-2">
-                        <Badge variant="outline" className={`text-[10px] ${row.payment_status === "Paid" ? "border-green-500/30 text-green-500" : "border-amber-500/30 text-amber-500"}`}>
-                          {row.payment_status ?? "—"}
+                        <Badge variant="outline" className={`text-[10px] ${row.status === "Completed" || row.status === "Invoiced" || row.payment_status === "Paid" ? "border-green-500/30 text-green-500" : "border-amber-500/30 text-amber-500"}`}>
+                          {row.status ?? row.payment_status ?? "—"}
                         </Badge>
                       </td>
                     </tr>
