@@ -15,7 +15,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift, Map, Building2, CalendarRange, RotateCcw, ExternalLink, AlertTriangle, CheckCircle2, History } from "lucide-react";
+import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift, Map, Building2, CalendarRange, RotateCcw, ExternalLink, AlertTriangle, CheckCircle2, History, ChevronDown, ChevronUp } from "lucide-react";
 import { format } from "date-fns";
 import { fmtLondon, isoToLondonInput, londonInputToIso } from "@/lib/datetime";
 import { nationalityFlag } from "@/lib/nationalities";
@@ -686,6 +686,7 @@ export default function BookingDetail() {
   // ── Issues + Amendments (fetched from new APIs) ────────────────────────
   const [issues, setIssues] = useState<any[]>([]);
   const [amendments, setAmendments] = useState<any[]>([]);
+  const [amendsOpen, setAmendsOpen] = useState(false);
   const [resolveIssueId, setResolveIssueId] = useState<string | null>(null);
   const [resolveNotes, setResolveNotes] = useState("");
 
@@ -2251,7 +2252,6 @@ export default function BookingDetail() {
 
       {/* MV5 — Multi-vehicle roster. Renders nothing if booking has no extra vehicles. */}
       {id && <BookingVehiclesRoster bookingId={id} />}
-      {id && <BookingActivityPanel bookingId={id} />}
 
       {/* Journey / Property card.
           For Hotel and Apartment bookings the title becomes "Property Details"
@@ -2856,42 +2856,51 @@ export default function BookingDetail() {
         </CardContent>
       </Card>
 
-      {/* Amendments History — Fix 16.
-          Auto-populated server-side on every PUT. Each row shows the field,
-          before/after values, who changed it, when and why. */}
+      {/* Amendments History — collapsible, auto-populated server-side on every PUT */}
       <Card className="border-border bg-card" data-testid="card-amendments">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm text-muted-foreground flex items-center gap-2">
-            <History className="w-4 h-4" /> Amendments History
-            {amendments.length > 0 && (
-              <Badge variant="outline" className="ml-1 text-[10px]">{amendments.length}</Badge>
-            )}
+        <CardHeader
+          className="pb-2 cursor-pointer select-none hover:bg-muted/30 transition-colors rounded-t-xl"
+          onClick={() => setAmendsOpen(o => !o)}
+        >
+          <CardTitle className="text-sm text-muted-foreground flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
+              <History className="w-4 h-4" /> Amendments History
+              {amendments.length > 0 && (
+                <Badge variant="outline" className="ml-1 text-[10px]">{amendments.length}</Badge>
+              )}
+            </span>
+            {amendsOpen ? <ChevronUp className="w-4 h-4 shrink-0" /> : <ChevronDown className="w-4 h-4 shrink-0" />}
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
-          {amendments.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No amendments recorded.</p>
-          ) : (
-            amendments.map((am: any) => (
-              <div key={am.id} className="text-xs border-b border-border pb-2 last:border-0" data-testid={`amendment-${am.id}`}>
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-foreground">{am.field_name}</span>
-                  <span className="text-muted-foreground">{am.created_at ? format(new Date(am.created_at), "PPp") : ""}</span>
+        {amendsOpen && (
+          <CardContent className="space-y-3 pt-2">
+            {amendments.length === 0 ? (
+              <p className="text-xs text-muted-foreground">No amendments recorded.</p>
+            ) : (
+              amendments.map((am: any) => (
+                <div key={am.id} className="text-xs border-b border-border pb-2 last:border-0" data-testid={`amendment-${am.id}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="font-medium text-foreground">{am.field_name}</span>
+                    <span className="text-muted-foreground">{am.created_at ? format(new Date(am.created_at), "PPp") : ""}</span>
+                  </div>
+                  <p className="mt-0.5 text-muted-foreground">
+                    <span className="line-through">{am.old_value ?? "—"}</span>
+                    {" → "}
+                    <span className="text-foreground">{am.new_value ?? "—"}</span>
+                  </p>
+                  <p className="text-[10px] text-muted-foreground mt-0.5">
+                    by {am.changed_by_name || "System"} · {am.change_type}
+                    {am.reason ? ` · ${am.reason}` : ""}
+                  </p>
                 </div>
-                <p className="mt-0.5 text-muted-foreground">
-                  <span className="line-through">{am.old_value ?? "—"}</span>
-                  {" → "}
-                  <span className="text-foreground">{am.new_value ?? "—"}</span>
-                </p>
-                <p className="text-[10px] text-muted-foreground mt-0.5">
-                  by {am.changed_by_name || "System"} · {am.change_type}
-                  {am.reason ? ` · ${am.reason}` : ""}
-                </p>
-              </div>
-            ))
-          )}
-        </CardContent>
+              ))
+            )}
+          </CardContent>
+        )}
       </Card>
+
+      {/* Activity log — collapsible audit trail for vehicle/unlock events, placed at page bottom */}
+      {id && <BookingActivityPanel bookingId={id} />}
 
       {/* Driver-conflict dialog — Fix 11 */}
       <Dialog open={conflictDialog.open} onOpenChange={(o) => !o && setConflictDialog((s) => ({ ...s, open: false }))}>
@@ -3009,22 +3018,6 @@ export default function BookingDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Audit log */}
-      {booking.audit_log && booking.audit_log.length > 0 && (
-        <Card className="border-border bg-card">
-          <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Audit Log</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            {booking.audit_log.map((log: any) => (
-              <div key={log.id} className="text-xs border-b border-border pb-2 last:border-0">
-                <span className="font-medium text-foreground">{log.operator_name || 'System'}</span>
-                <span className="text-muted-foreground mx-2">{log.action}</span>
-                <span className="text-muted-foreground block mt-0.5">{format(new Date(log.created_at), 'PPp')}</span>
-                {log.detail && <span className="text-muted-foreground mt-0.5 block">{log.detail}</span>}
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

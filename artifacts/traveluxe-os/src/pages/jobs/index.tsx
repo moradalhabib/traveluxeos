@@ -203,7 +203,11 @@ export default function Jobs() {
           return !isBefore(d, startOfDay(now)) && !isAfter(d, weekEnd);
         }
         case 'all':
-        default: return !isBefore(d, startOfDay(now));
+        default:
+          // Keep recently-completed jobs visible for 14 days so they don't
+          // vanish after midnight the moment the driver marks them done.
+          if (b.status === 'Completed' && !isBefore(d, startOfDay(addDays(now, -14)))) return true;
+          return !isBefore(d, startOfDay(now));
       }
     });
   }, [bookings, timeFilter, statusFilter, customFilter, unassignedOnly]);

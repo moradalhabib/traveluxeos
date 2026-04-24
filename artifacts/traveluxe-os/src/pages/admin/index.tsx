@@ -2371,8 +2371,6 @@ export default function Admin() {
           </TabsContent>
         )}
       </Tabs>
-
-      <ActivityLogSection />
     </div>
   );
 }
