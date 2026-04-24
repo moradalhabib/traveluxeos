@@ -1127,8 +1127,14 @@ export default function BookingDetail() {
       `Service: ${svc}`,
     ];
 
-    if (svc === "Airport Transfer") {
+    // Always state the date and time for every service so the client never
+    // receives a confirmation without it. Hotel/Apartment use check-in /
+    // check-out further down (their own date fields), so skip there.
+    if (isTransport) {
       lines.push(`Date: ${dateStr}`, `Time: ${timeStr}`);
+    }
+
+    if (svc === "Airport Transfer") {
       if ((booking as any).direction) lines.push(`Direction: ${(booking as any).direction}`);
       if (booking.flight_number) lines.push(`Flight: ${booking.flight_number}`);
       if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
@@ -1143,7 +1149,6 @@ export default function BookingDetail() {
         lines.push(`Driver: _will be confirmed shortly_`);
       }
     } else if (svc === "Tour") {
-      lines.push(`Date: ${dateStr}`, `Time: ${timeStr}`);
       if ((booking as any).tour_name) lines.push(`Tour: ${(booking as any).tour_name}`);
       if ((booking as any).meeting_point) lines.push(`Meeting point: ${(booking as any).meeting_point}`);
       if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
@@ -1157,7 +1162,6 @@ export default function BookingDetail() {
         lines.push(`Driver: _will be confirmed shortly_`);
       }
     } else if (svc === "As Directed") {
-      lines.push(`Date: ${dateStr}`, `Start time: ${timeStr}`);
       if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
       if ((booking as any).duration) lines.push(`Duration: ${(booking as any).duration}`);
       if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
