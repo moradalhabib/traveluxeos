@@ -117,7 +117,15 @@ const bookingSchema = z.object({
   payment_notes: z.string().optional(),
   // Build 4 — Supplier link + Car Rental / As Directed cost breakdown
   supplier_id: z.string().optional(),
-  supplier_product_id: z.string().optional(),
+  // Multi-product picker: array of { product_id, qty, name, daily_rate, hourly_rate }
+  // snapshots so historical bookings stay accurate even if the catalogue is edited.
+  supplier_items: z.array(z.object({
+    product_id: z.string(),
+    qty: z.coerce.number().min(1),
+    name: z.string(),
+    daily_rate: z.number().nullable().optional(),
+    hourly_rate: z.number().nullable().optional(),
+  })).optional().default([]),
   supplier_commission: z.coerce.number().optional(),
   // Manual override — used when the supplier has no products configured,
   // so the operator can enter the cost directly and TVL Commission can be
@@ -135,7 +143,6 @@ const bookingSchema = z.object({
   overtime_hours: z.coerce.number().optional().default(0),
   // Airport Transfer pricing matrix
   vehicle_product_id: z.string().optional(),
-  meet_greet_product_id: z.string().optional(),
   transfer_extras: z.array(z.object({
     id: z.string(),
     name: z.string(),
@@ -399,7 +406,7 @@ export default function NewBooking() {
     // Switching service type away from those flows must clear any stale
     // product link so it isn't silently posted on save.
     if (!isCarRental && !isAsDirected) {
-      bookingForm.setValue("supplier_product_id" as any, "");
+      bookingForm.setValue("supplier_items" as any, []);
     }
   }, [serviceType]);
 
@@ -408,7 +415,7 @@ export default function NewBooking() {
   // this too, but this prevents the request from ever being made).
   const supplierIdWatch = bookingForm.watch("supplier_id" as any);
   useEffect(() => {
-    bookingForm.setValue("supplier_product_id" as any, "");
+    bookingForm.setValue("supplier_items" as any, []);
   }, [supplierIdWatch]);
 
   // Auto-calculate nights when check-in/check-out change
@@ -973,7 +980,9 @@ export default function NewBooking() {
       duration: values.duration,
       // Build 4 — supplier + cost breakdown (Car Rental / As Directed / AT)
       supplier_id: (values as any).supplier_id || undefined,
-      supplier_product_id: (values as any).supplier_product_id || undefined,
+      supplier_items: Array.isArray((values as any).supplier_items)
+        ? (values as any).supplier_items
+        : [],
       // Only persist supplier_commission for service types whose UI exposes it.
       // Otherwise a stale value (e.g. operator typed it in AT then switched to
       // Hotel before saving) would silently pollute the new booking.
@@ -994,7 +1003,6 @@ export default function NewBooking() {
       // Airport Transfer matrix selections
       ...(values.service_type === "Airport Transfer" ? {
         vehicle_product_id: (values as any).vehicle_product_id || null,
-        meet_greet_product_id: (values as any).meet_greet_product_id || null,
         transfer_extras: Array.isArray((values as any).transfer_extras)
           ? (values as any).transfer_extras
           : [],
@@ -1562,16 +1570,15 @@ export default function NewBooking() {
                   {needsCostBreakdown && (bookingForm.watch("supplier_id" as any) || "") !== "" && (
                     <SupplierProductPicker
                       supplierId={String(bookingForm.watch("supplier_id" as any) || "")}
-                      value={String(bookingForm.watch("supplier_product_id" as any) || "")}
-                      onChange={(productId, product) => {
-                        bookingForm.setValue("supplier_product_id" as any, productId || "");
-                        if (product) {
-                          if (product.daily_rate != null) {
-                            bookingForm.setValue("base_daily_rate" as any, Number(product.daily_rate));
-                          }
-                          if (product.kind === "Car" && product.name) {
-                            bookingForm.setValue("vehicle_type", product.name);
-                          }
+                      value={(bookingForm.watch("supplier_items" as any) as any[]) || []}
+                      onChange={(items) => {
+                        bookingForm.setValue("supplier_items" as any, items, { shouldDirty: true });
+                        // Mirror first picked vehicle/rate into legacy fields
+                        // so Car Rental / As Directed cost breakdown stays
+                        // pre-filled for the operator (still editable).
+                        const first = items[0];
+                        if (first?.daily_rate != null) {
+                          bookingForm.setValue("base_daily_rate" as any, Number(first.daily_rate));
                         }
                       }}
                     />
@@ -2003,11 +2010,6 @@ export default function NewBooking() {
                         onChange={({ vehicleProductId, vehicleName, transferExtras, totalPrice }) => {
                           bookingForm.setValue("vehicle_product_id" as any, vehicleProductId, { shouldDirty: true });
                           if (vehicleName) bookingForm.setValue("vehicle_type", vehicleName, { shouldDirty: true });
-                          // Mirror the first selected Meet & Greet into the
-                          // legacy single-tier column so existing reports /
-                          // job sheet labels keep working.
-                          const firstMg = transferExtras.find(e => /meet.?&?\s*greet/i.test(e.name));
-                          bookingForm.setValue("meet_greet_product_id" as any, firstMg?.id ?? "", { shouldDirty: true });
                           bookingForm.setValue("transfer_extras" as any, transferExtras, { shouldDirty: true });
                           bookingForm.setValue("price", totalPrice, { shouldDirty: true });
                         }}
@@ -2826,14 +2828,18 @@ export default function NewBooking() {
                                 {supplierIdAt && (
                                   <SupplierProductPicker
                                     supplierId={supplierIdAt}
-                                    value={String(bookingForm.watch("supplier_product_id" as any) || "")}
-                                    onChange={(productId, product) => {
-                                      bookingForm.setValue("supplier_product_id" as any, productId || "", { shouldDirty: true });
-                                      if (product && product.daily_rate != null) {
-                                        bookingForm.setValue("supplier_cost" as any, Number(product.daily_rate), { shouldDirty: true });
-                                      } else if (product && product.hourly_rate != null) {
-                                        bookingForm.setValue("supplier_cost" as any, Number(product.hourly_rate), { shouldDirty: true });
-                                      }
+                                    value={(bookingForm.watch("supplier_items" as any) as any[]) || []}
+                                    onChange={(items) => {
+                                      bookingForm.setValue("supplier_items" as any, items, { shouldDirty: true });
+                                      // Auto-sum supplier_cost from picked items
+                                      // (qty × daily_rate, falling back to hourly_rate).
+                                      const total = items.reduce((s, it) => {
+                                        const rate = it.daily_rate != null ? Number(it.daily_rate)
+                                          : it.hourly_rate != null ? Number(it.hourly_rate)
+                                          : 0;
+                                        return s + rate * Number(it.qty || 0);
+                                      }, 0);
+                                      bookingForm.setValue("supplier_cost" as any, total, { shouldDirty: true });
                                     }}
                                   />
                                 )}

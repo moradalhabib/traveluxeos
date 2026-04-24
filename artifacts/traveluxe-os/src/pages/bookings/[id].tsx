@@ -42,8 +42,11 @@ function whatsappLink(num?: string) {
 function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => void }) {
   const isCarRental = booking.service_type === "Car Rental";
   const isAsDirected = booking.service_type === "As Directed";
+  const isAirportTransfer = booking.service_type === "Airport Transfer";
   const showCosts = isCarRental || isAsDirected;
   const supplierId  = booking.supplier_id;
+  const supplierItems: Array<{ product_id: string; qty: number; name: string; daily_rate: number | null; hourly_rate: number | null }>
+    = Array.isArray(booking.supplier_items) ? booking.supplier_items : [];
   const supplierProvidedDriver = !!booking.as_directed_supplier_driver;
   const [supplier, setSupplier] = useState<any>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -215,6 +218,30 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
         ) : showCosts ? (
           <p className="text-xs text-muted-foreground italic">No supplier linked. Pick one when editing the booking.</p>
         ) : null}
+
+        {/* Airport Transfer: list any supplier products picked on the booking
+            (Meet & Greet / Fast-Track / Lounge / Porter / etc.). Snapshots
+            stay accurate even if the catalogue is later edited. */}
+        {isAirportTransfer && supplierItems.length > 0 && (
+          <div className="space-y-1.5 text-sm" data-testid="supplier-items-list">
+            <div className="text-xs uppercase tracking-wider text-muted-foreground">Supplier products</div>
+            {supplierItems.map((it) => {
+              const rate = it.daily_rate != null ? Number(it.daily_rate)
+                : it.hourly_rate != null ? Number(it.hourly_rate)
+                : 0;
+              const line = rate * Number(it.qty || 0);
+              return (
+                <div key={it.product_id} className="flex justify-between items-center text-xs px-2 py-1 rounded bg-secondary/20">
+                  <span className="truncate pr-2">
+                    {it.name}
+                    {it.qty > 1 ? <span className="text-muted-foreground"> × {it.qty}</span> : null}
+                  </span>
+                  <span className="font-medium tabular-nums">£{line.toLocaleString()}</span>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {showCosts && (
           <div className="space-y-1.5 text-sm">

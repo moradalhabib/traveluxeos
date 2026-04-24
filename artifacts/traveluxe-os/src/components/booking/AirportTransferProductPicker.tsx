@@ -135,9 +135,15 @@ export function AirportTransferProductPicker({
       if (!active) return;
       const list = (data ?? []) as unknown as ExtraProduct[];
       const filtered = list.filter(p =>
-        !p.service_types
-        || p.service_types.length === 0
-        || p.service_types.includes("Airport Transfer")
+        // Meet & Greet is being retired as a category; hide any rows that
+        // still carry it so the legacy entries don't reappear in the picker
+        // until a database cleanup removes them entirely.
+        p.category !== "Meet & Greet"
+        && (
+          !p.service_types
+          || p.service_types.length === 0
+          || p.service_types.includes("Airport Transfer")
+        )
       );
       setExtras(filtered);
       setLoadingExtras(false);

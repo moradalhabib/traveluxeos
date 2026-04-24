@@ -612,13 +612,15 @@ const BOOKING_COLUMNS = new Set([
   "nights","property_contact","arrangement_fee_status",
   // Product-restructure additions (April 2026)
   "airport_code","hours","supplier_cost","client_price",
-  "vehicle_product_id","tour_product_id","meet_greet_product_id",
+  "vehicle_product_id","tour_product_id",
   // Airport Transfer extras snapshot: array of {id,name,price}.
   // Stored as JSONB so price totals stay historically accurate even if
   // the products catalogue is edited after the booking is saved.
   "transfer_extras",
   // Build 4: supplier link + car-rental cost breakdown + notification timestamps
-  "supplier_id","supplier_product_id","supplier_commission",
+  // supplier_items is a JSONB array of picked supplier products with qty
+  // and rate snapshots — replaces the legacy single supplier_product_id link.
+  "supplier_id","supplier_items","supplier_commission",
   "base_daily_rate","rental_days","fuel_cost","driver_cost","extra_charges",
   "as_directed_supplier_driver",
   "client_notified_at","driver_notified_at",
@@ -724,29 +726,41 @@ router.post("/", async (req, res) => {
   if (!body.status) body.status = "Confirmed";
   if (!body.payment_status) body.payment_status = "Unpaid";
 
-  // Supplier-product integrity:
-  //  - Meaningful for Car Rental / As Directed (vehicle picks) and
-  //    Airport Transfer (Meet & Greet / Fast-Track / Lounge / Porter
-  //    services from a third-party supplier). Cleared otherwise.
-  //  - Must belong to the chosen supplier — reject mismatches.
-  if (body.supplier_product_id) {
+  // Supplier-items integrity (multi-select picker):
+  //  - Meaningful for Car Rental / As Directed and Airport Transfer.
+  //    Cleared otherwise so a stale picker selection can't leak in.
+  //  - Every product must belong to the chosen supplier — reject mismatches.
+  //  - Auto-sums supplier_cost = Σ(qty × daily_rate ?? hourly_rate) when
+  //    the caller hasn't already pinned a manual override.
+  if (Array.isArray(body.supplier_items) && body.supplier_items.length > 0) {
     const svc = body.service_type;
-    const usesSupplierProduct = svc === "Car Rental" || svc === "As Directed" || svc === "Airport Transfer";
-    if (!usesSupplierProduct) {
-      body.supplier_product_id = null;
+    const usesSupplierItems = svc === "Car Rental" || svc === "As Directed" || svc === "Airport Transfer";
+    if (!usesSupplierItems) {
+      body.supplier_items = [];
     } else {
-      const { data: prod } = await db
+      if (!body.supplier_id) {
+        return res.status(400).json({ error: "Pick a supplier before adding products." });
+      }
+      const ids = body.supplier_items.map((i: any) => i?.product_id).filter(Boolean);
+      const { data: rows } = await db
         .from("supplier_products")
         .select("id, supplier_id")
-        .eq("id", body.supplier_product_id)
-        .maybeSingle();
-      if (!prod) {
-        return res.status(400).json({ error: "Supplier product not found." });
+        .in("id", ids);
+      const byId = new Map((rows ?? []).map((r: any) => [r.id, r.supplier_id]));
+      for (const id of ids) {
+        const sId = byId.get(id);
+        if (!sId) return res.status(400).json({ error: "Supplier product not found." });
+        if (sId !== body.supplier_id) {
+          return res.status(400).json({ error: "Selected product does not belong to the chosen supplier." });
+        }
       }
-      if (!body.supplier_id || prod.supplier_id !== body.supplier_id) {
-        return res.status(400).json({
-          error: "Selected product does not belong to the chosen supplier.",
-        });
+      if (body.supplier_cost == null) {
+        body.supplier_cost = body.supplier_items.reduce((s: number, it: any) => {
+          const rate = it?.daily_rate != null ? Number(it.daily_rate)
+            : it?.hourly_rate != null ? Number(it.hourly_rate)
+            : 0;
+          return s + rate * Number(it?.qty || 0);
+        }, 0);
       }
     }
   }
@@ -1040,29 +1054,40 @@ router.put("/:id", async (req, res) => {
   }
   const body: Record<string, any> = { ...raw, is_amended: true };
 
-  // Supplier-product integrity (same rules as POST). Use the effective
+  // Supplier-items integrity (same rules as POST). Use the effective
   // supplier_id (incoming change OR previously-saved value).
-  if (body.supplier_product_id) {
+  if (Array.isArray(body.supplier_items) && body.supplier_items.length > 0) {
     const svc = body.service_type ?? (prev as any)?.service_type;
-    const usesSupplierProduct = svc === "Car Rental" || svc === "As Directed" || svc === "Airport Transfer";
-    if (!usesSupplierProduct) {
-      body.supplier_product_id = null;
+    const usesSupplierItems = svc === "Car Rental" || svc === "As Directed" || svc === "Airport Transfer";
+    if (!usesSupplierItems) {
+      body.supplier_items = [];
     } else {
       const effectiveSupplierId =
         body.supplier_id ??
         (await db.from("bookings").select("supplier_id").eq("id", req.params.id).single()).data?.supplier_id;
-      const { data: prod } = await db
+      if (!effectiveSupplierId) {
+        return res.status(400).json({ error: "Pick a supplier before adding products." });
+      }
+      const ids = body.supplier_items.map((i: any) => i?.product_id).filter(Boolean);
+      const { data: rows } = await db
         .from("supplier_products")
         .select("id, supplier_id")
-        .eq("id", body.supplier_product_id)
-        .maybeSingle();
-      if (!prod) {
-        return res.status(400).json({ error: "Supplier product not found." });
+        .in("id", ids);
+      const byId = new Map((rows ?? []).map((r: any) => [r.id, r.supplier_id]));
+      for (const id of ids) {
+        const sId = byId.get(id);
+        if (!sId) return res.status(400).json({ error: "Supplier product not found." });
+        if (sId !== effectiveSupplierId) {
+          return res.status(400).json({ error: "Selected product does not belong to the chosen supplier." });
+        }
       }
-      if (!effectiveSupplierId || prod.supplier_id !== effectiveSupplierId) {
-        return res.status(400).json({
-          error: "Selected product does not belong to the chosen supplier.",
-        });
+      if (body.supplier_cost == null) {
+        body.supplier_cost = body.supplier_items.reduce((s: number, it: any) => {
+          const rate = it?.daily_rate != null ? Number(it.daily_rate)
+            : it?.hourly_rate != null ? Number(it.hourly_rate)
+            : 0;
+          return s + rate * Number(it?.qty || 0);
+        }, 0);
       }
     }
   }
