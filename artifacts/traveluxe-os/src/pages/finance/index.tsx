@@ -115,7 +115,9 @@ export default function Finance() {
   const totalOutstandingCommission = totalDriverOutstanding + totalSupplierOutstanding;
   const driversWithPending = driverBreakdown.filter((d: any) => (d.commission_outstanding ?? 0) > 0).length;
   const suppliersWithPending = Number(s?.suppliers_with_pending ?? 0);
-  const totalPendingPayout = driverBreakdown.reduce((acc: number, d: any) => acc + (d.payout_pending ?? 0), 0);
+  const totalDriverPendingPayout = driverBreakdown.reduce((acc: number, d: any) => acc + (d.payout_pending ?? 0), 0);
+  const totalSupplierPayouts = Number(s?.total_supplier_payouts ?? 0);
+  const totalPendingPayout = totalDriverPendingPayout + totalSupplierPayouts;
 
   return (
     <div className="space-y-5 max-w-4xl mx-auto">
@@ -232,7 +234,7 @@ export default function Finance() {
             <span className="text-xs text-muted-foreground">Pending Payouts</span>
           </div>
           <div className="text-2xl font-bold text-foreground">£{totalPendingPayout.toLocaleString()}</div>
-          <div className="text-[10px] text-muted-foreground mt-0.5">Owed to drivers</div>
+          <div className="text-[10px] text-muted-foreground mt-0.5">Drivers + suppliers</div>
         </div>
       </div>
 

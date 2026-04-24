@@ -44,7 +44,7 @@ router.get("/summary", async (req, res) => {
       payment_method, payment_status, cancellation_fee, status,
       commission_status, payout_status,
       operator_id, driver_id,
-      supplier_id, supplier_commission, supplier_commission_collected_at,
+      supplier_id, supplier_commission, supplier_commission_collected_at, supplier_cost,
       clients(name),
       drivers(id, name),
       suppliers(id, name),
@@ -106,6 +106,13 @@ router.get("/summary", async (req, res) => {
   const total_commission = total_driver_commission + total_supplier_commission_in_period;
   const total_driver_payouts =
     bookings.reduce((s, b) => s + (b.driver_receives ?? 0), 0) + extras_payouts;
+  // What TVL owes suppliers for services they provided (their gross cost,
+  // separate from the markup commission TVL earns). Must appear in Pending
+  // Payouts alongside driver payouts — omitting it understated the total.
+  const total_supplier_payouts =
+    bookings
+      .filter((b: any) => b.supplier_id && (b.supplier_cost ?? 0) > 0)
+      .reduce((s: number, b: any) => s + Number(b.supplier_cost ?? 0), 0);
 
   // Outstanding client payments
   const outstanding_payments = bookings
@@ -264,6 +271,7 @@ router.get("/summary", async (req, res) => {
     total_driver_commission,               // Drivers only — for breakdown if UI wants it
     total_supplier_commission_in_period,   // Suppliers only — same scope as the bookings query
     total_driver_payouts,
+    total_supplier_payouts,                // What TVL owes suppliers for services rendered
     outstanding_payments,
     cancellation_fees,
     service_breakdown,
