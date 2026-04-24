@@ -3,12 +3,17 @@ import { getUserFromToken, getServiceRoleClient } from "../lib/supabase";
 
 const router = Router();
 
+const PUSH_ALLOWED_ROLES = ["admin", "super_admin"];
+
 // POST /api/push-subscriptions
 // Saves (upserts) a Web Push subscription for the authenticated user.
-// Called by the frontend after PushManager.subscribe().
+// Only admin and super_admin users may subscribe to OS-level push notifications.
 router.post("/", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization ?? "");
   if (!user) return res.status(401).json({ error: "Unauthorized" });
+  if (!PUSH_ALLOWED_ROLES.includes(user.role)) {
+    return res.status(403).json({ error: "Push notifications are restricted to admins" });
+  }
 
   const { endpoint, keys, expirationTime } = req.body ?? {};
   if (!endpoint || !keys?.p256dh || !keys?.auth) {

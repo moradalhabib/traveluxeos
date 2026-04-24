@@ -68,8 +68,20 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
 }
 
+function isAdminOrSuperAdmin(): boolean {
+  try {
+    const stored = localStorage.getItem("traveluxe_session");
+    if (!stored) return false;
+    const session = JSON.parse(stored);
+    return session?.role === "admin" || session?.role === "super_admin";
+  } catch {
+    return false;
+  }
+}
+
 async function subscribeWebPush(reg: ServiceWorkerRegistration) {
   try {
+    if (!isAdminOrSuperAdmin()) return;
     const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
     if (!vapidKey) return;
     if (!("PushManager" in window)) return;
@@ -219,10 +231,11 @@ export function useNotifications() {
   }, []);
 
   // ── Browser-notification permission + Web Push subscription ─────────
+  // Only admins and super admins receive OS-level push notifications.
   useEffect(() => {
     if (typeof Notification === "undefined") return;
+    if (!isAdminOrSuperAdmin()) return;
     if (Notification.permission === "granted") {
-      // Already granted — subscribe push if we have an SW registration
       if (swReg) subscribeWebPush(swReg);
     } else if (Notification.permission === "default") {
       Notification.requestPermission().then(perm => {
