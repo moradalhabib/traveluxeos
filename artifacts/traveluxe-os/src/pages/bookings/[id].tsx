@@ -848,6 +848,9 @@ export default function BookingDetail() {
   // Common
   const [editPrice, setEditPrice] = useState<number>(0);
   const [editTvlCommission, setEditTvlCommission] = useState<number>(0);
+  const [editDriverCost, setEditDriverCost] = useState<number>(0);
+  const [editSupplierCost, setEditSupplierCost] = useState<number>(0);
+  const [editSupplierCommission, setEditSupplierCommission] = useState<number>(0);
   // Client-facing invoice breakdown — Quoted - Discount = Client Price.
   // All optional. Render the discount line on the invoice when set.
   const [editQuotedPrice, setEditQuotedPrice] = useState<number>(0);
@@ -896,6 +899,9 @@ export default function BookingDetail() {
     // Common
     setEditPrice(Number(b.price || 0));
     setEditTvlCommission(Number(b.tvl_commission || 0));
+    setEditDriverCost(Number(b.driver_cost || 0));
+    setEditSupplierCost(Number(b.supplier_cost || 0));
+    setEditSupplierCommission(Number(b.supplier_commission || 0));
     setEditQuotedPrice(Number(b.quoted_price || 0));
     setEditDiscountAmount(Number(b.discount_amount || 0));
     setEditDiscountReason(String(b.discount_reason || ""));
@@ -960,6 +966,12 @@ export default function BookingDetail() {
         // Persist airport_code on amendments — without this the pricing
         // table lookup uses the stale airport and never re-prices.
         payload.airport_code = editAirportCode || undefined;
+        // Driver pay and supplier financials — only Airport Transfer uses
+        // the split four-field model. Trigger recalcs driver_receives from
+        // driver_cost automatically on save.
+        payload.driver_cost        = editDriverCost > 0 ? editDriverCost : null;
+        payload.supplier_cost      = editSupplierCost > 0 ? editSupplierCost : null;
+        payload.supplier_commission = editSupplierCommission > 0 ? editSupplierCommission : null;
       }
       if (svcType === "Tour") {
         payload.tour_name = editTourName || undefined;
@@ -1871,6 +1883,54 @@ export default function BookingDetail() {
                     <Input type="number" value={editTvlCommission || ""} onChange={e => setEditTvlCommission(Number(e.target.value))} />
                   </div>
                 </div>
+
+                {svc === "Airport Transfer" && (
+                  <div className="space-y-3 pt-2 border-t border-border">
+                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Driver &amp; Supplier Payout</p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-[11px] text-muted-foreground mb-1">Driver Pay (£)</p>
+                        <Input type="number" step="0.01" min="0" value={editDriverCost || ""}
+                          onChange={e => setEditDriverCost(Number(e.target.value) || 0)}
+                          data-testid="edit-driver-cost" />
+                      </div>
+                      <div>
+                        <p className="text-[11px] text-muted-foreground mb-1">Supplier Cost (£)</p>
+                        <Input type="number" step="0.01" min="0" value={editSupplierCost || ""}
+                          onChange={e => setEditSupplierCost(Number(e.target.value) || 0)}
+                          data-testid="edit-supplier-cost" />
+                      </div>
+                      <div className="col-span-2">
+                        <p className="text-[11px] text-muted-foreground mb-1">Supplier Commission (£) <span className="text-[10px] normal-case">TVL markup earned from supplier</span></p>
+                        <Input type="number" step="0.01" min="0" value={editSupplierCommission || ""}
+                          onChange={e => setEditSupplierCommission(Number(e.target.value) || 0)}
+                          data-testid="edit-supplier-commission" />
+                      </div>
+                    </div>
+                    {(() => {
+                      const bal = editPrice - editDriverCost - editSupplierCost - editTvlCommission - editSupplierCommission;
+                      const ok  = Math.abs(bal) < 0.01;
+                      return editPrice > 0 ? (
+                        <div className={`p-2.5 rounded-md border text-[11px] space-y-1 ${ok ? "border-green-500/30 bg-green-500/5" : "border-amber-500/40 bg-amber-500/5"}`}>
+                          <p className={`font-semibold text-[10px] uppercase tracking-wider ${ok ? "text-green-400" : "text-amber-400"}`}>
+                            {ok ? "Balance: OK" : "Balance: does not add up"}
+                          </p>
+                          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-muted-foreground">
+                            <span>Client price</span><span className="text-right font-medium text-foreground">£{editPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                            <span>Driver pay</span><span className="text-right">− £{editDriverCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                            <span>Supplier cost</span><span className="text-right">− £{editSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                            <span>Driver commission</span><span className="text-right">− £{editTvlCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                            <span>Supplier commission</span><span className="text-right">− £{editSupplierCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className={`flex justify-between border-t pt-1 font-semibold ${ok ? "text-green-400 border-green-500/30" : "text-amber-400 border-amber-500/30"}`}>
+                            <span>Unaccounted</span>
+                            <span>{bal >= 0 ? "+" : ""}£{bal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          </div>
+                        </div>
+                      ) : null;
+                    })()}
+                  </div>
+                )}
               </>
             )}
 

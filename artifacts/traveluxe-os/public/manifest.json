@@ -12,7 +12,8 @@
     {
       "src": "/TVL_logo_32x32.png",
       "sizes": "32x32",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "/TVL_logo_192x192.png",
@@ -21,22 +22,10 @@
       "purpose": "any"
     },
     {
-      "src": "/TVL_logo_192x192.png",
-      "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "maskable"
-    },
-    {
       "src": "/TVL_logo_512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
-    },
-    {
-      "src": "/TVL_logo_512x512.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "maskable"
     }
   ]
 }
