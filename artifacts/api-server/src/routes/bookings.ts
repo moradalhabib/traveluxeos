@@ -933,18 +933,19 @@ router.get("/:id", async (req, res) => {
     .eq("booking_id", req.params.id)
     .single();
 
-  // Get flight status if applicable
+  // Get flight status if applicable (Arrival and Departure Airport Transfers)
   let flightStatus = null;
-  if (booking.flight_number && booking.service_type === "Airport Transfer" && booking.direction === "Arrival") {
+  if (booking.flight_number && booking.service_type === "Airport Transfer") {
     const flightDate = booking.date_time ? new Date(booking.date_time).toISOString().split("T")[0] : null;
     if (flightDate) {
-      const { data: cachedFlight } = await supabase
+      const cacheDb = getServiceRoleClient() ?? supabase;
+      const { data: cachedFlight } = await cacheDb
         .from("flight_status_cache")
         .select("*")
         .eq("flight_number", booking.flight_number)
         .eq("date", flightDate)
         .single();
-      flightStatus = cachedFlight;
+      flightStatus = cachedFlight ?? null;
     }
   }
 

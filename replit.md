@@ -32,7 +32,7 @@ pnpm workspace monorepo with TypeScript throughout.
 ## Environment Variables (Secrets)
 - `VITE_SUPABASE_URL` — Supabase project URL
 - `VITE_SUPABASE_ANON_KEY` — Supabase anon/public key
-- `VITE_AVIATIONSTACK_KEY` — AviationStack API key for flight tracking
+- `RAPIDAPI_KEY` — RapidAPI key for AeroDataBox flight tracking (replaces AviationStack)
 - `SESSION_SECRET` — Session secret
 
 ## Design System

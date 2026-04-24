@@ -1160,6 +1160,24 @@ export default function BookingDetail() {
     }
   };
 
+  // Return diff in minutes between two ISO timestamps (positive = late)
+  const flightTimeDiffMins = (scheduled?: string | null, estimated?: string | null): number => {
+    if (!scheduled || !estimated) return 0;
+    return Math.round((new Date(estimated).getTime() - new Date(scheduled).getTime()) / 60000);
+  };
+
+  // Format a UTC ISO time string as HH:mm London time
+  const fmtFlightTime = (iso?: string | null): string | null => {
+    if (!iso) return null;
+    try {
+      return new Intl.DateTimeFormat("en-GB", {
+        hour: "2-digit", minute: "2-digit", timeZone: "Europe/London",
+      }).format(new Date(iso));
+    } catch {
+      return null;
+    }
+  };
+
   // Header date strings.
   // For Hotel/Apartment we prefer the check-in date — Date & Time isn't
   // captured for accommodation bookings (only check-in / check-out).
@@ -1986,35 +2004,78 @@ export default function BookingDetail() {
       )}
 
       {/* Flight live status */}
-      {booking.flight_status && (
-        <Card className="border-blue-500/30 bg-blue-500/5">
-          <CardContent className="p-4 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Plane className="w-5 h-5 text-blue-400" />
-              <div>
-                <div className="font-bold">{booking.flight_number}</div>
-                <div className="text-sm text-muted-foreground">{booking.flight_status.origin} → {booking.flight_status.destination}</div>
+      {booking.flight_status && (() => {
+        const fs = booking.flight_status;
+        const diffMins = flightTimeDiffMins(fs.scheduled_time, fs.estimated_time);
+        const hasTimeDiff = Math.abs(diffMins) > 10;
+        const isDelayed = diffMins > 10;
+        const isEarly   = diffMins < -10;
+        const schedFmt  = fmtFlightTime(fs.scheduled_time);
+        const estFmt    = fmtFlightTime(fs.estimated_time);
+        return (
+          <Card className="border-blue-500/30 bg-blue-500/5">
+            <CardContent className="p-4">
+              <div className="flex items-start justify-between gap-4">
+                {/* Left: flight number + route */}
+                <div className="flex items-center gap-3">
+                  <Plane className="w-5 h-5 text-blue-400 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-bold">{booking.flight_number}</div>
+                    <div className="text-sm text-muted-foreground">
+                      {fs.origin ?? "—"} → {fs.destination ?? "—"}
+                    </div>
+                    {fs.terminal && (
+                      <div className="text-xs text-muted-foreground mt-0.5">Terminal {fs.terminal}</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Right: status + times + link */}
+                <div className="text-right space-y-1 flex-shrink-0">
+                  <div className={`font-bold ${flightStatusColor(fs.status)}`}>{fs.status}</div>
+
+                  {/* Time display: strikethrough scheduled + estimated if >10 min diff */}
+                  {schedFmt && (
+                    <div className="flex items-center justify-end gap-1.5 text-sm">
+                      {hasTimeDiff ? (
+                        <>
+                          <span className="line-through text-muted-foreground">{schedFmt}</span>
+                          {estFmt && (
+                            <span className={isDelayed ? "text-amber-400 font-semibold" : isEarly ? "text-green-400 font-semibold" : ""}>
+                              {estFmt}
+                            </span>
+                          )}
+                        </>
+                      ) : (
+                        <span className="text-muted-foreground">{schedFmt}</span>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Delay badge */}
+                  {isDelayed && (
+                    <div className="text-xs text-amber-400">+{diffMins} min delay</div>
+                  )}
+                  {isEarly && (
+                    <div className="text-xs text-green-400">{Math.abs(diffMins)} min early</div>
+                  )}
+
+                  {booking.flight_number && (
+                    <a
+                      href={`https://www.flightradar24.com/${encodeURIComponent(booking.flight_number.replace(/\s+/g, ""))}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-xs text-blue-400 hover:underline inline-flex items-center gap-1"
+                    >
+                      Live tracker <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
+                </div>
               </div>
-            </div>
-            <div className="text-right space-y-1">
-              <div className={`font-bold ${flightStatusColor(booking.flight_status.status)}`}>{booking.flight_status.status}</div>
-              {booking.flight_status.delay_minutes ? (
-                <div className="text-sm text-amber-400">Delayed {booking.flight_status.delay_minutes} mins</div>
-              ) : null}
-              {booking.flight_number && (
-                <a
-                  href={`https://www.flightradar24.com/${encodeURIComponent(booking.flight_number.replace(/\s+/g, ""))}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs text-blue-400 hover:underline inline-flex items-center gap-1"
-                >
-                  Live tracker <ExternalLink className="w-3 h-3" />
-                </a>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-      )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* Flight number link (when no live status yet, e.g. before flight tracking begins).
           Shown for any service type with a flight number on file — Airport

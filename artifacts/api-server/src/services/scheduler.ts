@@ -3,6 +3,7 @@ import { sendEmail } from "./email";
 import { emailDailyBackup } from "./backup";
 import { notifyByRoles, notifyUser, STAFF_ROLES } from "./notify";
 import { sendWebPushToAll } from "./webpush";
+import { pollUpcomingFlights } from "./flightTracker";
 
 const TICK_MS = 60 * 1000;
 
@@ -1126,6 +1127,7 @@ export function startScheduler() {
       await maybeRunOverdueCommissionAlert();
       await maybeRunUnpaidInvoiceReminder();
       await maybeRunBackup();
+      await pollUpcomingFlights();
     } catch (e: any) {
       console.error("[Scheduler] tick error:", e?.message);
     }
@@ -1134,7 +1136,7 @@ export function startScheduler() {
   // Run shortly after boot, then every minute
   setTimeout(tick, 5000);
   timer = setInterval(tick, TICK_MS);
-  console.info("[Scheduler] auto-activate + reminders + no-driver alerts + follow-up scan + 08:00 digest + 03:00 backup loop started (60s interval)");
+  console.info("[Scheduler] auto-activate + reminders + no-driver alerts + follow-up scan + 08:00 digest + 03:00 backup + flight-poll loop started (60s interval)");
 }
 
 export function stopScheduler() {
