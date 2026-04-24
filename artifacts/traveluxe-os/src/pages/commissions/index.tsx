@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips } from "@/components/ui/active-filter-chips";
-import { Calculator, Check, Hotel, Home, MessageSquare, ChevronRight, ExternalLink, Info, CheckCircle2, AlertTriangle, Download } from "lucide-react";
+import { Calculator, Check, Hotel, Home, MessageSquare, ChevronRight, ExternalLink, Info, CheckCircle2, AlertTriangle, Download, Truck, Undo2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
@@ -74,6 +74,37 @@ type SettleConfirmState = {
 };
 
 type DialogMode = "owed_to_tvl" | "owed_to_driver";
+
+type SupplierReceivableLine = {
+  booking_id: string;
+  tvl_ref: string | null;
+  date: string | null;
+  client_name: string | null;
+  service_type: string | null;
+  amount: number;
+  collected_at: string | null;
+  payment_ref: string | null;
+};
+
+type SupplierReceivable = {
+  supplier_id: string;
+  supplier_name: string;
+  supplier_contact: string | null;
+  supplier_email: string | null;
+  supplier_phone: string | null;
+  outstanding_amount: number;
+  collected_amount: number;
+  outstanding_jobs: SupplierReceivableLine[];
+  collected_jobs: SupplierReceivableLine[];
+  oldest_outstanding_age_days: number | null;
+};
+
+type SupplierReceivablesResponse = {
+  suppliers: SupplierReceivable[];
+  total_outstanding: number;
+  total_collected: number;
+  overdue_threshold_days: number;
+};
 
 const fmtMoney = (n: number) => `£${(n ?? 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
 const fmtDate = (d: string | null) => (d ? format(new Date(d), "d MMM yy") : "—");
@@ -155,6 +186,71 @@ export default function Commissions() {
       return Array.isArray(json) ? json : (json?.settlements ?? []);
     },
   });
+
+  const supplierReceivablesQuery = useQuery<SupplierReceivablesResponse>({
+    queryKey: ["supplier-receivables"],
+    queryFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${API_BASE}/commissions/supplier-receivables`, {
+        headers: session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : {},
+      });
+      if (!res.ok) throw new Error("Failed to load supplier receivables");
+      return res.json();
+    },
+  });
+
+  const [supplierDialog, setSupplierDialog] = useState<SupplierReceivable | null>(null);
+
+  const handleSupplierToggle = async (
+    bookingId: string,
+    nextCollected: boolean,
+    paymentRef?: string
+  ) => {
+    const { data: { session } } = await supabase.auth.getSession();
+    const res = await fetch(`${API_BASE}/commissions/supplier-receivables/${bookingId}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+      },
+      body: JSON.stringify({ collected: nextCollected, payment_ref: paymentRef ?? null }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      toast({
+        title: "Error",
+        description: err?.error ?? "Failed to update supplier commission",
+        variant: "destructive",
+      });
+      return;
+    }
+    toast({
+      title: nextCollected ? "Marked Collected" : "Reverted to Outstanding",
+      description: nextCollected
+        ? "Supplier commission moved to Collected."
+        : "Supplier commission moved back to Outstanding.",
+    });
+    // Re-fetch supplier receivables + headline KPIs (driver list refetch is
+    // cheap and keeps the page consistent if the booking touches both).
+    supplierReceivablesQuery.refetch();
+    refetch();
+    // Keep the open dialog in sync — re-bind to the latest server payload
+    // by supplier id once the refetch lands.
+    if (supplierDialog) {
+      const fresh = await fetch(`${API_BASE}/commissions/supplier-receivables`, {
+        headers: session?.access_token
+          ? { Authorization: `Bearer ${session.access_token}` }
+          : {},
+      });
+      if (fresh.ok) {
+        const json: SupplierReceivablesResponse = await fresh.json();
+        const updated = json.suppliers.find((s) => s.supplier_id === supplierDialog.supplier_id);
+        setSupplierDialog(updated ?? null);
+      }
+    }
+  };
 
   if (isLoading) {
     return (
@@ -322,6 +418,12 @@ export default function Commissions() {
   const owedToTvlDrivers = drivers.filter((d) => d.outstanding_amount > 0);
   const owedToDriverDrivers = drivers.filter((d) => d.pending_payout > 0);
 
+  const supplierReceivables = supplierReceivablesQuery.data?.suppliers ?? [];
+  const supplierOverdueThreshold = supplierReceivablesQuery.data?.overdue_threshold_days ?? 30;
+  const supplierOutstandingTotal = supplierReceivablesQuery.data?.total_outstanding ?? 0;
+  const suppliersOwedRows = supplierReceivables.filter((sup) => sup.outstanding_amount > 0);
+  const suppliersWithDot = suppliersOwedRows.length;
+
   return (
     <div className="space-y-6">
       <div>
@@ -332,30 +434,47 @@ export default function Commissions() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <Card className="border-border bg-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Owed to TVL (Cash)</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">Drivers owe TVL</CardTitle>
             <Calculator className="w-4 h-4 text-amber-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-amber-400">
               {isSuperAdmin ? fmtMoney(s?.total_outstanding ?? 0) : (s?.total_outstanding > 0 ? "Outstanding" : "Clear")}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">Drivers owe TVL from cash jobs</p>
+            <p className="text-xs text-muted-foreground mt-1">Commission from cash jobs</p>
           </CardContent>
         </Card>
 
         <Card className="border-border bg-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Owed to Drivers</CardTitle>
+            <CardTitle className="text-sm font-medium text-muted-foreground">TVL owes Drivers</CardTitle>
             <Calculator className="w-4 h-4 text-green-500" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold text-green-400">
               {isSuperAdmin ? fmtMoney(s?.total_pending_payouts ?? 0) : (s?.total_pending_payouts > 0 ? "Pending" : "Clear")}
             </div>
-            <p className="text-xs text-muted-foreground mt-1">TVL owes drivers (bank/card jobs)</p>
+            <p className="text-xs text-muted-foreground mt-1">Driver share on bank/card jobs</p>
+          </CardContent>
+        </Card>
+
+        <Card className="border-border bg-card" data-testid="kpi-suppliers-owe-tvl">
+          <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Suppliers owe TVL</CardTitle>
+            <Truck className="w-4 h-4 text-sky-400" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-sky-400">
+              {isSuperAdmin
+                ? fmtMoney(supplierOutstandingTotal)
+                : (supplierOutstandingTotal > 0 ? "Outstanding" : "Clear")}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              Markup on third-party supplier jobs
+            </p>
           </CardContent>
         </Card>
 
@@ -367,14 +486,14 @@ export default function Commissions() {
             "Settlement History") fit without overlapping. Allow whitespace to
             wrap to two lines on the very narrowest viewports rather than
             clipping. */}
-        <TabsList className="grid w-full grid-cols-3 h-auto gap-1">
+        <TabsList className="grid w-full grid-cols-4 h-auto gap-1">
           <TabsTrigger
             value="outstanding"
             data-testid="tab-outstanding"
-            className="text-[11px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-1 min-w-0"
+            className="text-[10px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-1 min-w-0"
           >
-            <span className="sm:hidden">TVL</span>
-            <span className="hidden sm:inline">Owed to TVL</span>
+            <span className="sm:hidden">Drivers→TVL</span>
+            <span className="hidden sm:inline">Drivers owe TVL</span>
             {owedToTvlDrivers.length > 0 && (
               <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-amber-400 inline-block" />
             )}
@@ -382,21 +501,32 @@ export default function Commissions() {
           <TabsTrigger
             value="payouts"
             data-testid="tab-payouts"
-            className="text-[11px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-1 min-w-0"
+            className="text-[10px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-1 min-w-0"
           >
-            <span className="sm:hidden">Drivers</span>
-            <span className="hidden sm:inline">Owed to Drivers</span>
+            <span className="sm:hidden">TVL→Drivers</span>
+            <span className="hidden sm:inline">TVL owes Drivers</span>
             {owedToDriverDrivers.length > 0 && (
               <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-green-400 inline-block" />
             )}
           </TabsTrigger>
           <TabsTrigger
+            value="suppliers"
+            data-testid="tab-suppliers"
+            className="text-[10px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-1 min-w-0"
+          >
+            <span className="sm:hidden">Suppliers</span>
+            <span className="hidden sm:inline">Suppliers owe TVL</span>
+            {suppliersWithDot > 0 && (
+              <span className="ml-1.5 h-1.5 w-1.5 rounded-full bg-sky-400 inline-block" />
+            )}
+          </TabsTrigger>
+          <TabsTrigger
             value="history"
             data-testid="tab-history"
-            className="text-[11px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-1 min-w-0"
+            className="text-[10px] sm:text-sm whitespace-normal text-center leading-tight py-2 px-1 min-w-0"
           >
             <span className="sm:hidden">History</span>
-            <span className="hidden sm:inline">Settlement History</span>
+            <span className="hidden sm:inline">History</span>
           </TabsTrigger>
         </TabsList>
 
@@ -563,6 +693,72 @@ export default function Commissions() {
           )}
         </TabsContent>
 
+        {/* Suppliers owe TVL — third-party supplier markup commission */}
+        <TabsContent value="suppliers" className="mt-4 space-y-3">
+          <p className="text-xs text-muted-foreground">
+            One row per supplier. Click any supplier to see the breakdown and
+            mark commission as collected when they pay TVL.
+          </p>
+          {supplierReceivablesQuery.isLoading && (
+            <div className="space-y-3">
+              {[...Array(3)].map((_, i) => (
+                <Skeleton key={i} className="h-24" />
+              ))}
+            </div>
+          )}
+          {supplierReceivablesQuery.isError && (
+            <div className="py-12 text-center text-destructive border border-dashed rounded-lg">
+              Failed to load supplier receivables. Refresh the page to try again.
+            </div>
+          )}
+          {!supplierReceivablesQuery.isLoading
+            && !supplierReceivablesQuery.isError
+            && suppliersOwedRows.length === 0 && (
+            <div className="py-12 text-center text-muted-foreground border border-dashed rounded-lg">
+              No supplier markup commission outstanding.
+            </div>
+          )}
+          {suppliersOwedRows.map((sup) => {
+            const overdue = (sup.oldest_outstanding_age_days ?? 0) >= supplierOverdueThreshold;
+            return (
+              <Card
+                key={sup.supplier_id}
+                className="border-sky-500/10 hover:border-sky-500/40 hover:bg-sky-500/5 cursor-pointer transition-colors"
+                onClick={() => setSupplierDialog(sup)}
+                data-testid={`supplier-receivable-card-${sup.supplier_id}`}
+              >
+                <CardContent className="p-4 sm:p-5 flex items-center justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <h3 className="font-bold text-base sm:text-lg truncate">{sup.supplier_name}</h3>
+                      {overdue && (
+                        <Badge
+                          variant="outline"
+                          className="bg-destructive/20 text-destructive border-destructive/50 text-[10px] px-1.5"
+                        >
+                          <AlertTriangle className="w-3 h-3 mr-0.5" />
+                          Overdue {sup.oldest_outstanding_age_days ?? 0}d
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {sup.outstanding_jobs.length} outstanding {sup.outstanding_jobs.length === 1 ? "job" : "jobs"}
+                      {sup.collected_jobs.length > 0 && ` · ${sup.collected_jobs.length} collected`}
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <div className="text-2xl font-bold text-sky-400">
+                      {isSuperAdmin ? fmtMoney(sup.outstanding_amount) : "Outstanding"}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground uppercase tracking-wider">total owed</div>
+                  </div>
+                  <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                </CardContent>
+              </Card>
+            );
+          })}
+        </TabsContent>
+
         {/* Settlement History */}
         <TabsContent value="history" className="mt-4 space-y-4">
           <SettlementHistoryView
@@ -688,6 +884,14 @@ export default function Commissions() {
         onSettleAll={handleSettleAll}
         onPayoutAll={handlePayoutAll}
         actionPending={settle.isPending || payout.isPending}
+      />
+
+      {/* Supplier receivables dialog (per-booking mark-collected) */}
+      <SupplierReceivableDialog
+        supplier={supplierDialog}
+        isSuperAdmin={isSuperAdmin}
+        onClose={() => setSupplierDialog(null)}
+        onToggle={handleSupplierToggle}
       />
 
       {/* Settlement notes dialog (Fix 5) */}
@@ -1384,5 +1588,181 @@ function JobRow({
         {settled && <CheckCircle2 className="w-4 h-4 text-emerald-500" data-testid="settled-tick" />}
       </div>
     </li>
+  );
+}
+
+// ─── Supplier receivable detail dialog ────────────────────────────────────
+// Shows the breakdown of supplier-commission lines for one supplier with
+// per-booking "Mark Collected" / "Reset" buttons. Mirrors the driver
+// settlement dialog's pattern so operators get a consistent feel.
+function SupplierReceivableDialog({
+  supplier,
+  isSuperAdmin,
+  onClose,
+  onToggle,
+}: {
+  supplier: SupplierReceivable | null;
+  isSuperAdmin: boolean;
+  onClose: () => void;
+  onToggle: (bookingId: string, nextCollected: boolean, paymentRef?: string) => Promise<void> | void;
+}) {
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [refByBooking, setRefByBooking] = useState<Record<string, string>>({});
+
+  const handleClick = async (line: SupplierReceivableLine, nextCollected: boolean) => {
+    setPendingId(line.booking_id);
+    try {
+      const ref = nextCollected ? (refByBooking[line.booking_id] ?? "").trim() : undefined;
+      await onToggle(line.booking_id, nextCollected, ref || undefined);
+    } finally {
+      setPendingId(null);
+    }
+  };
+
+  return (
+    <Dialog open={!!supplier} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto" data-testid="dialog-supplier-receivables">
+        {supplier && (
+          <>
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Truck className="w-5 h-5 text-sky-400" />
+                {supplier.supplier_name}
+              </DialogTitle>
+              <DialogDescription>
+                {supplier.supplier_contact ?? "Markup commission owed by this supplier"}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="grid grid-cols-2 gap-3 py-2">
+              <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Outstanding</div>
+                <div className="text-2xl font-bold text-sky-400">
+                  {isSuperAdmin ? fmtMoney(supplier.outstanding_amount) : "Outstanding"}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {supplier.outstanding_jobs.length} {supplier.outstanding_jobs.length === 1 ? "job" : "jobs"}
+                </div>
+              </div>
+              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
+                <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Collected</div>
+                <div className="text-2xl font-bold text-emerald-400">
+                  {isSuperAdmin ? fmtMoney(supplier.collected_amount) : "—"}
+                </div>
+                <div className="text-xs text-muted-foreground mt-0.5">
+                  {supplier.collected_jobs.length} {supplier.collected_jobs.length === 1 ? "job" : "jobs"}
+                </div>
+              </div>
+            </div>
+
+            {supplier.outstanding_jobs.length > 0 && (
+              <div className="space-y-2">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Outstanding ({supplier.outstanding_jobs.length})
+                </h3>
+                <ul className="divide-y divide-border rounded-lg border border-border overflow-hidden">
+                  {supplier.outstanding_jobs.map((line) => (
+                    <li key={line.booking_id} className="p-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Link href={`/bookings/${line.booking_id}`}>
+                            <a className="font-semibold text-sm text-primary hover:underline inline-flex items-center gap-1">
+                              {line.tvl_ref ?? "—"}
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </Link>
+                          {line.service_type && (
+                            <Badge variant="outline" className="text-[10px] px-1.5">{line.service_type}</Badge>
+                          )}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {fmtDate(line.date)} · {line.client_name ?? "Client"}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 sm:flex-shrink-0">
+                        <div className="text-sm font-bold text-sky-400 min-w-[60px] text-right">
+                          {isSuperAdmin ? fmtMoney(line.amount) : "Outstanding"}
+                        </div>
+                        <input
+                          type="text"
+                          placeholder="Ref (optional)"
+                          value={refByBooking[line.booking_id] ?? ""}
+                          onChange={(e) => setRefByBooking((m) => ({ ...m, [line.booking_id]: e.target.value }))}
+                          className="text-xs px-2 py-1.5 rounded border border-input bg-background w-28"
+                          data-testid={`input-supplier-ref-${line.booking_id}`}
+                        />
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-emerald-500 hover:bg-emerald-500/10 text-xs"
+                          disabled={pendingId === line.booking_id}
+                          onClick={() => handleClick(line, true)}
+                          data-testid={`btn-supplier-collect-${line.booking_id}`}
+                        >
+                          <Check className="w-3 h-3 mr-1" />
+                          {pendingId === line.booking_id ? "..." : "Collected"}
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {supplier.collected_jobs.length > 0 && (
+              <div className="space-y-2 pt-3">
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                  Collected ({supplier.collected_jobs.length})
+                </h3>
+                <ul className="divide-y divide-border rounded-lg border border-border overflow-hidden">
+                  {supplier.collected_jobs.map((line) => (
+                    <li key={line.booking_id} className="p-3 flex items-center justify-between gap-2 bg-emerald-500/5">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <Link href={`/bookings/${line.booking_id}`}>
+                            <a className="font-semibold text-sm text-primary hover:underline inline-flex items-center gap-1">
+                              {line.tvl_ref ?? "—"}
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          </Link>
+                          <Badge variant="outline" className="text-[10px] px-1.5 text-emerald-500 border-emerald-500/30">
+                            Collected
+                          </Badge>
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-0.5">
+                          {fmtDate(line.date)} · {line.client_name ?? "Client"}
+                          {line.payment_ref ? ` · Ref: ${line.payment_ref}` : ""}
+                          {line.collected_at ? ` · Marked ${fmtDate(line.collected_at)}` : ""}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="text-sm font-bold text-emerald-400">
+                          {isSuperAdmin ? fmtMoney(line.amount) : "—"}
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-muted-foreground hover:text-foreground text-xs"
+                          disabled={pendingId === line.booking_id}
+                          onClick={() => handleClick(line, false)}
+                          data-testid={`btn-supplier-undo-${line.booking_id}`}
+                        >
+                          <Undo2 className="w-3 h-3 mr-1" />
+                          {pendingId === line.booking_id ? "..." : "Undo"}
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            <DialogFooter>
+              <Button variant="outline" onClick={onClose}>Close</Button>
+            </DialogFooter>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

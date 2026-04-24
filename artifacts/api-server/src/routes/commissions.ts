@@ -845,6 +845,192 @@ router.delete("/payouts/:id", async (req, res) => {
   return res.json({ ok: true, reverted_bookings: revertedBookings, reverted_vehicles: revertedVehicles });
 });
 
+// ─── Supplier receivables (Suppliers owe TVL) ─────────────────────────────
+// Returns one row per supplier with outstanding + collected commission and
+// the underlying booking lines, mirroring the driver-commissions shape so
+// the front-end can re-use the same Card/Tab pattern.
+//
+// A booking contributes to "Outstanding" when:
+//   - supplier_id IS NOT NULL
+//   - supplier_commission > 0
+//   - status != 'Cancelled'
+//   - supplier_commission_collected_at IS NULL
+// It contributes to "Collected" when collected_at is set.
+router.get("/supplier-receivables", async (_req, res) => {
+  const { data: bookings, error } = await supabase
+    .from("bookings")
+    .select(
+      "id, tvl_ref, date_time, service_type, supplier_id, supplier_commission, supplier_commission_collected_at, supplier_commission_payment_ref, status, clients(name), suppliers(id, name, contact_name, email, phone)"
+    )
+    .not("supplier_id", "is", null)
+    .gt("supplier_commission", 0)
+    .neq("status", "Cancelled")
+    .order("date_time", { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+
+  type LineRow = {
+    booking_id: string;
+    tvl_ref: string | null;
+    date: string | null;
+    client_name: string | null;
+    service_type: string | null;
+    amount: number;
+    collected_at: string | null;
+    payment_ref: string | null;
+  };
+  type SupplierAgg = {
+    supplier_id: string;
+    supplier_name: string;
+    supplier_contact: string | null;
+    supplier_email: string | null;
+    supplier_phone: string | null;
+    outstanding_amount: number;
+    collected_amount: number;
+    outstanding_jobs: LineRow[];
+    collected_jobs: LineRow[];
+    oldest_outstanding_age_days: number | null;
+  };
+  const map = new Map<string, SupplierAgg>();
+
+  (bookings ?? []).forEach((b: any) => {
+    const supplierId = b.supplier_id as string;
+    if (!map.has(supplierId)) {
+      map.set(supplierId, {
+        supplier_id: supplierId,
+        supplier_name: b.suppliers?.name ?? "Unknown supplier",
+        supplier_contact: b.suppliers?.contact_name ?? null,
+        supplier_email: b.suppliers?.email ?? null,
+        supplier_phone: b.suppliers?.phone ?? null,
+        outstanding_amount: 0,
+        collected_amount: 0,
+        outstanding_jobs: [],
+        collected_jobs: [],
+        oldest_outstanding_age_days: null,
+      });
+    }
+    const agg = map.get(supplierId)!;
+    const amount = Number(b.supplier_commission ?? 0);
+    const line: LineRow = {
+      booking_id: b.id,
+      tvl_ref: b.tvl_ref ?? null,
+      date: b.date_time ?? null,
+      client_name: b.clients?.name ?? null,
+      service_type: b.service_type ?? null,
+      amount,
+      collected_at: b.supplier_commission_collected_at ?? null,
+      payment_ref: b.supplier_commission_payment_ref ?? null,
+    };
+    if (b.supplier_commission_collected_at) {
+      agg.collected_amount += amount;
+      agg.collected_jobs.push(line);
+    } else {
+      agg.outstanding_amount += amount;
+      agg.outstanding_jobs.push(line);
+      const age = ageInDays(b.date_time);
+      if (agg.oldest_outstanding_age_days === null || age > agg.oldest_outstanding_age_days) {
+        agg.oldest_outstanding_age_days = age;
+      }
+    }
+  });
+
+  const suppliers = Array.from(map.values()).sort(
+    (a, b) => b.outstanding_amount - a.outstanding_amount
+  );
+  const total_outstanding = suppliers.reduce((s, x) => s + x.outstanding_amount, 0);
+  const total_collected = suppliers.reduce((s, x) => s + x.collected_amount, 0);
+
+  return res.json({
+    suppliers,
+    total_outstanding,
+    total_collected,
+    overdue_threshold_days: OVERDUE_DAYS,
+  });
+});
+
+// Toggle a supplier-commission line as collected / outstanding.
+//
+// PATCH body: { collected: boolean, payment_ref?: string }
+// - collected=true  → stamp supplier_commission_collected_at = now()
+// - collected=false → clear collected_at + payment_ref (un-collect / undo)
+//
+// All business rules are enforced as predicates on a single UPDATE so we
+// can't race against a concurrent cancellation or supplier change between
+// validate-then-update steps. The .select() returns the updated row only
+// when every predicate matched; an empty result means the booking was in
+// a state that disallowed the toggle (cancelled, no supplier, no
+// commission, or already in the target collection state).
+router.patch("/supplier-receivables/:bookingId", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  const { bookingId } = req.params;
+  const { collected, payment_ref } = req.body ?? {};
+  if (typeof collected !== "boolean") {
+    return res.status(400).json({ error: "Body must include collected: boolean." });
+  }
+
+  const patch = collected
+    ? { supplier_commission_collected_at: new Date().toISOString(), supplier_commission_payment_ref: payment_ref ?? null }
+    : { supplier_commission_collected_at: null, supplier_commission_payment_ref: null };
+
+  // Single guarded UPDATE — must hit a booking that:
+  //   * exists at this id
+  //   * has a supplier
+  //   * has a positive supplier_commission
+  //   * is not cancelled
+  //   * is currently in the OPPOSITE collection state (idempotent guard:
+  //     when collecting we require collected_at IS NULL, when undoing we
+  //     require collected_at IS NOT NULL — prevents double-stamp races).
+  let q = supabase
+    .from("bookings")
+    .update(patch)
+    .eq("id", bookingId)
+    .not("supplier_id", "is", null)
+    .gt("supplier_commission", 0)
+    .neq("status", "Cancelled");
+  q = collected
+    ? q.is("supplier_commission_collected_at", null)
+    : q.not("supplier_commission_collected_at", "is", null);
+
+  const { data: updated, error: updErr } = await q
+    .select("id, tvl_ref, supplier_commission, suppliers(name)");
+  if (updErr) return res.status(500).json({ error: updErr.message });
+
+  if (!updated || updated.length === 0) {
+    // Diagnose so the operator gets a useful message instead of a 409.
+    const { data: probe } = await supabase
+      .from("bookings")
+      .select("id, supplier_id, supplier_commission, status, supplier_commission_collected_at")
+      .eq("id", bookingId)
+      .maybeSingle();
+    if (!probe) return res.status(404).json({ error: "Booking not found." });
+    if (!probe.supplier_id || Number(probe.supplier_commission ?? 0) <= 0) {
+      return res.status(400).json({ error: "Booking has no supplier commission to collect." });
+    }
+    if (probe.status === "Cancelled") {
+      return res.status(409).json({ error: "Cannot toggle commission on a cancelled booking." });
+    }
+    // Already in target state — treat as no-op success so the UI stays consistent.
+    return res.json({ ok: true, collected, no_change: true });
+  }
+
+  const row = updated[0] as any;
+  const supplierName = row.suppliers?.name ?? "supplier";
+  const verb = collected ? "collected" : "marked outstanding";
+  const summary = `Supplier commission £${Number(row.supplier_commission).toFixed(0)} ${verb} for ${supplierName} (${row.tvl_ref ?? bookingId})`;
+
+  await auditLog("supplier_commission_updated", "booking", bookingId, user?.id ?? null, summary);
+  await logActivity({
+    action_type: "settlement_created",
+    description: summary,
+    entity_type: "booking",
+    entity_id: bookingId,
+    entity_label: row.tvl_ref ?? null,
+    operator_id: user?.id ?? null,
+    operator_name: user?.name ?? null,
+  });
+
+  return res.json({ ok: true, collected });
+});
+
 // Mark a hotel/apartment arrangement fee as collected
 router.patch("/arrangement-fees/:bookingId", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);

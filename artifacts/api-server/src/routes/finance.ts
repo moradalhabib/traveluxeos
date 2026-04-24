@@ -96,6 +96,24 @@ router.get("/summary", async (req, res) => {
     .filter(b => b.payment_status === "Unpaid" || b.payment_status === "Partial")
     .sort((a, b) => new Date(a.date_time ?? 0).getTime() - new Date(b.date_time ?? 0).getTime());
 
+  // Supplier receivables (suppliers owe TVL the markup commission). Sourced
+  // independently from the `bookings` query above because we need rows
+  // without a status filter quirk and want to ignore the date range — the
+  // total reflects all-time outstanding markup until collected, mirroring
+  // how supplier payables are tracked.
+  const { data: supplierReceivableRows } = await supabase
+    .from("bookings")
+    .select("supplier_commission, supplier_commission_collected_at")
+    .not("supplier_id", "is", null)
+    .gt("supplier_commission", 0)
+    .neq("status", "Cancelled");
+  const total_supplier_receivables_outstanding = (supplierReceivableRows ?? [])
+    .filter((r: any) => !r.supplier_commission_collected_at)
+    .reduce((s: number, r: any) => s + Number(r.supplier_commission ?? 0), 0);
+  const total_supplier_receivables_collected = (supplierReceivableRows ?? [])
+    .filter((r: any) => !!r.supplier_commission_collected_at)
+    .reduce((s: number, r: any) => s + Number(r.supplier_commission ?? 0), 0);
+
   // Cancellation fees — gated by the same era cutoff so legacy Odoo
   // cancellations don't reappear in TVL-stack finance totals.
   const { data: cancelledBookings } = await supabase
@@ -183,6 +201,8 @@ router.get("/summary", async (req, res) => {
     service_breakdown,
     driver_commission_breakdown,
     operator_performance,
+    total_supplier_receivables_outstanding,
+    total_supplier_receivables_collected,
     bookings_detail: bookings,
   });
 });
