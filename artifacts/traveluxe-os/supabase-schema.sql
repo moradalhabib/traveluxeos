@@ -89,7 +89,7 @@ CREATE TABLE IF NOT EXISTS public.bookings (
   additional_charges NUMERIC DEFAULT 0,
   price NUMERIC NOT NULL DEFAULT 0,
   tvl_commission NUMERIC DEFAULT 0,
-  driver_receives NUMERIC GENERATED ALWAYS AS (price + COALESCE(additional_charges, 0) - COALESCE(tvl_commission, 0)) STORED,
+  driver_receives NUMERIC(10, 2), -- set by bookings_recalc_driver_receives trigger (uses driver_cost when set, else price + additional_charges - tvl_commission)
   commission_type TEXT CHECK (commission_type IN ('Driver owes TVL', 'TVL owes driver')),
   payment_status TEXT DEFAULT 'Unpaid' CHECK (payment_status IN ('Paid', 'Unpaid', 'Partial')),
   payment_method TEXT CHECK (payment_method IN ('Cash', 'Bank Transfer', 'Card')),
