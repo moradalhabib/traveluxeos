@@ -4,6 +4,7 @@ import { logActivity } from "../lib/activity";
 import { sendEmail } from "../services/email";
 import { notifyDriverAssigned, notifyDriverDeclined } from "../services/scheduler";
 import { notifyByRoles, notifyUser, STAFF_ROLES, ADMIN_ROLES } from "../services/notify";
+import { sendWebPushToAll } from "../services/webpush";
 
 function bookingShortLabel(b: any) {
   const ref = b.tvl_ref ?? "TVL-????";
@@ -845,15 +846,22 @@ router.post("/", async (req, res) => {
   // ── In-app notifications ────────────────────────────────────────────────
   {
     const lbl = bookingShortLabel(enriched);
-    // Broadcast new-booking alert to all staff
+    // Broadcast new-booking alert to all staff (in-app + OS push)
+    const newBookingMsg = `${lbl.ref} · ${lbl.name} · ${lbl.svc}${lbl.when ? " · " + lbl.when : ""}`;
     notifyByRoles(STAFF_ROLES, {
       type: "booking_new",
       title: "New Booking",
-      message: `${lbl.ref} · ${lbl.name} · ${lbl.svc}${lbl.when ? " · " + lbl.when : ""}`,
+      message: newBookingMsg,
       link: `/bookings/${data.id}`,
       entityType: "booking",
       entityId: data.id,
       severity: "info",
+    }).catch(() => {});
+    sendWebPushToAll({
+      title: "New Booking",
+      body:  newBookingMsg,
+      link:  `/bookings/${data.id}`,
+      tag:   `new-booking-${data.id}`,
     }).catch(() => {});
 
     // Targeted alert to the assigned operator (if different from the creator)
@@ -1286,10 +1294,11 @@ router.put("/:id", async (req, res) => {
         // If the driver was already settled / paid out for this booking,
         // raise a separate alert so an admin can reverse the ledger entry.
         warnIfBookingPreviouslySettled(req.params.id, updated.tvl_ref ?? null, user?.id ?? null).catch(() => {});
+        const cancelMsg = `${lbl.ref} · ${lbl.name} cancelled`;
         notifyByRoles(ADMIN_ROLES, {
           type: "booking_cancelled",
           title: "Booking Cancelled",
-          message: `${lbl.ref} · ${lbl.name} cancelled`,
+          message: cancelMsg,
           link: `/bookings/${req.params.id}`,
           entityType: "booking",
           entityId: req.params.id,
@@ -1300,7 +1309,7 @@ router.put("/:id", async (req, res) => {
           notifyUser(updated.operator_id, {
             type: "booking_cancelled",
             title: "Booking Cancelled",
-            message: `${lbl.ref} · ${lbl.name} cancelled`,
+            message: cancelMsg,
             link: `/bookings/${req.params.id}`,
             entityType: "booking",
             entityId: req.params.id,
@@ -1308,6 +1317,13 @@ router.put("/:id", async (req, res) => {
             dedupeKey: `booking_cancelled:${req.params.id}`,
           }).catch(() => {});
         }
+        sendWebPushToAll({
+          title: "Booking Cancelled",
+          body:  cancelMsg,
+          link:  `/bookings/${req.params.id}`,
+          tag:   `cancelled-${req.params.id}`,
+          requireInteraction: true,
+        }).catch(() => {});
       }
     }
 

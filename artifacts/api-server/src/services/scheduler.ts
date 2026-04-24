@@ -2,16 +2,7 @@ import { supabase, auditLog, getServiceRoleClient } from "../lib/supabase";
 import { sendEmail } from "./email";
 import { emailDailyBackup } from "./backup";
 import { notifyByRoles, notifyUser, STAFF_ROLES } from "./notify";
-import webpush from "web-push";
-
-// Configure VAPID once at module load — keys must exist in env.
-if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
-  webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT || "mailto:info@traveluxelondon.com",
-    process.env.VAPID_PUBLIC_KEY,
-    process.env.VAPID_PRIVATE_KEY,
-  );
-}
+import { sendWebPushToAll } from "./webpush";
 
 const TICK_MS = 60 * 1000;
 
@@ -88,8 +79,20 @@ async function autoActivateJobs() {
       await auditLog("auto_active", "booking", b.id, null,
         `Booking ${b.tvl_ref} auto-activated at start time`);
 
+      const enriched = { ...b, driver_name: (b as any).drivers?.name ?? null };
+      const when = b.date_time
+        ? new Date(b.date_time).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" })
+        : "—";
+
+      sendWebPushToAll({
+        title: `Job starting now — ${b.tvl_ref ?? ""}`,
+        body:  `${b.client_name ?? "—"} · ${b.service_type ?? "—"} at ${when}${enriched.driver_name ? " · " + enriched.driver_name : ""}`,
+        link:  `/bookings/${b.id}`,
+        tag:   `active-${b.id}`,
+        requireInteraction: true,
+      }).catch(() => {});
+
       if (recipients.length > 0) {
-        const enriched = { ...b, driver_name: (b as any).drivers?.name ?? null };
         sendEmail({
           to: recipients.join(", "),
           subject: `Job Started — ${b.tvl_ref ?? ""} — ${b.client_name ?? ""}`,
@@ -152,8 +155,6 @@ async function sendReminders() {
 // Deduplicated by an audit_log row so each booking only alerts once.
 
 async function sendUpcomingAlerts() {
-  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return;
-
   const now  = new Date();
   const lo   = new Date(now.getTime() + 50 * 60 * 1000).toISOString();
   const hi   = new Date(now.getTime() + 70 * 60 * 1000).toISOString();
@@ -168,7 +169,7 @@ async function sendUpcomingAlerts() {
 
   if (!upcoming || upcoming.length === 0) return;
 
-  // Check which bookings already had a push sent (partial-index dedup key)
+  // Dedup: only alert once per booking
   const ids = upcoming.map(b => b.id);
   const { data: alreadySent } = await supabase
     .from("audit_log")
@@ -180,42 +181,18 @@ async function sendUpcomingAlerts() {
   const unsent = upcoming.filter(b => !sentSet.has(b.id));
   if (unsent.length === 0) return;
 
-  // Fetch all active push subscriptions using service-role to bypass RLS
-  const svc = getServiceRoleClient();
-  if (!svc) return;
-
-  const { data: subs } = await svc
-    .from("push_subscriptions")
-    .select("endpoint, p256dh, auth")
-    .limit(500);
-
   for (const b of unsent) {
-    const enriched = { ...b, driver_name: (b as any).drivers?.name ?? null };
+    const driverName = (b as any).drivers?.name ?? null;
     const when = b.date_time
       ? new Date(b.date_time).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" })
       : "—";
-    const driverLabel = enriched.driver_name ? ` · ${enriched.driver_name}` : " · Driver TBC";
+    const driverLabel = driverName ? ` · ${driverName}` : " · Driver TBC";
     const title = `Starting in ~1 hour — ${b.tvl_ref ?? ""}`;
     const body  = `${b.client_name ?? "—"} · ${b.service_type ?? "—"} at ${when}${driverLabel}`;
     const link  = `/bookings/${b.id}`;
 
-    // ── Web Push ─────────────────────────────────────────────────────────
-    for (const sub of (subs ?? [])) {
-      try {
-        await webpush.sendNotification(
-          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          JSON.stringify({ title, body, link, tag: `upcoming-${b.id}`, requireInteraction: true }),
-          { TTL: 3600 },
-        );
-      } catch (e: any) {
-        // 410 Gone = subscription expired — remove it
-        if (e?.statusCode === 410) {
-          svc.from("push_subscriptions").delete().eq("endpoint", sub.endpoint).catch(() => {});
-        }
-      }
-    }
+    await sendWebPushToAll({ title, body, link, tag: `upcoming-${b.id}`, requireInteraction: true }).catch(() => {});
 
-    // ── In-app notification ───────────────────────────────────────────────
     await notifyByRoles(STAFF_ROLES, {
       type: "booking_status",
       title,
@@ -225,7 +202,6 @@ async function sendUpcomingAlerts() {
       dedupeKey: `upcoming-1h-${b.id}`,
     }).catch(() => {});
 
-    // ── Audit stamp (dedup guard) ─────────────────────────────────────────
     await auditLog("upcoming_push_sent", "booking", b.id, null,
       `1h upcoming push sent for ${b.tvl_ref}`).catch(() => {});
 
@@ -679,15 +655,23 @@ async function checkNoDriverAlerts() {
       const start = b.date_time ? new Date(b.date_time).getTime() : now;
       const minsLeft = Math.max(0, Math.round((start - now) / 60000));
       const hoursLeft = (minsLeft / 60).toFixed(1);
+      const msg = `${b.tvl_ref ?? ""} has no driver assigned — job in ${hoursLeft}h`;
       notifyByRoles(STAFF_ROLES, {
         type: "no_driver_3h",
-        title: "⚠️ URGENT — No Driver",
-        message: `${b.tvl_ref ?? ""} has no driver assigned — job in ${hoursLeft}h`,
+        title: "URGENT — No Driver",
+        message: msg,
         link: `/bookings/${b.id}`,
         entityType: "booking",
         entityId: b.id,
         severity: "urgent",
         dedupeKey: `no_driver_3h:${b.id}:${bucketKey}`,
+      }).catch(() => {});
+      sendWebPushToAll({
+        title: "URGENT — No Driver",
+        body:  msg,
+        link:  `/bookings/${b.id}`,
+        tag:   `no-driver-3h-${b.id}-${bucketKey}`,
+        requireInteraction: true,
       }).catch(() => {});
     }
   }
@@ -708,15 +692,22 @@ async function checkNoDriverAlerts() {
       const t = b.date_time
         ? new Date(b.date_time).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })
         : "soon";
+      const msg = `${b.tvl_ref ?? ""} has no driver assigned — ${t}`;
       notifyByRoles(STAFF_ROLES, {
         type: "no_driver_24h",
-        title: "⚠️ No Driver — Tomorrow",
-        message: `${b.tvl_ref ?? ""} has no driver assigned — ${t}`,
+        title: "No Driver — Tomorrow",
+        message: msg,
         link: `/bookings/${b.id}`,
         entityType: "booking",
         entityId: b.id,
         severity: "warning",
         dedupeKey: `no_driver_24h:${b.id}:${today}`,
+      }).catch(() => {});
+      sendWebPushToAll({
+        title: "No Driver — Tomorrow",
+        body:  msg,
+        link:  `/bookings/${b.id}`,
+        tag:   `no-driver-24h-${b.id}-${today}`,
       }).catch(() => {});
     }
   }
