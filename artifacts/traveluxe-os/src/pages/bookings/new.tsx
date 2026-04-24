@@ -148,6 +148,13 @@ const bookingSchema = z.object({
     name: z.string(),
     price: z.coerce.number(),
   })).optional().default([]),
+  // Client-facing pricing breakdown — Quoted - Discount = Client Price.
+  // All three are optional. When the operator fills Quoted (and optionally
+  // Discount + Reason), Client Price is auto-set; they can still override.
+  // These appear on the client invoice and are recorded in amendments.
+  quoted_price: z.coerce.number().optional(),
+  discount_amount: z.coerce.number().optional(),
+  discount_reason: z.string().optional(),
 });
 
 export default function NewBooking() {
@@ -969,6 +976,10 @@ export default function NewBooking() {
         : values.special_requests,
       additional_charges: values.additional_charges,
       price: values.price,
+      // Client-facing breakdown — drives the invoice subtotal/discount/total.
+      quoted_price: (values as any).quoted_price ?? undefined,
+      discount_amount: (values as any).discount_amount ?? undefined,
+      discount_reason: (values as any).discount_reason || undefined,
       tvl_commission: values.tvl_commission,
       commission_amount: values.commission_amount,
       commission_notes: values.commission_notes,
@@ -2682,10 +2693,70 @@ export default function NewBooking() {
                           ) : null}
                         </>
                       ) : (
+                        <>
+                        {/* ── Quoted Price + Discount (client-facing) ──────
+                            Optional. When filled, auto-fills Client Price
+                            below = Quoted - Discount. Both lines render on
+                            the client invoice (subtotal + discount + total)
+                            so the client sees a transparent breakdown. */}
+                        <div className="p-3 rounded-md border border-border bg-muted/30 space-y-2 mb-3" data-testid="block-quoted-discount">
+                          <div className="flex items-center justify-between">
+                            <Label className="text-xs uppercase tracking-wider text-muted-foreground">Invoice breakdown <span className="normal-case text-[10px] text-muted-foreground/80">(optional — shown on client invoice)</span></Label>
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <Label className="text-[11px] text-muted-foreground">Quoted Price (£)</Label>
+                              <Input
+                                type="number" step="0.01" min="0"
+                                placeholder="e.g. 550"
+                                value={(bookingForm.watch("quoted_price" as any) as any) ?? ""}
+                                onChange={e => {
+                                  const v = e.target.value === "" ? undefined : Number(e.target.value);
+                                  bookingForm.setValue("quoted_price" as any, v as any, { shouldDirty: true });
+                                  // Auto-fill Client Price = Quoted - Discount.
+                                  // Operator can still type a different price below.
+                                  if (v != null) {
+                                    const d = Number(bookingForm.watch("discount_amount" as any) ?? 0) || 0;
+                                    bookingForm.setValue("price", Number(v) - d, { shouldDirty: true });
+                                  }
+                                }}
+                                data-testid="input-quoted-price"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[11px] text-muted-foreground">Discount (£)</Label>
+                              <Input
+                                type="number" step="0.01" min="0"
+                                placeholder="e.g. 50"
+                                value={(bookingForm.watch("discount_amount" as any) as any) ?? ""}
+                                onChange={e => {
+                                  const v = e.target.value === "" ? undefined : Number(e.target.value);
+                                  bookingForm.setValue("discount_amount" as any, v as any, { shouldDirty: true });
+                                  const q = Number(bookingForm.watch("quoted_price" as any) ?? 0) || 0;
+                                  if (q > 0) bookingForm.setValue("price", q - (Number(v) || 0), { shouldDirty: true });
+                                }}
+                                data-testid="input-discount-amount"
+                              />
+                            </div>
+                          </div>
+                          {(Number(bookingForm.watch("discount_amount" as any) ?? 0) || 0) > 0 && (
+                            <div className="space-y-1">
+                              <Label className="text-[11px] text-muted-foreground">Discount Reason <span className="text-destructive">*</span></Label>
+                              <Input
+                                placeholder='e.g. "Buggy unavailable"'
+                                value={(bookingForm.watch("discount_reason" as any) as any) ?? ""}
+                                onChange={e => bookingForm.setValue("discount_reason" as any, e.target.value, { shouldDirty: true })}
+                                data-testid="input-discount-reason"
+                              />
+                              <p className="text-[10px] text-muted-foreground">Shown to the client on the invoice next to the discount line.</p>
+                            </div>
+                          )}
+                        </div>
+
                         <div className="grid grid-cols-2 gap-3">
                           <FormField control={bookingForm.control} name="price" render={({ field }) => (
                             <FormItem>
-                              <FormLabel>Client Price (£)</FormLabel>
+                              <FormLabel>Client Price (£) <span className="text-[10px] text-muted-foreground font-normal">— auto from Quoted − Discount, or enter directly</span></FormLabel>
                               <FormControl>
                                 <Input
                                   type="number"
@@ -2737,6 +2808,7 @@ export default function NewBooking() {
                             </>
                           )}
                         </div>
+                        </>
                       )}
 
                       {(() => {

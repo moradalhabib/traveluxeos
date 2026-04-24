@@ -240,7 +240,43 @@ export function buildPdf(
       y = legsTop + overrideLegs.length * 70 + 12 + 14;
     }
 
+    // ── Inclusions block (What's included in this booking) ─────────────
+    // Builds a bullet list from vehicle_type + transfer_extras +
+    // supplier_items so a "Diamond Package" picked from the supplier
+    // catalogue surfaces here automatically. Only renders when there is
+    // actually something to show (Hotels/Apartments typically skip it).
+    // Vehicle is already shown in the booking detail rows above (Assigned
+    // / Preferred Vehicle), so we deliberately exclude vehicle_type here
+    // to avoid duplication. Inclusions list = extras + supplier items only.
+    const inclusions: string[] = [];
+    if (Array.isArray(b.transfer_extras)) {
+      for (const e of b.transfer_extras) if (e?.name) inclusions.push(String(e.name));
+    }
+    if (Array.isArray(b.supplier_items)) {
+      for (const s of b.supplier_items) {
+        const nm = s?.product_name || s?.name;
+        if (nm) inclusions.push(String(nm));
+      }
+    }
+    if (inclusions.length > 0) {
+      doc.fillColor(COLOR_GOLD).font("Helvetica-Bold").fontSize(11).text("INCLUSIONS", 50, y);
+      y += 14;
+      const incTop = y;
+      const incH = inclusions.length * 14 + 16;
+      doc.roundedRect(50, incTop, doc.page.width - 100, incH, 6).fill(COLOR_PANEL);
+      y = incTop + 8;
+      doc.fillColor(COLOR_TEXT).font("Helvetica").fontSize(10);
+      for (const item of inclusions) {
+        doc.text(`•  ${item}`, 64, y, { width: doc.page.width - 128 });
+        y += 14;
+      }
+      y = incTop + incH + 12;
+    }
+
     // ── Pricing block ──────────────────────────────────────────────────
+    // Renders Subtotal + Discount + Total when the operator filled in
+    // quoted_price + discount_amount; otherwise falls back to the simple
+    // single-line layout. Discount line is green and shows the reason.
     doc.fillColor(COLOR_GOLD).font("Helvetica-Bold").fontSize(11).text("PRICING", 50, y);
     y += 16;
     const price = Number(b.price ?? 0);
@@ -248,17 +284,35 @@ export function buildPdf(
                   : (typeof b.extras === "string" && b.extras ? [{ label: "Extras", amount: 0, note: b.extras }] : []);
     const extrasTotal = extras.reduce((s: number, e: any) => s + (Number(e?.amount) || 0), 0);
     const grand = price + extrasTotal;
+    const quoted = Number(b.quoted_price ?? 0);
+    const discount = Number(b.discount_amount ?? 0);
+    const hasDiscount = quoted > 0 && discount > 0;
 
     const pTop = y;
-    const pRows = 1 + (extras.length > 0 ? 1 : 0) + 1;
+    const baseRows = hasDiscount ? 2 : 1;             // Subtotal (+ Discount) OR Service price
+    const pRows = baseRows + (extras.length > 0 ? 1 : 0) + 1; // + Extras + Total
     const pH = pRows * rowH + 22;
     doc.roundedRect(50, pTop, doc.page.width - 100, pH, 6).fill(COLOR_PANEL);
     y = pTop + 12;
-    doc.fillColor(COLOR_MUTED).fontSize(10).font("Helvetica").text("Service price", 64, y);
-    doc.fillColor(COLOR_TEXT).font("Helvetica-Bold").text(fmtMoney(price), 0, y, {
-      align: "right", width: doc.page.width - 64,
-    });
-    y += rowH;
+    if (hasDiscount) {
+      doc.fillColor(COLOR_MUTED).fontSize(10).font("Helvetica").text("Subtotal", 64, y);
+      doc.fillColor(COLOR_TEXT).font("Helvetica-Bold").text(fmtMoney(quoted), 0, y, {
+        align: "right", width: doc.page.width - 64,
+      });
+      y += rowH;
+      const reason = b.discount_reason ? `Discount — ${String(b.discount_reason)}` : "Discount";
+      doc.fillColor(COLOR_MUTED).font("Helvetica").text(reason, 64, y, { width: doc.page.width - 200 });
+      doc.fillColor("#1a7a40").font("Helvetica-Bold").text(`−${fmtMoney(discount)}`, 0, y, {
+        align: "right", width: doc.page.width - 64,
+      });
+      y += rowH;
+    } else {
+      doc.fillColor(COLOR_MUTED).fontSize(10).font("Helvetica").text("Service price", 64, y);
+      doc.fillColor(COLOR_TEXT).font("Helvetica-Bold").text(fmtMoney(price), 0, y, {
+        align: "right", width: doc.page.width - 64,
+      });
+      y += rowH;
+    }
     if (extras.length > 0) {
       doc.fillColor(COLOR_MUTED).font("Helvetica").text("Extras", 64, y);
       doc.fillColor(COLOR_TEXT).font("Helvetica-Bold").text(fmtMoney(extrasTotal), 0, y, {
@@ -529,6 +583,48 @@ export function buildJobSheetPdf(
       y = legsTop + vehicleLegs.length * 70 + 12 + 14;
     }
 
+    // ── Driver earnings panel ─────────────────────────────────────────
+    // Driver-only money flow: what the driver receives in cash, what he
+    // owes back to TVL as commission, and his net. NEVER includes the
+    // client price, supplier cost, supplier commission, or TVL margin
+    // (those are admin-only). Only renders when at least one figure is
+    // set so legacy bookings stay clean.
+    const dPay = Number((b as any).driver_cost ?? 0);
+    const dComm = Number((b as any).tvl_commission ?? 0);
+    if (!isAccom && (dPay > 0 || dComm > 0)) {
+      const dNet = Math.max(0, dPay - dComm);
+      if (y > doc.page.height - 160) {
+        doc.addPage();
+        doc.rect(0, 0, doc.page.width, doc.page.height).fill(COLOR_BG);
+        doc.rect(0, 0, doc.page.width, 6).fill(COLOR_GOLD);
+        y = 60;
+      }
+      doc.fillColor(COLOR_GOLD).font("Helvetica-Bold").fontSize(11)
+        .text("YOUR EARNINGS", 50, y);
+      y += 16;
+      const eTop = y;
+      const eRows: Array<[string, string, string]> = [
+        ["You earn", fmtMoney(dPay), COLOR_TEXT],
+        ["Commission to TVL", `−${fmtMoney(dComm)}`, "#d97706"],
+        ["Net (cash kept)", fmtMoney(dNet), "#15803d"],
+      ];
+      const eH = eRows.length * rowH + 24;
+      doc.roundedRect(50, eTop, doc.page.width - 100, eH, 6).fill(COLOR_PANEL);
+      let ey = eTop + 12;
+      for (const [label, value, color] of eRows) {
+        doc.fillColor(COLOR_MUTED).font("Helvetica").fontSize(10).text(label, 64, ey);
+        doc.fillColor(color).font("Helvetica-Bold").fontSize(12).text(value, 0, ey - 1, {
+          align: "right", width: doc.page.width - 64,
+        });
+        ey += rowH;
+      }
+      doc.fillColor(COLOR_MUTED).font("Helvetica-Oblique").fontSize(8)
+        .text("Cash collected on the job. Pay TVL the commission at settlement.", 64, ey, {
+          width: doc.page.width - 128,
+        });
+      y = eTop + eH + 14;
+    }
+
     // ── Notes & special requests ──────────────────────────────────────
     const notes = b.special_requests || b.notes;
     if (notes) {
@@ -609,14 +705,26 @@ export function buildReceiptPdf(b: any, client: any): Promise<Buffer> {
     const paidAmount = Number(b.paid_amount ?? (ps === "Paid" ? grand : 0));
     const outstanding = Math.max(0, grand - paidAmount);
 
+    // Subtotal + Discount lines render only when the operator filled in
+    // quoted_price + discount_amount. The reason is appended for context.
+    const quoted = Number(b.quoted_price ?? 0);
+    const discount = Number(b.discount_amount ?? 0);
+    const hasDiscount = quoted > 0 && discount > 0;
     const rows: Array<[string, string]> = [
       ["Service", b.service_type ?? "—"],
+    ];
+    if (hasDiscount) {
+      rows.push(["Subtotal", fmtMoney(quoted)]);
+      const reasonSuffix = b.discount_reason ? ` (${String(b.discount_reason)})` : "";
+      rows.push([`Discount${reasonSuffix}`, `−${fmtMoney(discount)}`]);
+    }
+    rows.push(
       ["Booking Total", fmtMoney(grand)],
       ["Amount Paid", fmtMoney(paidAmount)],
       ["Method", b.payment_method ?? "—"],
       ["Date Paid", b.payment_date ? fmtDate(b.payment_date) : new Date().toLocaleDateString("en-GB")],
       ["Status", ps],
-    ];
+    );
     if (outstanding > 0) rows.push(["Outstanding", fmtMoney(outstanding)]);
     if (b.payment_notes) rows.push(["Notes", String(b.payment_notes)]);
 

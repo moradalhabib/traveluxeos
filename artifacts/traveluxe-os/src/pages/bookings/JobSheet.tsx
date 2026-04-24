@@ -69,6 +69,11 @@ const T: Record<Lang, Record<string, string>> = {
     legTime: "Pickup time",
     routesHint: "cars on different routes",
     pdf: "PDF",
+    yourEarnings: "Your Earnings",
+    youEarn: "You earn",
+    youOwe: "Commission to TVL",
+    yourNet: "Net (cash kept)",
+    earningsHint: "Cash collected on the job. Pay TVL the commission at settlement.",
   },
   ar: {
     title: "ورقة مهمة السائق",
@@ -106,6 +111,11 @@ const T: Record<Lang, Record<string, string>> = {
     legTime: "وقت الانطلاق",
     routesHint: "سيارات على مسارات مختلفة",
     pdf: "PDF",
+    yourEarnings: "أجرك",
+    youEarn: "تستلم",
+    youOwe: "العمولة لـ TVL",
+    yourNet: "صافي (بعد العمولة)",
+    earningsHint: "النقد المحصل في المهمة. سدد العمولة لـ TVL عند التسوية.",
   },
 };
 
@@ -263,6 +273,20 @@ export default function JobSheet() {
     push(t.client, booking.client_name);
     push(t.nameboard, booking.nameboard);
     push(t.notes, booking.special_requests || booking.notes);
+
+    // Driver earnings — driver-only. NEVER include client price,
+    // supplier cost, supplier commission, or TVL margin in this message.
+    // Shows only what the driver receives, what he owes TVL, and his net.
+    const driverPay = Number((booking as any).driver_cost ?? 0);
+    const driverComm = Number((booking as any).tvl_commission ?? 0);
+    if (driverPay > 0 || driverComm > 0) {
+      const fmt = (n: number) => `£${n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+      lines.push("");
+      lines.push(`*${t.yourEarnings}*`);
+      if (driverPay > 0) lines.push(`${t.youEarn}: ${fmt(driverPay)}`);
+      if (driverComm > 0) lines.push(`${t.youOwe}: ${fmt(driverComm)}`);
+      if (driverPay > 0 || driverComm > 0) lines.push(`${t.yourNet}: ${fmt(Math.max(0, driverPay - driverComm))}`);
+    }
     return lines.join("\n");
   };
 
@@ -567,6 +591,43 @@ export default function JobSheet() {
             </CardContent>
           </Card>
         )}
+
+        {/* Driver earnings — driver-only money flow.
+            Shows: what driver receives, commission owed back to TVL, net.
+            NEVER shows client price, supplier cost, supplier commission,
+            or TVL margin (those are admin-only). Only renders when the
+            booking has at least one of driver_cost / tvl_commission set,
+            so legacy bookings without a driver pay figure stay clean. */}
+        {(Number((booking as any).driver_cost ?? 0) > 0 || Number((booking as any).tvl_commission ?? 0) > 0) && (() => {
+          const pay = Number((booking as any).driver_cost ?? 0);
+          const owe = Number((booking as any).tvl_commission ?? 0);
+          const net = Math.max(0, pay - owe);
+          const fmt = (n: number) => `£${n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+          return (
+            <Card className="bg-emerald-500/5 border-emerald-500/30" data-testid="jobsheet-earnings">
+              <CardContent className="p-4 space-y-3">
+                <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider">
+                  {t.yourEarnings}
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{t.youEarn}</div>
+                    <div className="text-base font-bold text-foreground">{fmt(pay)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{t.youOwe}</div>
+                    <div className="text-base font-bold text-amber-400">{fmt(owe)}</div>
+                  </div>
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{t.yourNet}</div>
+                    <div className="text-base font-bold text-emerald-400">{fmt(net)}</div>
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground">{t.earningsHint}</p>
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {/* Client identity (NO phone — operator coordinates driver↔client) */}
         {(booking.client_name || booking.nameboard) && (

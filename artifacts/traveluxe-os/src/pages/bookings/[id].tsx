@@ -848,6 +848,11 @@ export default function BookingDetail() {
   // Common
   const [editPrice, setEditPrice] = useState<number>(0);
   const [editTvlCommission, setEditTvlCommission] = useState<number>(0);
+  // Client-facing invoice breakdown — Quoted - Discount = Client Price.
+  // All optional. Render the discount line on the invoice when set.
+  const [editQuotedPrice, setEditQuotedPrice] = useState<number>(0);
+  const [editDiscountAmount, setEditDiscountAmount] = useState<number>(0);
+  const [editDiscountReason, setEditDiscountReason] = useState<string>("");
 
   const openEdit = () => {
     if (!booking) return;
@@ -891,6 +896,9 @@ export default function BookingDetail() {
     // Common
     setEditPrice(Number(b.price || 0));
     setEditTvlCommission(Number(b.tvl_commission || 0));
+    setEditQuotedPrice(Number(b.quoted_price || 0));
+    setEditDiscountAmount(Number(b.discount_amount || 0));
+    setEditDiscountReason(String(b.discount_reason || ""));
     setIsEditOpen(true);
   };
 
@@ -913,6 +921,11 @@ export default function BookingDetail() {
 
     const payload: Record<string, any> = {
       price: Number.isFinite(editPrice) ? editPrice : undefined,
+      // Persist invoice breakdown. Send 0 as null so the column clears
+      // cleanly when the operator removes the discount entirely.
+      quoted_price: editQuotedPrice > 0 ? editQuotedPrice : null,
+      discount_amount: editDiscountAmount > 0 ? editDiscountAmount : null,
+      discount_reason: editDiscountAmount > 0 ? (editDiscountReason || null) : null,
       is_amended: true,
     };
 
@@ -1802,9 +1815,55 @@ export default function BookingDetail() {
                   </div>
                 )}
 
+                {/* Invoice breakdown (Quoted / Discount / Reason). Optional.
+                    When Quoted is set, Total Fare auto-fills = Quoted - Discount.
+                    Discount line + reason are rendered on the client invoice. */}
+                <div className="pt-2 border-t border-border space-y-2">
+                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Invoice breakdown <span className="normal-case text-[10px] text-muted-foreground/80">(optional — shown on client invoice)</span></p>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-[11px] text-muted-foreground mb-1">Quoted Price (£)</p>
+                      <Input
+                        type="number" step="0.01"
+                        value={editQuotedPrice || ""}
+                        onChange={e => {
+                          const v = Number(e.target.value) || 0;
+                          setEditQuotedPrice(v);
+                          if (v > 0) setEditPrice(v - (editDiscountAmount || 0));
+                        }}
+                        data-testid="edit-quoted-price"
+                      />
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-muted-foreground mb-1">Discount (£)</p>
+                      <Input
+                        type="number" step="0.01"
+                        value={editDiscountAmount || ""}
+                        onChange={e => {
+                          const v = Number(e.target.value) || 0;
+                          setEditDiscountAmount(v);
+                          if (editQuotedPrice > 0) setEditPrice(editQuotedPrice - v);
+                        }}
+                        data-testid="edit-discount-amount"
+                      />
+                    </div>
+                  </div>
+                  {editDiscountAmount > 0 && (
+                    <div>
+                      <p className="text-[11px] text-muted-foreground mb-1">Discount Reason <span className="text-destructive">*</span></p>
+                      <Input
+                        placeholder='e.g. "Buggy unavailable"'
+                        value={editDiscountReason}
+                        onChange={e => setEditDiscountReason(e.target.value)}
+                        data-testid="edit-discount-reason"
+                      />
+                    </div>
+                  )}
+                </div>
+
                 <div className="grid grid-cols-2 gap-3 pt-2 border-t border-border">
                   <div>
-                    <p className="text-xs text-muted-foreground mb-1">Total Fare (£)</p>
+                    <p className="text-xs text-muted-foreground mb-1">Total Fare (£) <span className="text-[10px]">— auto from Quoted − Discount</span></p>
                     <Input type="number" value={editPrice || ""} onChange={e => setEditPrice(Number(e.target.value))} />
                   </div>
                   <div>
@@ -2351,6 +2410,25 @@ export default function BookingDetail() {
         <Card className="border-primary/10 bg-card">
           <CardHeader className="pb-2"><CardTitle className="text-base">Financials</CardTitle></CardHeader>
           <CardContent className="space-y-3">
+            {/* Invoice breakdown — Subtotal + Discount lines render only
+                when the operator entered a quoted price + discount on this
+                booking. Mirrors what the client sees on the invoice PDF/email. */}
+            {Number((booking as any).quoted_price ?? 0) > 0 && Number((booking as any).discount_amount ?? 0) > 0 && (
+              <>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">Subtotal (quoted)</span>
+                  <span className="font-medium">£{Number((booking as any).quoted_price || 0).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-muted-foreground">
+                    Discount{(booking as any).discount_reason ? ` — ${(booking as any).discount_reason}` : ""}
+                  </span>
+                  <span className="font-medium text-green-400">
+                    −£{Number((booking as any).discount_amount || 0).toLocaleString()}
+                  </span>
+                </div>
+              </>
+            )}
             <div className="flex justify-between items-center pb-2 border-b border-border">
               <span className="text-muted-foreground">
                 {svc === "Hotel" || svc === "Apartment" ? "Total Charged to Client" : "Total Fare"}

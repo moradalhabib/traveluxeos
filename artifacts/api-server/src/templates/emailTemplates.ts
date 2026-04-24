@@ -89,6 +89,64 @@ function row(label: string, value: string | null | undefined): string {
   </tr>`;
 }
 
+// Format £ figures consistently across all client-facing surfaces.
+function fmtGbp(n: number): string {
+  return `£${Number(n || 0).toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+// Build the inclusions bullet list for the invoice from the booking data.
+// For Airport Transfer: vehicle + every transfer_extras line + every
+// supplier_items line (so a "Diamond Package" picked from the supplier
+// catalogue appears as a bullet under the package header automatically).
+// Returns "" when there's nothing meaningful to list.
+function buildInclusionsHtml(booking: any): string {
+  // Vehicle is already shown in the main booking detail table on the
+  // email, so we deliberately omit it here to avoid duplication. Bullets
+  // are extras + supplier items only.
+  const items: string[] = [];
+  if (Array.isArray(booking?.transfer_extras)) {
+    for (const e of booking.transfer_extras) {
+      if (e?.name) items.push(esc(String(e.name)));
+    }
+  }
+  if (Array.isArray(booking?.supplier_items)) {
+    for (const s of booking.supplier_items) {
+      const nm = s?.product_name || s?.name;
+      if (nm) items.push(esc(String(nm)));
+    }
+  }
+  if (items.length === 0) return "";
+  return `<ul style="margin:6px 0 0 0;padding:0 0 0 18px;color:#666;font-size:12px;line-height:1.7">
+    ${items.map(i => `<li>${i}</li>`).join("")}
+  </ul>`;
+}
+
+// Render the price block with optional Subtotal + Discount lines above the
+// final Total. When no discount is set, falls back to a single-line layout.
+function renderPriceBox(booking: any, label: string): string {
+  const finalAmount = Number(booking?.price ?? 0);
+  const quoted = Number(booking?.quoted_price ?? 0);
+  const discount = Number(booking?.discount_amount ?? 0);
+  const hasBreakdown = quoted > 0 && discount > 0;
+  if (!hasBreakdown) {
+    return `<div class="price-box">
+      <div class="price-label">${esc(label)}</div>
+      <div class="price-amount">${fmtGbp(finalAmount)}</div>
+    </div>`;
+  }
+  const reason = booking?.discount_reason ? ` — ${esc(String(booking.discount_reason))}` : "";
+  return `<div class="price-box">
+    <table style="width:100%;border-collapse:collapse;font-size:13px;color:#555">
+      <tr><td style="padding:2px 0">Subtotal</td><td style="padding:2px 0;text-align:right">${fmtGbp(quoted)}</td></tr>
+      <tr><td style="padding:2px 0">Discount${reason}</td><td style="padding:2px 0;text-align:right;color:#1a7a40">−${fmtGbp(discount)}</td></tr>
+    </table>
+    <div style="border-top:1px solid #e2dccd;margin-top:8px;padding-top:8px">
+      <div class="price-label">${esc(label)}</div>
+      <div class="price-amount">${fmtGbp(finalAmount)}</div>
+    </div>
+  </div>`;
+}
+
 function formatDateTime(dt: string | null | undefined): string {
   if (!dt) return "—";
   try { return format(new Date(dt), "EEEE d MMMM yyyy 'at' HH:mm"); } catch { return dt; }
@@ -263,11 +321,13 @@ export function bookingConfirmationHtml(
 
     ${driverSection}
 
-    <div class="price-box">
-      <div class="price-label">Total Amount</div>
-      <div class="price-amount">£${Number(booking.price || 0).toLocaleString()}</div>
-      ${booking.payment_method ? `<div style="font-size:12px;color:#888;margin-top:4px">Payment: ${esc(booking.payment_method)}</div>` : ""}
-    </div>
+    ${(() => {
+      const inc = buildInclusionsHtml(booking);
+      return inc ? `<div class="section-title">What's Included</div>${inc}` : "";
+    })()}
+
+    ${renderPriceBox(booking, "Total Amount")}
+    ${booking.payment_method ? `<div style="font-size:12px;color:#888;margin:-12px 0 16px 4px">Payment: ${esc(booking.payment_method)}</div>` : ""}
 
     ${invoiceNumber ? `<p style="font-size:13px;color:#888">Invoice reference: <strong style="color:#333;font-family:monospace">${esc(invoiceNumber)}</strong></p>` : ""}
 
@@ -351,11 +411,13 @@ export function paymentReceiptHtml(
 
     ${perVehicleSection}
 
-    <div class="price-box">
-      <div class="price-label">Amount Received</div>
-      <div class="price-amount">£${Number(booking.price || 0).toLocaleString()}</div>
-      <div style="font-size:12px;color:#1a7a40;font-weight:600;margin-top:6px">Payment confirmed</div>
-    </div>
+    ${(() => {
+      const inc = buildInclusionsHtml(booking);
+      return inc ? `<div class="section-title">What's Included</div>${inc}` : "";
+    })()}
+
+    ${renderPriceBox(booking, "Amount Received")}
+    <div style="font-size:12px;color:#1a7a40;font-weight:600;margin:-12px 0 16px 4px">Payment confirmed</div>
 
     <p style="font-size:14px;color:#555;line-height:1.7;margin-top:20px">
       This email serves as your payment receipt. Please retain it for your records.

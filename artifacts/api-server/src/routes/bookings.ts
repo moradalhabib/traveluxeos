@@ -633,6 +633,11 @@ const BOOKING_COLUMNS = new Set([
   "referral_partner_name","referral_commission_type","referral_commission_value",
   // Feature 5 — Supplier Balance Tracker
   "supplier_paid_at","supplier_payment_ref",
+  // Client-facing pricing breakdown (April 2026):
+  // quoted_price = original quote shown on invoice subtotal line.
+  // discount_amount + discount_reason = goodwill / adjustment line.
+  // Final price column stays the source of truth for "what client owes".
+  "quoted_price","discount_amount","discount_reason",
 ]);
 
 // Friendlier labels for amendment-history field rows.
@@ -652,8 +657,14 @@ const AMENDMENT_FIELD_LABELS: Record<string, string> = {
   direction: "Direction",
   passengers: "Passengers",
   luggage: "Luggage",
-  price: "Price",
-  tvl_commission: "TVL Commission",
+  price: "Client Price",
+  quoted_price: "Quoted Price",
+  discount_amount: "Discount",
+  discount_reason: "Discount Reason",
+  tvl_commission: "Driver Commission",
+  supplier_commission: "Supplier Commission",
+  supplier_cost: "Supplier Cost",
+  driver_cost: "Driver Pay",
   notes: "Notes",
   special_requests: "Special Requests",
   driver_acceptance_status: "Driver Acceptance",
@@ -714,11 +725,18 @@ router.post("/", async (req, res) => {
   };
 
   // Coerce numeric fields so strings like "150" don't cause type errors
-  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights","hours","supplier_cost","client_price","base_daily_rate","rental_days","fuel_cost","driver_cost","referral_commission_value"]) {
+  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights","hours","supplier_cost","client_price","base_daily_rate","rental_days","fuel_cost","driver_cost","referral_commission_value","quoted_price","discount_amount"]) {
     if (body[f] !== undefined && body[f] !== null) {
       const n = Number(body[f]);
       body[f] = isNaN(n) ? null : n;
     }
+  }
+
+  // Auto-derive Client Price from Quoted - Discount when the operator left
+  // it blank but supplied both inputs. The form usually pre-fills price too
+  // but this guards direct API callers (Zapier / scripts).
+  if ((body.price == null || body.price === "") && body.quoted_price != null) {
+    body.price = Number(body.quoted_price) - Number(body.discount_amount ?? 0);
   }
 
   // Ensure required defaults
@@ -1045,11 +1063,20 @@ router.put("/:id", async (req, res) => {
   for (const [k, v] of Object.entries(req.body)) {
     if (BOOKING_COLUMNS.has(k) && v !== "" && v !== undefined) raw[k] = v;
   }
-  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights","hours","supplier_cost","client_price","base_daily_rate","rental_days","fuel_cost","driver_cost","referral_commission_value"]) {
+  for (const f of ["price","tvl_commission","additional_charges","passengers","luggage","duration","commission_amount","num_nights","num_guests","nights","hours","supplier_cost","client_price","base_daily_rate","rental_days","fuel_cost","driver_cost","referral_commission_value","quoted_price","discount_amount"]) {
     if (raw[f] !== undefined && raw[f] !== null) {
       const n = Number(raw[f]);
       raw[f] = isNaN(n) ? null : n;
     }
+  }
+  // Auto-derive Client Price from Quoted - Discount on PUT too — but only
+  // when the operator is editing quoted/discount AND didn't also change
+  // price explicitly. Prevents a manual override from being silently undone.
+  // Treat both `undefined` (field not sent) and `null` (operator cleared
+  // the input) as "no manual price override" — otherwise clearing the
+  // price field while editing a discount silently drops the column to NULL.
+  if ((raw.price === undefined || raw.price === null) && raw.quoted_price !== undefined && raw.quoted_price !== null) {
+    raw.price = Number(raw.quoted_price) - Number(raw.discount_amount ?? 0);
   }
   if (raw.transfer_extras !== undefined) {
     const sanitized = sanitizeTransferExtras(raw.transfer_extras);
