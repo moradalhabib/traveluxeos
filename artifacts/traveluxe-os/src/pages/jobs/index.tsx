@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLocation, useSearch, Link } from "wouter";
 import { format, isToday, isTomorrow, startOfDay, endOfDay, addDays, isBefore, isAfter } from "date-fns";
-import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCircle } from "lucide-react";
+import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCircle, Plane } from "lucide-react";
 import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { RecentActivityFeed } from "@/components/activity/RecentActivityFeed";
@@ -440,6 +440,12 @@ export default function Jobs() {
                     {job.service_type && (
                       <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-secondary/40 text-foreground border-border">
                         {job.service_type}{(job as any).direction ? ` · ${(job as any).direction}` : ""}
+                      </Badge>
+                    )}
+                    {(job as any).flight_number && (
+                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-blue-500/10 text-blue-400 border-blue-500/30 flex items-center gap-0.5">
+                        <Plane className="w-2.5 h-2.5" />
+                        {(job as any).flight_number}
                       </Badge>
                     )}
                     {/* T004: tiny last-email status indicator. Only shows when

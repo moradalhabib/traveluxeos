@@ -74,6 +74,14 @@ const T: Record<Lang, Record<string, string>> = {
     youOwe: "Commission to TVL",
     yourNet: "Net (cash kept)",
     earningsHint: "Cash collected on the job. Pay TVL the commission at settlement.",
+    flightStatus: "Flight Status",
+    flightScheduled: "Scheduled",
+    flightEstimated: "Estimated",
+    flightTerminal: "Terminal",
+    flightDelayed: "DELAYED",
+    flightOnTime: "ON TIME",
+    flightLanded: "LANDED",
+    flightCancelled: "CANCELLED",
   },
   ar: {
     title: "ورقة مهمة السائق",
@@ -116,6 +124,14 @@ const T: Record<Lang, Record<string, string>> = {
     youOwe: "العمولة لـ TVL",
     yourNet: "صافي (بعد العمولة)",
     earningsHint: "النقد المحصل في المهمة. سدد العمولة لـ TVL عند التسوية.",
+    flightStatus: "حالة الرحلة",
+    flightScheduled: "الموعد المقرر",
+    flightEstimated: "الوقت المتوقع",
+    flightTerminal: "الصالة",
+    flightDelayed: "متأخر",
+    flightOnTime: "في الموعد",
+    flightLanded: "هبط",
+    flightCancelled: "ملغاة",
   },
 };
 
@@ -452,6 +468,85 @@ export default function JobSheet() {
             )}
           </CardContent>
         </Card>
+
+        {/* Live flight status panel — shown only when AeroDataBox data is cached */}
+        {booking.flight_status && (() => {
+          const fs = booking.flight_status;
+          const diffMins = fs.scheduled_time && fs.estimated_time
+            ? Math.round((new Date(fs.estimated_time).getTime() - new Date(fs.scheduled_time).getTime()) / 60000)
+            : 0;
+          const isDelayed = diffMins > 10;
+          const isEarly   = diffMins < -10;
+          const fmtHm = (iso?: string | null) => {
+            if (!iso) return null;
+            try {
+              return new Intl.DateTimeFormat("en-GB", {
+                hour: "2-digit", minute: "2-digit", timeZone: "Europe/London",
+              }).format(new Date(iso));
+            } catch { return null; }
+          };
+          const statusLabel = (() => {
+            switch (fs.status?.toLowerCase()) {
+              case "delayed":   return t.flightDelayed;
+              case "on time":   return t.flightOnTime;
+              case "landed":    return t.flightLanded;
+              case "cancelled": return t.flightCancelled;
+              default:          return fs.status ?? "—";
+            }
+          })();
+          const statusClass = (() => {
+            switch (fs.status?.toLowerCase()) {
+              case "delayed":   return "bg-amber-500/20 text-amber-400 border-amber-500/40";
+              case "on time":   return "bg-green-500/20 text-green-400 border-green-500/40";
+              case "landed":    return "bg-blue-500/20 text-blue-400 border-blue-500/40";
+              case "cancelled": return "bg-destructive/20 text-destructive border-destructive/40";
+              default:          return "bg-secondary text-secondary-foreground border-border";
+            }
+          })();
+          return (
+            <Card className="border-blue-500/30 bg-blue-500/5">
+              <CardContent className="p-4">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-2">
+                    <Plane className="w-4 h-4 text-blue-400" />
+                    <span className="font-semibold text-sm text-foreground">{t.flightStatus}</span>
+                  </div>
+                  <span className={`text-xs font-bold px-2 py-0.5 rounded border ${statusClass}`}>
+                    {statusLabel}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <span className="text-xs text-muted-foreground block mb-0.5">{t.flightScheduled}</span>
+                    <span className={isDelayed ? "line-through text-muted-foreground" : "font-medium text-foreground"}>
+                      {fmtHm(fs.scheduled_time) ?? "—"}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-xs text-muted-foreground block mb-0.5">{t.flightEstimated}</span>
+                    <span className={`font-semibold ${isDelayed ? "text-amber-400" : isEarly ? "text-green-400" : "text-foreground"}`}>
+                      {fmtHm(fs.estimated_time) ?? fmtHm(fs.scheduled_time) ?? "—"}
+                      {isDelayed && <span className="ml-1 text-[11px] font-normal text-amber-500">(+{diffMins}m)</span>}
+                      {isEarly && <span className="ml-1 text-[11px] font-normal text-green-500">({Math.abs(diffMins)}m {lang === "ar" ? "مبكر" : "early"})</span>}
+                    </span>
+                  </div>
+                  {fs.origin && (
+                    <div className="col-span-2">
+                      <span className="text-xs text-muted-foreground block mb-0.5">{lang === "ar" ? "المطار" : "Route"}</span>
+                      <span className="text-foreground">{fs.origin} → {fs.destination ?? "—"}</span>
+                    </div>
+                  )}
+                  {fs.terminal && (
+                    <div>
+                      <span className="text-xs text-muted-foreground block mb-0.5">{t.flightTerminal}</span>
+                      <span className="font-medium text-foreground">{fs.terminal}</span>
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {/* Vehicle + passengers */}
         <Card className="bg-card border-border">
