@@ -2871,6 +2871,11 @@ export default function NewBooking() {
                           const totalProfit = dc + sc;
                           const positive = totalProfit >= 0;
                           const supplierIdAt = String(bookingForm.watch("supplier_id" as any) ?? "");
+                          const atPrice = Number(bookingForm.watch("price")) || 0;
+                          const atDriverPay = Number(bookingForm.watch("driver_cost" as any)) || 0;
+                          const atSupplierCost = Number(bookingForm.watch("supplier_cost" as any)) || 0;
+                          const atBalance = atPrice - atDriverPay - atSupplierCost - dc - sc;
+                          const atBalanced = Math.abs(atBalance) < 0.01;
                           return (
                             <div className="space-y-3">
                               {/* Driver pay & driver commission — two
@@ -2990,6 +2995,36 @@ export default function NewBooking() {
                                   £{totalProfit.toLocaleString(undefined, { maximumFractionDigits: 2 })}
                                 </div>
                               </div>
+
+                              {/* Balance check — all four numbers must sum to the client price */}
+                              {atPrice > 0 && (
+                                <div className={`p-3 rounded-md border text-[11px] space-y-1.5 ${atBalanced ? "border-green-500/30 bg-green-500/5" : "border-amber-500/40 bg-amber-500/5"}`} data-testid="at-balance-check">
+                                  <p className={`font-semibold uppercase tracking-wider text-[10px] ${atBalanced ? "text-green-400" : "text-amber-400"}`}>
+                                    {atBalanced ? "Balance check: OK" : "Balance check: does not add up"}
+                                  </p>
+                                  <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 text-muted-foreground">
+                                    <span>Client price</span>
+                                    <span className="text-right font-medium text-foreground">£{atPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                                    <span>Driver pay</span>
+                                    <span className="text-right">− £{atDriverPay.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                                    <span>Supplier cost</span>
+                                    <span className="text-right">− £{atSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                                    <span>Driver commission</span>
+                                    <span className="text-right">− £{dc.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                                    <span>Supplier commission</span>
+                                    <span className="text-right">− £{sc.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                                  </div>
+                                  <div className={`flex justify-between border-t pt-1.5 font-semibold ${atBalanced ? "text-green-400 border-green-500/30" : "text-amber-400 border-amber-500/30"}`}>
+                                    <span>Unaccounted</span>
+                                    <span>{atBalance >= 0 ? "+" : ""}£{atBalance.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                                  </div>
+                                  {!atBalanced && (
+                                    <p className="text-amber-400/80 text-[10px]">
+                                      All four amounts must add up to the client price before saving.
+                                    </p>
+                                  )}
+                                </div>
+                              )}
                             </div>
                           );
                         }
