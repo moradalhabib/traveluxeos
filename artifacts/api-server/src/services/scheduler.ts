@@ -6,8 +6,15 @@ import { sendWebPushToAll } from "./webpush";
 
 const TICK_MS = 60 * 1000;
 
+// The scheduler runs outside any HTTP request — no JWT in AsyncLocalStorage,
+// so `supabase` falls back to the anon client which RLS blocks.
+// Use the service-role client for ALL scheduler DB operations.
+function schedDb() {
+  return getServiceRoleClient() ?? supabase;
+}
+
 async function getNotifyRecipients(): Promise<string[]> {
-  const { data } = await supabase
+  const { data } = await schedDb()
     .from("users")
     .select("email, role, active")
     .in("role", ["operator", "super_admin", "admin"])
@@ -55,21 +62,35 @@ async function autoActivateJobs() {
   const now = new Date();
   const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
-  const { data: due, error } = await supabase
+  const svc = getServiceRoleClient();
+  if (!svc) {
+    console.warn("[Scheduler] autoActivateJobs: service-role client unavailable — skipping (check SUPABASE_SERVICE_ROLE_KEY)");
+    return;
+  }
+
+  const { data: due, error } = await schedDb()
     .from("bookings")
-    .select("id, tvl_ref, client_name, service_type, status, date_time, driver_id, drivers(name)")
+    .select("id, tvl_ref, clients(name), service_type, status, date_time, driver_id, drivers(name)")
     .in("status", ["Confirmed", "Pending"])
     .gte("date_time", dayAgo)
     .lte("date_time", now.toISOString())
     .limit(50);
 
-  if (error || !due || due.length === 0) return;
+  if (error) {
+    console.error("[Scheduler] autoActivateJobs query error:", error.message);
+    return;
+  }
+  if (!due || due.length === 0) {
+    console.info(`[Scheduler] autoActivateJobs: no past-due bookings (checked ${dayAgo.slice(0,16)} → now)`);
+    return;
+  }
+  console.info(`[Scheduler] autoActivateJobs: ${due.length} booking(s) to activate`);
 
   const recipients = await getNotifyRecipients();
 
   for (const b of due) {
     try {
-      const { error: upErr } = await supabase
+      const { error: upErr } = await schedDb()
         .from("bookings")
         .update({ status: "Active" })
         .eq("id", b.id)
@@ -79,14 +100,18 @@ async function autoActivateJobs() {
       await auditLog("auto_active", "booking", b.id, null,
         `Booking ${b.tvl_ref} auto-activated at start time`);
 
-      const enriched = { ...b, driver_name: (b as any).drivers?.name ?? null };
+      const enriched = {
+        ...b,
+        driver_name: (b as any).drivers?.name ?? null,
+        client_name: (b as any).clients?.name ?? null,
+      };
       const when = b.date_time
         ? new Date(b.date_time).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" })
         : "—";
 
       sendWebPushToAll({
         title: `Job starting now — ${b.tvl_ref ?? ""}`,
-        body:  `${b.client_name ?? "—"} · ${b.service_type ?? "—"} at ${when}${enriched.driver_name ? " · " + enriched.driver_name : ""}`,
+        body:  `${enriched.client_name ?? "—"} · ${b.service_type ?? "—"} at ${when}${enriched.driver_name ? " · " + enriched.driver_name : ""}`,
         link:  `/bookings/${b.id}`,
         tag:   `active-${b.id}`,
         requireInteraction: true,
@@ -95,7 +120,7 @@ async function autoActivateJobs() {
       if (recipients.length > 0) {
         sendEmail({
           to: recipients.join(", "),
-          subject: `Job Started — ${b.tvl_ref ?? ""} — ${b.client_name ?? ""}`,
+          subject: `Job Started — ${b.tvl_ref ?? ""} — ${enriched.client_name ?? ""}`,
           html: bookingStartedHtml(enriched),
         }).catch(() => {});
       }
@@ -110,9 +135,9 @@ async function sendReminders() {
   const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
   const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
 
-  const { data: stale } = await supabase
+  const { data: stale } = await schedDb()
     .from("bookings")
-    .select("id, tvl_ref, client_name, status, date_time, payment_status")
+    .select("id, tvl_ref, clients(name), status, date_time, payment_status")
     .eq("status", "Active")
     .lte("date_time", twoHoursAgo)
     .gte("date_time", dayAgo)
@@ -122,7 +147,7 @@ async function sendReminders() {
 
   // Find which already had a reminder sent
   const ids = stale.map(b => b.id);
-  const { data: alreadySent } = await supabase
+  const { data: alreadySent } = await schedDb()
     .from("audit_log")
     .select("entity_id")
     .eq("entity_type", "booking")
@@ -135,11 +160,12 @@ async function sendReminders() {
 
   for (const b of stale) {
     if (sentSet.has(b.id)) continue;
+    const bEnriched = { ...b, client_name: (b as any).clients?.name ?? "—" };
     try {
       await sendEmail({
         to: recipients.join(", "),
         subject: `Action Required — ${b.tvl_ref ?? ""} still Active after 2h`,
-        html: reminderHtml(b),
+        html: reminderHtml(bEnriched),
       });
       await auditLog("reminder_sent", "booking", b.id, null,
         `2h post-start reminder sent for ${b.tvl_ref}`);
@@ -159,9 +185,9 @@ async function sendUpcomingAlerts() {
   const lo   = new Date(now.getTime() + 50 * 60 * 1000).toISOString();
   const hi   = new Date(now.getTime() + 70 * 60 * 1000).toISOString();
 
-  const { data: upcoming } = await supabase
+  const { data: upcoming } = await schedDb()
     .from("bookings")
-    .select("id, tvl_ref, client_name, service_type, date_time, driver_id, drivers(name)")
+    .select("id, tvl_ref, clients(name), service_type, date_time, driver_id, drivers(name)")
     .in("status", ["Confirmed", "Pending"])
     .gte("date_time", lo)
     .lte("date_time", hi)
@@ -171,7 +197,7 @@ async function sendUpcomingAlerts() {
 
   // Dedup: only alert once per booking
   const ids = upcoming.map(b => b.id);
-  const { data: alreadySent } = await supabase
+  const { data: alreadySent } = await schedDb()
     .from("audit_log")
     .select("entity_id")
     .eq("action", "upcoming_push_sent")
@@ -187,8 +213,9 @@ async function sendUpcomingAlerts() {
       ? new Date(b.date_time).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" })
       : "—";
     const driverLabel = driverName ? ` · ${driverName}` : " · Driver TBC";
+    const clientName = (b as any).clients?.name ?? "—";
     const title = `Starting in ~1 hour — ${b.tvl_ref ?? ""}`;
-    const body  = `${b.client_name ?? "—"} · ${b.service_type ?? "—"} at ${when}${driverLabel}`;
+    const body  = `${clientName} · ${b.service_type ?? "—"} at ${when}${driverLabel}`;
     const link  = `/bookings/${b.id}`;
 
     await sendWebPushToAll({ title, body, link, tag: `upcoming-${b.id}`, requireInteraction: true }).catch(() => {});
@@ -257,17 +284,17 @@ async function sendDailyDigest() {
   const endOfDay = new Date();
   endOfDay.setHours(23, 59, 59, 999);
 
-  const { data: today } = await supabase
+  const { data: today } = await schedDb()
     .from("bookings")
-    .select("id, tvl_ref, client_name, service_type, status, date_time, drivers(name)")
+    .select("id, tvl_ref, clients(name), service_type, status, date_time, drivers(name)")
     .gte("date_time", startOfDay.toISOString())
     .lte("date_time", endOfDay.toISOString())
     .neq("status", "Cancelled")
     .order("date_time", { ascending: true });
 
-  const { data: unassigned } = await supabase
+  const { data: unassigned } = await schedDb()
     .from("bookings")
-    .select("id, tvl_ref, client_name, service_type, status, date_time, drivers(name)")
+    .select("id, tvl_ref, clients(name), service_type, status, date_time, drivers(name)")
     .eq("status", "Confirmed")
     .is("driver_id", null)
     .gte("date_time", new Date().toISOString())
@@ -275,7 +302,7 @@ async function sendDailyDigest() {
     .limit(20);
 
   const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
-  const { data: overdueInv } = await supabase
+  const { data: overdueInv } = await schedDb()
     .from("invoices")
     .select("id, invoice_number, client_name, total_amount, created_at, bookings(tvl_ref, service_type, date_time, drivers(name))")
     .in("status", ["Generated", "Sent", "Overdue"])
@@ -283,8 +310,8 @@ async function sendDailyDigest() {
     .order("created_at", { ascending: true })
     .limit(20);
 
-  const todayRows = (today ?? []).map((b: any) => ({ ...b, driver_name: b.drivers?.name ?? null }));
-  const unassignedRows = (unassigned ?? []).map((b: any) => ({ ...b, driver_name: null }));
+  const todayRows = (today ?? []).map((b: any) => ({ ...b, driver_name: b.drivers?.name ?? null, client_name: b.clients?.name ?? null }));
+  const unassignedRows = (unassigned ?? []).map((b: any) => ({ ...b, driver_name: null, client_name: b.clients?.name ?? null }));
   const overdueRows = (overdueInv ?? []).map((i: any) => ({
     tvl_ref: i.invoice_number ?? i.bookings?.tvl_ref ?? "—",
     client_name: i.client_name ?? "—",
@@ -316,7 +343,7 @@ const APP_URL =
 
 async function getAdminBriefingRecipient(): Promise<string> {
   try {
-    const { data } = await supabase
+    const { data } = await schedDb()
       .from("app_settings")
       .select("value")
       .eq("key", "admin_email")
@@ -490,9 +517,9 @@ async function sendDailyBriefing() {
     timeZone: "Europe/London",
   }).format(new Date());
 
-  const { data: todayJobsRaw } = await supabase
+  const { data: todayJobsRaw } = await schedDb()
     .from("bookings")
-    .select("id, tvl_ref, client_name, service_type, vehicle_type, status, date_time, price, payment_status, driver_id, drivers(name)")
+    .select("id, tvl_ref, clients(name), service_type, vehicle_type, status, date_time, price, payment_status, driver_id, drivers(name)")
     .gte("date_time", startUtc.toISOString())
     .lte("date_time", endUtc.toISOString())
     .neq("status", "Cancelled")
@@ -501,12 +528,13 @@ async function sendDailyBriefing() {
   const todayJobs = (todayJobsRaw ?? []).map((b: any) => ({
     ...b,
     driver_name: b.drivers?.name ?? null,
+    client_name: b.clients?.name ?? null,
   }));
 
   const unassignedToday = todayJobs.filter(j => !j.driver_name);
 
   // ── Overdue follow-ups (due_date < today_uk, status pending) ─────────
-  const { data: overdueRaw } = await supabase
+  const { data: overdueRaw } = await schedDb()
     .from("follow_ups")
     .select("id, due_date, status, clients(name)")
     .lt("due_date", ymd)
@@ -575,17 +603,18 @@ function driverAssignedHtml(b: any) {
 
 export async function notifyDriverAssigned(bookingId: string) {
   try {
-    const { data: b } = await supabase
+    const { data: b } = await schedDb()
       .from("bookings")
-      .select("id, tvl_ref, client_name, service_type, date_time, pickup, dropoff, flight_number, passengers, luggage, nameboard, notes, drivers(name, email)")
+      .select("id, tvl_ref, clients(name), service_type, date_time, pickup, dropoff, flight_number, passengers, luggage, nameboard, notes, drivers(name, email)")
       .eq("id", bookingId)
       .single();
     const email = (b as any)?.drivers?.email;
     if (!b || !email) return;
+    const bEnriched = { ...b, client_name: (b as any).clients?.name ?? null };
     await sendEmail({
       to: email,
-      subject: `New Job — ${b.tvl_ref ?? ""} — ${b.client_name ?? ""}`,
-      html: driverAssignedHtml(b),
+      subject: `New Job — ${b.tvl_ref ?? ""} — ${bEnriched.client_name ?? ""}`,
+      html: driverAssignedHtml(bEnriched),
     });
     await auditLog("driver_email_sent", "booking", bookingId, null,
       `Job assignment email sent to driver (${email})`);
@@ -600,9 +629,9 @@ export async function notifyDriverAssigned(bookingId: string) {
 // frontend WhatsApp banner picks this up via the urgent severity.
 export async function notifyDriverDeclined(bookingId: string, driverName: string | null) {
   try {
-    const { data: b } = await supabase
+    const { data: b } = await schedDb()
       .from("bookings")
-      .select("id, tvl_ref, client_name, date_time")
+      .select("id, tvl_ref, clients(name), date_time")
       .eq("id", bookingId)
       .single();
     if (!b) return;
@@ -636,9 +665,9 @@ async function checkNoDriverAlerts() {
   const nowIso = new Date(now).toISOString();
 
   // ── 3-hour urgent alerts ─────────────────────────────────────────────
-  const { data: urgent } = await supabase
+  const { data: urgent } = await schedDb()
     .from("bookings")
-    .select("id, tvl_ref, client_name, date_time, status")
+    .select("id, tvl_ref, clients(name), date_time, status")
     .is("driver_id", null)
     .in("status", ["Confirmed", "Pending"])
     .gte("date_time", nowIso)
@@ -677,9 +706,9 @@ async function checkNoDriverAlerts() {
   }
 
   // ── 24-hour warning alerts (only outside the 3h window) ──────────────
-  const { data: tomorrow } = await supabase
+  const { data: tomorrow } = await schedDb()
     .from("bookings")
-    .select("id, tvl_ref, client_name, date_time, status")
+    .select("id, tvl_ref, clients(name), date_time, status")
     .is("driver_id", null)
     .in("status", ["Confirmed", "Pending"])
     .gt("date_time", in3h)
@@ -718,7 +747,7 @@ async function checkFollowUpsDue() {
   const today = new Date().toISOString().slice(0, 10);
 
   // 1. Existing follow_ups table
-  const { data: due } = await supabase
+  const { data: due } = await schedDb()
     .from("follow_ups")
     .select("id, client_id, operator_id, due_date, status, clients(name)")
     .lte("due_date", today)
@@ -745,7 +774,7 @@ async function checkFollowUpsDue() {
 
   // 2. NEW: requests table (Slice 2) — notify all staff for any request
   // whose follow_up_date is today or earlier and that's still actionable.
-  const { data: dueRequests } = await supabase
+  const { data: dueRequests } = await schedDb()
     .from("requests")
     .select("id, client_id, client_name, follow_up_date, status, priority, clients(name)")
     .lte("follow_up_date", today)
@@ -848,7 +877,7 @@ async function maybeRunOverdueCommissionAlert() {
   lastOverdueAlertDate = today;
 
   try {
-    const { data: rows } = await supabase
+    const { data: rows } = await schedDb()
       .from("bookings")
       .select("driver_id, tvl_commission, date_time, drivers(name, staff_no, whatsapp)")
       .eq("payment_method", "Cash")
@@ -940,14 +969,14 @@ async function maybeRunBackup() {
 // inbox isn't flooded by the 60s tick.
 async function getUnpaidReminderRecipient(): Promise<string | null> {
   // Primary: the named operator account.
-  const { data: byUsername } = await supabase
+  const { data: byUsername } = await schedDb()
     .from("users")
     .select("email, active")
     .eq("username", "moradlondon1")
     .maybeSingle();
   if (byUsername?.active && byUsername.email) return byUsername.email;
   // Fallback: any active super_admin.
-  const { data: superAdmins } = await supabase
+  const { data: superAdmins } = await schedDb()
     .from("users")
     .select("email, active")
     .eq("role", "super_admin")
@@ -1004,7 +1033,7 @@ async function maybeRunUnpaidInvoiceReminder() {
 
     // Pull candidate invoices: Generated/Sent + booking Completed > 48h ago,
     // and either never reminded or last reminder more than 24h ago.
-    const { data: invoices, error } = await supabase
+    const { data: invoices, error } = await schedDb()
       .from("invoices")
       .select("id, invoice_number, status, unpaid_reminder_sent_at, booking_id, bookings:booking_id(tvl_ref, status, completed_at, price, client_id, clients(name))")
       .in("status", ["Generated", "Sent"]);
@@ -1052,7 +1081,7 @@ async function maybeRunUnpaidInvoiceReminder() {
       // invoice would be re-emailed every hour. We must surface the failure
       // and skip the audit-log entry so an operator can intervene.
       const ids = due.map((inv: any) => inv.id);
-      const { error: stampErr } = await supabase
+      const { error: stampErr } = await schedDb()
         .from("invoices")
         .update({ unpaid_reminder_sent_at: new Date().toISOString() })
         .in("id", ids);
