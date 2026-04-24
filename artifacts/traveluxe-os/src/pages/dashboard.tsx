@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import { useGetDashboardSummary, getGetDashboardSummaryQueryKey } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -37,6 +38,20 @@ export default function Dashboard() {
   // Suppress unused warnings — qc/toast still wired for future handlers
   void qc; void toast;
 
+  // Ticking clock for the starting-soon strip (60 s granularity is fine)
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const t = setInterval(() => setNowMs(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const startingSoon = todaysJobs.filter(j => {
+    if (!j.date_time) return false;
+    if (j.status === "Cancelled" || j.status === "Active" || j.status === "Completed") return false;
+    const t = new Date(j.date_time).getTime();
+    return t >= nowMs && t <= nowMs + 60 * 60 * 1000;
+  });
+
   if (isLoading) {
     return (
       <div className="space-y-6">
@@ -60,6 +75,36 @@ export default function Dashboard() {
           {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })}
         </p>
       </div>
+
+      {/* Starting-soon strip — compact, dashboard-friendly */}
+      {startingSoon.length > 0 && (
+        <Link href="/jobs">
+          <div className="border border-amber-500/40 bg-amber-500/5 rounded-xl px-4 py-3 flex items-start gap-3 cursor-pointer hover:bg-amber-500/10 transition-colors">
+            <Clock className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-amber-400 mb-2">
+                Starting within 1 hour · {startingSoon.length} job{startingSoon.length !== 1 ? "s" : ""}
+              </p>
+              <div className="space-y-1.5">
+                {startingSoon.map(j => {
+                  const minsAway = Math.round((new Date(j.date_time).getTime() - nowMs) / 60000);
+                  return (
+                    <div key={j.id} className="flex items-center gap-2 text-[11px] min-w-0">
+                      <span className="font-mono text-muted-foreground flex-shrink-0">{j.tvl_ref}</span>
+                      <span className="text-foreground font-medium truncate flex-1">{j.client_name ?? "—"}</span>
+                      {j.driver_name
+                        ? <span className="text-muted-foreground flex-shrink-0">{j.driver_name}</span>
+                        : <span className="text-destructive font-medium flex-shrink-0">No driver</span>}
+                      <span className="text-amber-400 font-bold flex-shrink-0 ml-1">{minsAway}m</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            <ChevronRight className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+          </div>
+        </Link>
+      )}
 
       {/* Follow-Ups summary — count only, links to /follow-ups */}
       {(followUpsPending > 0 || followUpsOverdue > 0) && (
