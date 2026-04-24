@@ -626,13 +626,17 @@ export default function NewBooking() {
     }
   }, [orderLines]);
 
-  // Auto-fill vehicle_type from the selected Vehicle product in orderLines
+  // Auto-fill vehicle_type from the selected Vehicle product in orderLines.
+  // Skipped for Airport Transfer — the airport-matrix picker is the sole
+  // authority for vehicle_type on AT bookings (preventing the same clobber
+  // that the driver-assignment dropdown was causing).
   useEffect(() => {
+    if (serviceType === "Airport Transfer") return;
     const vehicleLine = orderLines.find(l => l.category === "Vehicle");
     if (vehicleLine) {
       bookingForm.setValue("vehicle_type", vehicleLine.name);
     }
-  }, [orderLines]);
+  }, [orderLines, serviceType]);
 
   // ── Airport Transfer auto-pricing ──────────────────────────
   // When both an airport AND a vehicle product are selected for an
