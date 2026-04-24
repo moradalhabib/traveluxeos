@@ -447,34 +447,43 @@ export default function InvoiceDetail() {
               <div className="font-mono text-3xl font-bold text-primary">{invoice.invoice_number}</div>
               <Badge variant="outline" className={`mt-2 ${getStatusColor(invoice.status)}`}>{invoice.status}</Badge>
               {(() => {
-                // The booking email pipeline logs every confirmation/receipt
-                // attempt under kinds 'booking_confirmation' or
-                // 'payment_receipt' — there's no separate 'manual_invoice'
-                // kind. Take the most recent entry of any kind as the badge
-                // signal (entries arrive ordered desc by created_at).
-                const inv = emailLog[0];
                 if (logLoading && emailLog.length === 0) return null;
-                let label: string, cls: string, tip: string;
-                if (!inv) {
-                  label = "Email: Not Sent";
-                  cls = "border-amber-500/40 text-amber-400 bg-amber-500/10";
-                  tip = "No email has been sent for this booking yet.";
-                } else if (inv.status === "sent") {
-                  label = `Email: Sent ${format(new Date(inv.created_at), "dd MMM HH:mm")}`;
-                  cls = "border-green-500/40 text-green-400 bg-green-500/10";
-                  tip = `Sent to ${inv.to_email ?? "—"} at ${new Date(inv.created_at).toLocaleString("en-GB")}`;
-                } else if (inv.status === "skipped_no_email") {
-                  label = "Email: No Email";
-                  cls = "border-muted-foreground/40 text-muted-foreground bg-secondary/30";
-                  tip = inv.error ?? "Skipped — no email on file for this client.";
-                } else {
-                  label = "Email: Failed";
-                  cls = "border-destructive/40 text-destructive bg-destructive/10";
-                  tip = inv.error ?? "Last send attempt failed.";
-                }
+
+                // Split log entries by kind
+                const invoiceKinds = ["booking_confirmation", "invoice_resend", "manual_invoice"];
+                const invoiceEntry = emailLog.find(e => invoiceKinds.includes(e.kind));
+                const receiptEntry = emailLog.find(e => e.kind === "payment_receipt");
+
+                const makeBadge = (prefix: string, entry: typeof invoiceEntry) => {
+                  let label: string, cls: string, tip: string;
+                  if (!entry) {
+                    label = `${prefix}: Not Sent`;
+                    cls = "border-amber-500/40 text-amber-400 bg-amber-500/10";
+                    tip = `No ${prefix.toLowerCase()} email has been sent yet.`;
+                  } else if (entry.status === "sent") {
+                    label = `${prefix}: Sent ${format(new Date(entry.created_at), "dd MMM HH:mm")}`;
+                    cls = "border-green-500/40 text-green-400 bg-green-500/10";
+                    tip = `Sent to ${entry.to_email ?? "—"} at ${new Date(entry.created_at).toLocaleString("en-GB")}`;
+                  } else if (entry.status === "skipped_no_email") {
+                    label = `${prefix}: No Email`;
+                    cls = "border-muted-foreground/40 text-muted-foreground bg-secondary/30";
+                    tip = entry.error ?? "Skipped — no email on file for this client.";
+                  } else {
+                    label = `${prefix}: Failed`;
+                    cls = "border-destructive/40 text-destructive bg-destructive/10";
+                    tip = entry.error ?? "Last send attempt failed.";
+                  }
+                  return (
+                    <div className="mt-1.5" title={tip} key={prefix}>
+                      <Badge variant="outline" className={`text-[10px] ${cls}`}>{label}</Badge>
+                    </div>
+                  );
+                };
+
                 return (
-                  <div className="mt-2" title={tip}>
-                    <Badge variant="outline" className={cls}>{label}</Badge>
+                  <div className="mt-2 flex flex-col items-start sm:items-end gap-0.5">
+                    {makeBadge("Invoice", invoiceEntry)}
+                    {invoice.status === "Paid" && makeBadge("Receipt", receiptEntry)}
                   </div>
                 );
               })()}
