@@ -447,6 +447,28 @@ export default function Commissions() {
   const supplierOutstandingTotal = supplierReceivablesQuery.data?.total_outstanding ?? 0;
   const suppliersOwedRows = supplierReceivables.filter((sup) => sup.outstanding_amount > 0);
   const suppliersWithDot = suppliersOwedRows.length;
+  // "Recently collected" panel — surface suppliers whose only collected
+  // line(s) landed in the last 14 days but who have £0 outstanding right
+  // now, so admins still have a one-click Undo path if they marked the
+  // wrong booking. Suppliers that ALSO have outstanding balance are
+  // already shown above (their dialog already lists collected lines), so
+  // we exclude them here to avoid duplicate cards.
+  const RECENT_COLLECTED_WINDOW_DAYS = 14;
+  const recentCutoff = Date.now() - RECENT_COLLECTED_WINDOW_DAYS * 24 * 60 * 60 * 1000;
+  const recentlyCollectedRows = supplierReceivables
+    .filter((sup) => sup.outstanding_amount === 0 && sup.collected_jobs.length > 0)
+    .map((sup) => {
+      const recentJobs = sup.collected_jobs.filter((j) =>
+        j.collected_at ? new Date(j.collected_at).getTime() >= recentCutoff : false
+      );
+      const mostRecent = recentJobs
+        .map((j) => (j.collected_at ? new Date(j.collected_at).getTime() : 0))
+        .reduce((a, b) => Math.max(a, b), 0);
+      const recentTotal = recentJobs.reduce((s, j) => s + (j.amount || 0), 0);
+      return { sup, recentJobs, mostRecent, recentTotal };
+    })
+    .filter((row) => row.recentJobs.length > 0)
+    .sort((a, b) => b.mostRecent - a.mostRecent);
 
   return (
     <div className="space-y-6">
@@ -737,9 +759,18 @@ export default function Commissions() {
           )}
           {!supplierReceivablesQuery.isLoading
             && !supplierReceivablesQuery.isError
-            && suppliersOwedRows.length === 0 && (
+            && suppliersOwedRows.length === 0
+            && recentlyCollectedRows.length === 0 && (
             <div className="py-12 text-center text-muted-foreground border border-dashed rounded-lg">
               No supplier markup commission outstanding.
+            </div>
+          )}
+          {!supplierReceivablesQuery.isLoading
+            && !supplierReceivablesQuery.isError
+            && suppliersOwedRows.length === 0
+            && recentlyCollectedRows.length > 0 && (
+            <div className="py-6 text-center text-muted-foreground border border-dashed rounded-lg">
+              All supplier commissions collected. Use the section below to undo any recent mistake.
             </div>
           )}
           {suppliersOwedRows.map((sup) => {
@@ -781,6 +812,58 @@ export default function Commissions() {
               </Card>
             );
           })}
+
+          {recentlyCollectedRows.length > 0 && (
+            <div className="pt-4 space-y-3">
+              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Recently collected (last {RECENT_COLLECTED_WINDOW_DAYS} days)
+              </h3>
+              <p className="text-[11px] text-muted-foreground -mt-1">
+                Tap a supplier to undo a recent collection.
+              </p>
+              {recentlyCollectedRows.map(({ sup, recentJobs, recentTotal }) => (
+                <Card
+                  key={`recent-${sup.supplier_id}`}
+                  className="border-emerald-500/10 hover:border-emerald-500/40 hover:bg-emerald-500/5 cursor-pointer transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/50"
+                  onClick={() => setSupplierDialog(sup)}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Open recently collected lines for ${sup.supplier_name}`}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setSupplierDialog(sup);
+                    }
+                  }}
+                  data-testid={`supplier-recent-collected-card-${sup.supplier_id}`}
+                >
+                  <CardContent className="p-4 sm:p-5 flex items-center justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 mb-1 flex-wrap">
+                        <h3 className="font-semibold text-sm sm:text-base truncate">{sup.supplier_name}</h3>
+                        <Badge
+                          variant="outline"
+                          className="text-[10px] px-1.5 text-emerald-500 border-emerald-500/30"
+                        >
+                          Collected
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {recentJobs.length} recent {recentJobs.length === 1 ? "collection" : "collections"}
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-lg font-semibold text-emerald-400">
+                        {isSuperAdmin ? fmtMoney(recentTotal) : "—"}
+                      </div>
+                      <div className="text-[10px] text-muted-foreground uppercase tracking-wider">collected</div>
+                    </div>
+                    <ChevronRight className="w-5 h-5 text-muted-foreground flex-shrink-0" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
         </TabsContent>
 
         {/* Settlement History */}
