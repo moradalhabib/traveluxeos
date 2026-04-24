@@ -317,7 +317,7 @@ export default function Jobs() {
           <div className="divide-y divide-amber-500/10">
             {upcomingJobs.map(job => {
               const minsAway = Math.round((new Date(job.date_time!).getTime() - now.getTime()) / 60000);
-              const driverName = (job as any).drivers?.name ?? null;
+              const driverName = (job as any).driver_name ?? (job as any).drivers?.name ?? null;
               return (
                 <Link key={job.id} href={`/bookings/${job.id}`}>
                   <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-amber-500/5 transition-colors cursor-pointer">
