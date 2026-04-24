@@ -7,8 +7,9 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { MessageSquare, Edit, ArrowLeft, Ban, Plus, CalendarRange, Trash2, Crown, Sparkles, ShieldCheck, Lock, Star, PhoneCall, CheckCheck, RotateCcw, PhoneOff, ClipboardList, FileText } from "lucide-react";
+import { MessageSquare, Edit, ArrowLeft, Ban, Plus, CalendarRange, Trash2, Crown, Sparkles, ShieldCheck, Lock, Star, PhoneCall, CheckCheck, RotateCcw, PhoneOff, ClipboardList, FileText, Plane } from "lucide-react";
 import { format, differenceInMonths } from "date-fns";
+import { fmtLondon } from "@/lib/datetime";
 import { Link } from "wouter";
 import { useQueryClient } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
@@ -546,9 +547,14 @@ export default function ClientDetail() {
                         {booking.service_type && (
                           <Badge variant="outline" className="text-[10px] shrink-0">{booking.service_type}</Badge>
                         )}
+                        {booking.flight_number && (
+                          <Badge variant="outline" className="text-[10px] shrink-0 text-sky-400 border-sky-400/30 flex items-center gap-0.5">
+                            <Plane className="w-2.5 h-2.5" />{booking.direction === "Arrival" ? "▼" : booking.direction === "Departure" ? "▲" : ""} {booking.flight_number}
+                          </Badge>
+                        )}
                       </div>
                       <div className="text-xs text-muted-foreground mt-0.5">
-                        {booking.date_time ? format(new Date(booking.date_time), 'dd MMM yyyy · HH:mm') : 'No date'}
+                        {booking.date_time ? fmtLondon(booking.date_time, "dd MMM yyyy · HH:mm") : 'No date'}
                         {booking.vehicle_type ? ` · ${booking.vehicle_type}` : ''}
                       </div>
                     </Link>

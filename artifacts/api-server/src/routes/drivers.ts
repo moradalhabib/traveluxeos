@@ -154,7 +154,7 @@ router.get("/:id", async (req, res) => {
       .eq("driver_id", req.params.id)
       .order("rated_at", { ascending: false }),
     supabase.from("bookings")
-      .select("id, tvl_ref, date_time, price, additional_charges, tvl_commission, driver_receives, payment_method, commission_status, payout_status, clients(name)")
+      .select("id, tvl_ref, date_time, service_type, direction, flight_number, price, additional_charges, tvl_commission, driver_receives, payment_method, commission_status, payout_status, clients(name)")
       .eq("driver_id", req.params.id)
       .order("date_time", { ascending: false }),
     supabase.from("booking_vehicles")
@@ -194,6 +194,9 @@ router.get("/:id", async (req, res) => {
     booking_id: b.id,
     tvl_ref: b.tvl_ref,
     date: b.date_time,
+    service_type: b.service_type ?? null,
+    direction: b.direction ?? null,
+    flight_number: b.flight_number ?? null,
     client_name: b.clients?.name ?? null,
     total_fare: (b.price ?? 0) + (b.additional_charges ?? 0),
     tvl_commission: b.tvl_commission ?? 0,
@@ -252,7 +255,7 @@ router.get("/:id", async (req, res) => {
     const [{ data: histBks }, { data: histVehs }] = await Promise.all([
       histBookingIds.size > 0
         ? supabase.from("bookings")
-            .select("id, tvl_ref, date_time, price, additional_charges, tvl_commission, driver_receives, payment_method, commission_status, payout_status, clients(name)")
+            .select("id, tvl_ref, date_time, service_type, direction, flight_number, price, additional_charges, tvl_commission, driver_receives, payment_method, commission_status, payout_status, clients(name)")
             .in("id", [...histBookingIds])
         : Promise.resolve({ data: [] as any[] }),
       histVehicleIds.size > 0
@@ -265,6 +268,9 @@ router.get("/:id", async (req, res) => {
       booking_id: b.id,
       tvl_ref: b.tvl_ref,
       date: b.date_time,
+      service_type: b.service_type ?? null,
+      direction: b.direction ?? null,
+      flight_number: b.flight_number ?? null,
       client_name: b.clients?.name ?? null,
       total_fare: (b.price ?? 0) + (b.additional_charges ?? 0),
       tvl_commission: b.tvl_commission ?? 0,

@@ -20,7 +20,7 @@ interface Props {
   flightNumber: string;
   direction?: string;
   // YYYY-MM-DD — the booking date the operator has entered. We query
-  // AviationStack for that specific date so pre-bookings resolve correctly.
+  // AeroDataBox for that specific date so pre-bookings resolve correctly.
   // If empty, the lookup is paused until a date is entered.
   date?: string;
   // `timeUk` is the flight's scheduled/estimated time as an HH:mm string in
@@ -180,15 +180,37 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
         </div>
       )}
 
-      {/* Times */}
-      <div className="flex items-center gap-4 text-xs text-muted-foreground">
-        {data.scheduled_time && (
-          <span>🕐 Scheduled: <span className="text-foreground font-medium">{format(new Date(data.scheduled_time), "HH:mm")}</span></span>
-        )}
-        {data.estimated_time && data.estimated_time !== data.scheduled_time && (
-          <span>⏱ Est: <span className="text-amber-400 font-medium">{format(new Date(data.estimated_time), "HH:mm")}</span></span>
-        )}
-      </div>
+      {/* Times — all displayed in Europe/London (handles GMT/BST automatically) */}
+      {data.scheduled_time && (() => {
+        const fmtHm = (iso: string) => new Intl.DateTimeFormat("en-GB", {
+          hour: "2-digit", minute: "2-digit", timeZone: "Europe/London",
+        }).format(new Date(iso));
+        const diffMins = data.estimated_time
+          ? Math.round((new Date(data.estimated_time).getTime() - new Date(data.scheduled_time).getTime()) / 60000)
+          : 0;
+        const isDelayed = diffMins > 10;
+        const isEarly   = diffMins < -10;
+        return (
+          <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
+            <span className="flex items-center gap-1">
+              🕐 Scheduled:{" "}
+              <span className={`font-medium ${isDelayed ? "line-through text-muted-foreground" : "text-foreground"}`}>
+                {fmtHm(data.scheduled_time)}
+              </span>
+            </span>
+            {data.estimated_time && (isDelayed || isEarly) && (
+              <span className="flex items-center gap-1">
+                ⏱ Est:{" "}
+                <span className={`font-medium ${isDelayed ? "text-amber-400" : "text-green-400"}`}>
+                  {fmtHm(data.estimated_time)}
+                  {isDelayed && <span className="ml-1 text-amber-500 font-normal">(+{diffMins}m)</span>}
+                  {isEarly  && <span className="ml-1 text-green-500 font-normal">({Math.abs(diffMins)}m early)</span>}
+                </span>
+              </span>
+            )}
+          </div>
+        );
+      })()}
 
       {/* Auto-fill button */}
       {relevantTime && onAutoFill && (
@@ -206,7 +228,7 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
 
       {data.last_updated && (
         <p className="text-[10px] text-muted-foreground/50">
-          Updated {format(new Date(data.last_updated), "HH:mm")}
+          Updated {new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" }).format(new Date(data.last_updated))}
         </p>
       )}
     </div>

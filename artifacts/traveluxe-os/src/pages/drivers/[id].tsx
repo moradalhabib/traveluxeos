@@ -14,8 +14,9 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/lib/supabase";
-import { MessageSquare, Edit, ArrowLeft, Calculator, Car, Save, X, Loader2, BarChart3, AlertTriangle } from "lucide-react";
+import { MessageSquare, Edit, ArrowLeft, Calculator, Car, Save, X, Loader2, BarChart3, AlertTriangle, Plane } from "lucide-react";
 import { format } from "date-fns";
+import { fmtLondon } from "@/lib/datetime";
 
 const API_BASE = `${import.meta.env.VITE_API_URL ?? ""}/api`;
 
@@ -664,17 +665,23 @@ export default function DriverDetail() {
                               <div className="text-xs text-muted-foreground flex items-center gap-1.5 flex-wrap">
                                 {entry.date ? (
                                   <span>
-                                    {format(new Date(entry.date), "PP")}
+                                    {fmtLondon(entry.date, "dd MMM yyyy")}
                                     {" · "}
                                     <span className="font-medium text-foreground">
-                                      {format(new Date(entry.date), "HH:mm")}
+                                      {fmtLondon(entry.date, "HH:mm")}
                                     </span>
                                   </span>
                                 ) : null}
+                                {entry.flight_number && (
+                                  <Badge variant="outline" className="text-[9px] py-0 px-1.5 text-sky-400 border-sky-400/30 flex items-center gap-0.5">
+                                    <Plane className="w-2.5 h-2.5" />
+                                    {entry.direction === "Arrival" ? "▼" : entry.direction === "Departure" ? "▲" : ""} {entry.flight_number}
+                                  </Badge>
+                                )}
                                 {isExtra && offsetMin !== 0 && (
                                   <span
                                     className="text-[10px] text-amber-500"
-                                    title={`Parent booking pickup ${parentTime ? format(parentTime, "HH:mm") : ""}`}
+                                    title={`Parent booking pickup ${entry.parent_date_time ? fmtLondon(entry.parent_date_time, "HH:mm") : ""}`}
                                   >
                                     ({offsetMin > 0 ? `+${offsetMin}` : offsetMin} min vs Car 1)
                                   </span>
