@@ -76,34 +76,50 @@ export default function Dashboard() {
         </p>
       </div>
 
-      {/* Starting-soon strip — compact, dashboard-friendly */}
+      {/* Starting-soon strip — each row individually tappable */}
       {startingSoon.length > 0 && (
-        <Link href="/jobs">
-          <div className="border border-amber-500/40 bg-amber-500/5 rounded-xl px-4 py-3 flex items-start gap-3 cursor-pointer hover:bg-amber-500/10 transition-colors">
-            <Clock className="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-amber-400 mb-2">
-                Starting within 1 hour · {startingSoon.length} job{startingSoon.length !== 1 ? "s" : ""}
-              </p>
-              <div className="space-y-1.5">
-                {startingSoon.map(j => {
-                  const minsAway = Math.round((new Date(j.date_time).getTime() - nowMs) / 60000);
-                  return (
-                    <div key={j.id} className="flex items-center gap-2 text-[11px] min-w-0">
-                      <span className="font-mono text-muted-foreground flex-shrink-0">{j.tvl_ref}</span>
-                      <span className="text-foreground font-medium truncate flex-1">{j.client_name ?? "—"}</span>
-                      {j.driver_name
-                        ? <span className="text-muted-foreground flex-shrink-0">{j.driver_name}</span>
-                        : <span className="text-destructive font-medium flex-shrink-0">No driver</span>}
-                      <span className="text-amber-400 font-bold flex-shrink-0 ml-1">{minsAway}m</span>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-            <ChevronRight className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+        <div className="border border-amber-500/40 bg-amber-500/5 rounded-xl overflow-hidden">
+          {/* Header */}
+          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-amber-500/20">
+            <Clock className="w-3.5 h-3.5 text-amber-400 flex-shrink-0" />
+            <span className="text-xs font-semibold text-amber-400 flex-1">
+              Starting within 1 hour
+            </span>
+            <Badge className="bg-amber-500/20 text-amber-300 border-amber-500/40 text-[10px] mr-2">
+              {startingSoon.length}
+            </Badge>
+            <Link href="/jobs">
+              <span className="text-[11px] text-amber-400/70 hover:text-amber-400 transition-colors cursor-pointer">
+                View all →
+              </span>
+            </Link>
           </div>
-        </Link>
+          {/* Rows — each taps to the booking */}
+          {startingSoon.map((j, i) => {
+            const minsAway = Math.round((new Date(j.date_time).getTime() - nowMs) / 60000);
+            return (
+              <Link key={j.id} href={`/bookings/${j.id}`}>
+                <div className={`flex items-center gap-3 px-4 py-2.5 hover:bg-amber-500/10 transition-colors cursor-pointer${i < startingSoon.length - 1 ? " border-b border-amber-500/10" : ""}`}>
+                  {/* Countdown */}
+                  <span className="text-sm font-bold text-amber-400 w-9 flex-shrink-0 text-right">{minsAway}m</span>
+                  {/* Ref + client */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-mono text-muted-foreground">{j.tvl_ref}</span>
+                      <span className="text-xs font-semibold text-foreground truncate">{j.client_name ?? "—"}</span>
+                    </div>
+                    {j.driver_name
+                      ? <p className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
+                          <Car className="w-3 h-3" />{j.driver_name}
+                        </p>
+                      : <p className="text-[10px] text-destructive font-medium mt-0.5">No driver assigned</p>}
+                  </div>
+                  <ChevronRight className="w-3.5 h-3.5 text-amber-400/50 flex-shrink-0" />
+                </div>
+              </Link>
+            );
+          })}
+        </div>
       )}
 
       {/* Follow-Ups summary — count only, links to /follow-ups */}
@@ -237,41 +253,59 @@ export default function Dashboard() {
             </Link>
           </CardHeader>
           <CardContent className="pt-0 space-y-2">
-            {todaysJobs.map((j) => (
-              <Link key={j.id} href={`/bookings/${j.id}`}>
-                <div className="rounded-lg border border-border bg-background/40 hover:bg-secondary/20 transition-colors p-2.5 flex items-center gap-3 cursor-pointer">
-                  <div className="flex flex-col items-center justify-center w-12 flex-shrink-0">
-                    <Clock className="w-3 h-3 text-primary mb-0.5" />
-                    <span className="text-xs font-bold text-foreground">
-                      {j.date_time ? new Date(j.date_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : "—"}
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-sm font-semibold text-foreground truncate">{j.client_name ?? "Unknown"}</span>
-                      {j.client_vip_tier && j.client_vip_tier !== "Standard" && (
-                        <span className={getVipPillClass(j.client_vip_tier)}>{j.client_vip_tier}</span>
+            {todaysJobs.map((j) => {
+              const isActive = j.status === "Active";
+              return (
+                <Link key={j.id} href={`/bookings/${j.id}`}>
+                  <div className={`rounded-lg border transition-colors p-2.5 flex items-center gap-3 cursor-pointer ${
+                    isActive
+                      ? "border-green-500/40 bg-green-500/5 hover:bg-green-500/10"
+                      : "border-border bg-background/40 hover:bg-secondary/20"
+                  }`}>
+                    {/* Time column */}
+                    <div className="flex flex-col items-center justify-center w-12 flex-shrink-0">
+                      <Clock className={`w-3 h-3 mb-0.5 ${isActive ? "text-green-400" : "text-primary"}`} />
+                      <span className={`text-xs font-bold ${isActive ? "text-green-400" : "text-foreground"}`}>
+                        {j.date_time ? new Date(j.date_time).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false }) : "—"}
+                      </span>
+                    </div>
+                    {/* Client + route */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-semibold text-foreground truncate">{j.client_name ?? "Unknown"}</span>
+                        {j.client_vip_tier && j.client_vip_tier !== "Standard" && (
+                          <span className={getVipPillClass(j.client_vip_tier)}>{j.client_vip_tier}</span>
+                        )}
+                        <span className="text-[10px] font-mono text-muted-foreground">{j.tvl_ref}</span>
+                      </div>
+                      <div className="text-[11px] text-muted-foreground truncate mt-0.5">
+                        {j.service_type}{j.direction ? ` · ${j.direction}` : ""} · {j.pickup ?? "—"} → {j.dropoff ?? "—"}
+                      </div>
+                    </div>
+                    {/* Right side: active bell OR driver/no-driver */}
+                    <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                      {isActive ? (
+                        <div className="flex items-center gap-1.5">
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                          </span>
+                          <BellRing className="w-3.5 h-3.5 text-green-400" />
+                        </div>
+                      ) : j.driver_name ? (
+                        <span className="text-[10px] text-foreground flex items-center gap-1">
+                          <Car className="w-3 h-3 text-muted-foreground" /> {j.driver_name}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-destructive flex items-center gap-1">
+                          <AlertTriangle className="w-3 h-3" /> No driver
+                        </span>
                       )}
-                      <span className="text-[10px] font-mono text-muted-foreground">{j.tvl_ref}</span>
-                    </div>
-                    <div className="text-[11px] text-muted-foreground truncate mt-0.5">
-                      {j.service_type}{j.direction ? ` · ${j.direction}` : ""} · {j.pickup ?? "—"} → {j.dropoff ?? "—"}
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-1 flex-shrink-0">
-                    {j.driver_name ? (
-                      <span className="text-[10px] text-foreground flex items-center gap-1">
-                        <Car className="w-3 h-3 text-muted-foreground" /> {j.driver_name}
-                      </span>
-                    ) : (
-                      <span className="text-[10px] text-destructive flex items-center gap-1">
-                        <AlertTriangle className="w-3 h-3" /> No driver
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </Link>
-            ))}
+                </Link>
+              );
+            })}
           </CardContent>
         </Card>
       )}
