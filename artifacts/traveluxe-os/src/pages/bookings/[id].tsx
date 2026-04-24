@@ -45,8 +45,15 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
   const isAirportTransfer = booking.service_type === "Airport Transfer";
   const showCosts = isCarRental || isAsDirected;
   const supplierId  = booking.supplier_id;
-  const supplierItems: Array<{ product_id: string; qty: number; name: string; daily_rate: number | null; hourly_rate: number | null }>
-    = Array.isArray(booking.supplier_items) ? booking.supplier_items : [];
+  const supplierItems: Array<{
+    product_id: string;
+    qty: number;
+    name: string;
+    daily_rate: number | null;
+    hourly_rate: number | null;
+    override_price?: number | null;
+    override_reason?: string | null;
+  }> = Array.isArray(booking.supplier_items) ? booking.supplier_items : [];
   const supplierProvidedDriver = !!booking.as_directed_supplier_driver;
   const [supplier, setSupplier] = useState<any>(null);
   const [editOpen, setEditOpen] = useState(false);
@@ -229,14 +236,30 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
               const rate = it.daily_rate != null ? Number(it.daily_rate)
                 : it.hourly_rate != null ? Number(it.hourly_rate)
                 : 0;
-              const line = rate * Number(it.qty || 0);
+              const auto = rate * Number(it.qty || 0);
+              const overridden = it.override_price != null;
+              const line = overridden ? Number(it.override_price) : auto;
               return (
-                <div key={it.product_id} className="flex justify-between items-center text-xs px-2 py-1 rounded bg-secondary/20">
-                  <span className="truncate pr-2">
-                    {it.name}
-                    {it.qty > 1 ? <span className="text-muted-foreground"> × {it.qty}</span> : null}
-                  </span>
-                  <span className="font-medium tabular-nums">£{line.toLocaleString()}</span>
+                <div key={it.product_id} className="text-xs px-2 py-1.5 rounded bg-secondary/20 space-y-0.5">
+                  <div className="flex justify-between items-center gap-2">
+                    <span className="truncate pr-2">
+                      {it.name}
+                      {it.qty > 1 ? <span className="text-muted-foreground"> × {it.qty}</span> : null}
+                    </span>
+                    <span className={`font-medium tabular-nums ${overridden ? "text-amber-300" : ""}`}>
+                      £{line.toLocaleString()}
+                    </span>
+                  </div>
+                  {overridden && (
+                    <div className="text-[10px] text-amber-400/80 flex justify-between gap-2">
+                      <span className="truncate pr-2 italic">
+                        {it.override_reason ? it.override_reason : "Manual price"}
+                      </span>
+                      <span className="text-muted-foreground tabular-nums shrink-0">
+                        auto £{auto.toLocaleString()}
+                      </span>
+                    </div>
+                  )}
                 </div>
               );
             })}

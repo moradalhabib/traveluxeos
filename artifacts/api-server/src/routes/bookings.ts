@@ -756,6 +756,10 @@ router.post("/", async (req, res) => {
       }
       if (body.supplier_cost == null) {
         body.supplier_cost = body.supplier_items.reduce((s: number, it: any) => {
+          // Override wins — operator typed a manual amount on this line
+          // (e.g. "no buggy available − £50"). Otherwise fall back to
+          // qty × (daily_rate ?? hourly_rate).
+          if (it?.override_price != null) return s + Number(it.override_price);
           const rate = it?.daily_rate != null ? Number(it.daily_rate)
             : it?.hourly_rate != null ? Number(it.hourly_rate)
             : 0;
@@ -1083,6 +1087,7 @@ router.put("/:id", async (req, res) => {
       }
       if (body.supplier_cost == null) {
         body.supplier_cost = body.supplier_items.reduce((s: number, it: any) => {
+          if (it?.override_price != null) return s + Number(it.override_price);
           const rate = it?.daily_rate != null ? Number(it.daily_rate)
             : it?.hourly_rate != null ? Number(it.hourly_rate)
             : 0;

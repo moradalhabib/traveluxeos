@@ -43,6 +43,12 @@ export type SupplierItem = {
   name: string;
   daily_rate: number | null;
   hourly_rate: number | null;
+  // Optional manual override — overrides the auto-computed line total
+  // (qty × rate) when the supplier charges a different amount on the day
+  // (e.g. "no buggy available − £50"). Reason is shown on the booking
+  // detail so the discount/uplift is auditable.
+  override_price?: number | null;
+  override_reason?: string | null;
 };
 
 const KIND_ORDER: SupplierProductKind[] = [
@@ -134,6 +140,25 @@ export function SupplierProductPicker({ supplierId, value, onChange }: Props) {
     onChange(items.map(i => i.product_id === productId ? { ...i, qty } : i));
   };
 
+  const updateOverridePrice = (productId: string, raw: string) => {
+    // Empty string clears the override and reverts to auto (qty × rate).
+    const parsed = raw === "" ? null : Number(raw);
+    const next = parsed != null && isNaN(parsed) ? null : parsed;
+    onChange(items.map(i => i.product_id === productId ? { ...i, override_price: next } : i));
+  };
+
+  const updateOverrideReason = (productId: string, reason: string) => {
+    onChange(items.map(i => i.product_id === productId
+      ? { ...i, override_reason: reason || null }
+      : i));
+  };
+
+  const clearOverride = (productId: string) => {
+    onChange(items.map(i => i.product_id === productId
+      ? { ...i, override_price: null, override_reason: null }
+      : i));
+  };
+
   const removeItem = (productId: string) => {
     onChange(items.filter(i => i.product_id !== productId));
   };
@@ -144,10 +169,12 @@ export function SupplierProductPicker({ supplierId, value, onChange }: Props) {
     return "";
   };
 
-  const lineTotal = (i: SupplierItem) => {
+  const autoLine = (i: SupplierItem) => {
     const rate = i.daily_rate ?? i.hourly_rate ?? 0;
     return Number(rate) * Number(i.qty || 0);
   };
+  const lineTotal = (i: SupplierItem) =>
+    i.override_price != null ? Number(i.override_price) : autoLine(i);
 
   const grandTotal = items.reduce((s, i) => s + lineTotal(i), 0);
 
@@ -167,41 +194,84 @@ export function SupplierProductPicker({ supplierId, value, onChange }: Props) {
       {/* Selected lines */}
       {items.length > 0 && (
         <div className="space-y-2">
-          {items.map(it => (
+          {items.map(it => {
+            const overridden = it.override_price != null;
+            const auto = autoLine(it);
+            return (
             <div
               key={it.product_id}
-              className="flex items-center gap-2 p-2 rounded-md bg-background/40 border border-border"
+              className="p-2 rounded-md bg-background/40 border border-border space-y-2"
               data-testid={`row-supplier-item-${it.product_id}`}
             >
-              <div className="min-w-0 flex-1">
-                <div className="text-sm font-medium truncate">{it.name}</div>
-                <div className="text-[11px] text-muted-foreground">
-                  {formatRate(it)}{it.qty > 1 ? ` × ${it.qty}` : ""}
+              <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-medium truncate">{it.name}</div>
+                  <div className="text-[11px] text-muted-foreground">
+                    {formatRate(it)}{it.qty > 1 ? ` × ${it.qty}` : ""}
+                    {overridden ? (
+                      <span className="ml-1 text-amber-400">
+                        · auto £{auto.toLocaleString()}
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
+                <Input
+                  type="number"
+                  min="1"
+                  value={it.qty}
+                  onChange={(e) => updateQty(it.product_id, Number(e.target.value) || 1)}
+                  className="w-14 h-8 text-center text-sm"
+                  data-testid={`input-qty-${it.product_id}`}
+                />
+                <div className="flex items-center gap-1">
+                  <span className="text-sm text-muted-foreground">£</span>
+                  <Input
+                    type="number"
+                    inputMode="decimal"
+                    step="0.01"
+                    value={overridden ? String(it.override_price) : String(auto)}
+                    onChange={(e) => updateOverridePrice(it.product_id, e.target.value)}
+                    className={`w-20 h-8 text-right text-sm font-semibold ${overridden ? "border-amber-400/60 text-amber-200" : ""}`}
+                    data-testid={`input-line-${it.product_id}`}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                  onClick={() => removeItem(it.product_id)}
+                  data-testid={`btn-remove-${it.product_id}`}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </Button>
               </div>
-              <Input
-                type="number"
-                min="1"
-                value={it.qty}
-                onChange={(e) => updateQty(it.product_id, Number(e.target.value) || 1)}
-                className="w-16 h-8 text-center text-sm"
-                data-testid={`input-qty-${it.product_id}`}
-              />
-              <div className="w-20 text-right text-sm font-semibold">
-                £{lineTotal(it).toLocaleString()}
-              </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-muted-foreground hover:text-destructive"
-                onClick={() => removeItem(it.product_id)}
-                data-testid={`btn-remove-${it.product_id}`}
-              >
-                <X className="w-3.5 h-3.5" />
-              </Button>
+              {/* Reason — only meaningful once the line has been overridden.
+                  Shown alongside a Reset link so the operator can revert
+                  back to the auto qty × rate calculation in one tap. */}
+              {overridden && (
+                <div className="flex items-center gap-2 pl-1">
+                  <Input
+                    type="text"
+                    placeholder="Reason for change (e.g. no buggy available)"
+                    value={it.override_reason ?? ""}
+                    onChange={(e) => updateOverrideReason(it.product_id, e.target.value)}
+                    className="h-7 text-xs flex-1"
+                    data-testid={`input-reason-${it.product_id}`}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => clearOverride(it.product_id)}
+                    className="text-[11px] text-muted-foreground hover:text-foreground underline shrink-0"
+                    data-testid={`btn-reset-${it.product_id}`}
+                  >
+                    Reset
+                  </button>
+                </div>
+              )}
             </div>
-          ))}
+            );
+          })}
           <div className="flex justify-between items-center pt-1 border-t border-border/50">
             <span className="text-xs text-muted-foreground uppercase tracking-wider">Supplier subtotal</span>
             <span className="text-sm font-semibold">£{grandTotal.toLocaleString()}</span>
