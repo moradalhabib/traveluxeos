@@ -58,13 +58,53 @@ function setFlightCache(cache: Record<string, string>) {
   try { localStorage.setItem(FLIGHT_CACHE_KEY, JSON.stringify(cache)); } catch {}
 }
 
-// ── Service worker for browser notifications when tab is backgrounded ──
+// ── Service worker registration + Web Push subscription ──────────────────────
 let swReg: ServiceWorkerRegistration | null = null;
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const raw = atob(base64);
+  return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
+}
+
+async function subscribeWebPush(reg: ServiceWorkerRegistration) {
+  try {
+    const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
+    if (!vapidKey) return;
+    if (!("PushManager" in window)) return;
+
+    const existing = await reg.pushManager.getSubscription();
+    const sub = existing ?? await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidKey),
+    });
+
+    const { data: { session } } = await (await import("@/lib/supabase")).supabase.auth.getSession();
+    const token = session?.access_token;
+    if (!token) return;
+
+    await fetch("/api/push-subscriptions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify(sub.toJSON()),
+    });
+  } catch {
+    // Non-fatal — app works without push
+  }
+}
+
 if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
   const swUrl = (import.meta.env.BASE_URL || "/") + "sw.js";
   navigator.serviceWorker
     .register(swUrl, { scope: import.meta.env.BASE_URL || "/" })
-    .then(reg => { swReg = reg; })
+    .then(reg => {
+      swReg = reg;
+      // Subscribe after permission is granted (may already be granted)
+      if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+        subscribeWebPush(reg);
+      }
+    })
     .catch(() => {});
 }
 
@@ -178,10 +218,16 @@ export function useNotifications() {
     return () => { cancelled = true; };
   }, []);
 
-  // ── Browser-notification permission ──────────────────────────────────
+  // ── Browser-notification permission + Web Push subscription ─────────
   useEffect(() => {
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {});
+    if (typeof Notification === "undefined") return;
+    if (Notification.permission === "granted") {
+      // Already granted — subscribe push if we have an SW registration
+      if (swReg) subscribeWebPush(swReg);
+    } else if (Notification.permission === "default") {
+      Notification.requestPermission().then(perm => {
+        if (perm === "granted" && swReg) subscribeWebPush(swReg);
+      }).catch(() => {});
     }
   }, []);
 

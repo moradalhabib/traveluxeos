@@ -1,7 +1,17 @@
-import { supabase, auditLog } from "../lib/supabase";
+import { supabase, auditLog, getServiceRoleClient } from "../lib/supabase";
 import { sendEmail } from "./email";
 import { emailDailyBackup } from "./backup";
 import { notifyByRoles, notifyUser, STAFF_ROLES } from "./notify";
+import webpush from "web-push";
+
+// Configure VAPID once at module load — keys must exist in env.
+if (process.env.VAPID_PUBLIC_KEY && process.env.VAPID_PRIVATE_KEY) {
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT || "mailto:info@traveluxelondon.com",
+    process.env.VAPID_PUBLIC_KEY,
+    process.env.VAPID_PRIVATE_KEY,
+  );
+}
 
 const TICK_MS = 60 * 1000;
 
@@ -133,6 +143,93 @@ async function sendReminders() {
     } catch (e: any) {
       console.error("[Scheduler] reminder error:", e?.message);
     }
+  }
+}
+
+// ─── 1-hour upcoming alert (push + in-app) ───────────────────────────────────
+// Fires for Confirmed/Pending bookings starting in 50–70 minutes.
+// Wide window (~20 min) so the 60 s tick never misses a booking.
+// Deduplicated by an audit_log row so each booking only alerts once.
+
+async function sendUpcomingAlerts() {
+  if (!process.env.VAPID_PUBLIC_KEY || !process.env.VAPID_PRIVATE_KEY) return;
+
+  const now  = new Date();
+  const lo   = new Date(now.getTime() + 50 * 60 * 1000).toISOString();
+  const hi   = new Date(now.getTime() + 70 * 60 * 1000).toISOString();
+
+  const { data: upcoming } = await supabase
+    .from("bookings")
+    .select("id, tvl_ref, client_name, service_type, date_time, driver_id, drivers(name)")
+    .in("status", ["Confirmed", "Pending"])
+    .gte("date_time", lo)
+    .lte("date_time", hi)
+    .limit(30);
+
+  if (!upcoming || upcoming.length === 0) return;
+
+  // Check which bookings already had a push sent (partial-index dedup key)
+  const ids = upcoming.map(b => b.id);
+  const { data: alreadySent } = await supabase
+    .from("audit_log")
+    .select("entity_id")
+    .eq("action", "upcoming_push_sent")
+    .in("entity_id", ids);
+  const sentSet = new Set((alreadySent ?? []).map((r: any) => r.entity_id));
+
+  const unsent = upcoming.filter(b => !sentSet.has(b.id));
+  if (unsent.length === 0) return;
+
+  // Fetch all active push subscriptions using service-role to bypass RLS
+  const svc = getServiceRoleClient();
+  if (!svc) return;
+
+  const { data: subs } = await svc
+    .from("push_subscriptions")
+    .select("endpoint, p256dh, auth")
+    .limit(500);
+
+  for (const b of unsent) {
+    const enriched = { ...b, driver_name: (b as any).drivers?.name ?? null };
+    const when = b.date_time
+      ? new Date(b.date_time).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" })
+      : "—";
+    const driverLabel = enriched.driver_name ? ` · ${enriched.driver_name}` : " · Driver TBC";
+    const title = `Starting in ~1 hour — ${b.tvl_ref ?? ""}`;
+    const body  = `${b.client_name ?? "—"} · ${b.service_type ?? "—"} at ${when}${driverLabel}`;
+    const link  = `/bookings/${b.id}`;
+
+    // ── Web Push ─────────────────────────────────────────────────────────
+    for (const sub of (subs ?? [])) {
+      try {
+        await webpush.sendNotification(
+          { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+          JSON.stringify({ title, body, link, tag: `upcoming-${b.id}`, requireInteraction: true }),
+          { TTL: 3600 },
+        );
+      } catch (e: any) {
+        // 410 Gone = subscription expired — remove it
+        if (e?.statusCode === 410) {
+          svc.from("push_subscriptions").delete().eq("endpoint", sub.endpoint).catch(() => {});
+        }
+      }
+    }
+
+    // ── In-app notification ───────────────────────────────────────────────
+    await notifyByRoles(STAFF_ROLES, {
+      type: "booking_status",
+      title,
+      message: body,
+      link,
+      severity: "warning",
+      dedupeKey: `upcoming-1h-${b.id}`,
+    }).catch(() => {});
+
+    // ── Audit stamp (dedup guard) ─────────────────────────────────────────
+    await auditLog("upcoming_push_sent", "booking", b.id, null,
+      `1h upcoming push sent for ${b.tvl_ref}`).catch(() => {});
+
+    console.info(`[Scheduler] upcoming push: ${b.tvl_ref} at ${when}`);
   }
 }
 
@@ -1001,6 +1098,7 @@ export function startScheduler() {
     try {
       await autoActivateJobs();
       await sendReminders();
+      await sendUpcomingAlerts();
       await maybeRunNoDriverScan();
       await maybeRunFollowUpScan();
       await maybeRunDigest();

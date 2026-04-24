@@ -27,6 +27,7 @@ import bookingPdfRouter from "./booking-pdf";
 import issuesRouter from "./issues";
 import amendmentsRouter from "./amendments";
 import bookingVehiclesRouter from "./booking-vehicles";
+import pushSubscriptionsRouter from "./push-subscriptions";
 
 const router: IRouter = Router();
 
@@ -59,5 +60,6 @@ router.use("/bookings", bookingPdfRouter);
 router.use("/issues", issuesRouter);
 router.use("/amendments", amendmentsRouter);
 router.use("/booking-vehicles", bookingVehiclesRouter);
+router.use("/push-subscriptions", pushSubscriptionsRouter);
 
 export default router;

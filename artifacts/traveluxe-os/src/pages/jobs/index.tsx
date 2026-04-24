@@ -215,6 +215,25 @@ export default function Jobs() {
     () => (bookings ?? []).filter(b => !b.driver_id && b.status !== 'Completed' && b.status !== 'Cancelled'),
     [bookings]
   );
+
+  // Bookings starting within the next 60 minutes — shown as a "prepare now"
+  // strip regardless of which time/status filter the operator has applied.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  const upcomingJobs = useMemo(() => {
+    if (!bookings) return [];
+    const lo = now.getTime();
+    const hi = now.getTime() + 60 * 60 * 1000;
+    return bookings.filter(b => {
+      if (!b.date_time) return false;
+      if (b.status === 'Cancelled' || b.status === 'Active' || b.status === 'Completed') return false;
+      const t = new Date(b.date_time).getTime();
+      return t >= lo && t <= hi;
+    });
+  }, [bookings, now]);
   const activeJobs = bookings?.filter(b => b.status !== 'Cancelled') || [];
 
   // Group jobs by date for date-section headings.
@@ -280,6 +299,53 @@ export default function Jobs() {
           <div className="flex items-center gap-2 text-destructive font-semibold text-sm">
             <AlertTriangle className="w-4 h-4 flex-shrink-0" />
             <span>{urgentJobs.length} job{urgentJobs.length > 1 ? 's' : ''} need a driver assigned urgently</span>
+          </div>
+        </div>
+      )}
+
+      {upcomingJobs.length > 0 && (
+        <div className="w-full border rounded-xl border-amber-500/40 bg-amber-500/5 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+            <Clock className="w-4 h-4 text-amber-400 flex-shrink-0" />
+            <span className="text-amber-400 font-semibold text-sm">
+              Starting within 1 hour — prepare now
+            </span>
+            <Badge className="ml-auto bg-amber-500/20 text-amber-300 border-amber-500/40 text-[10px]">
+              {upcomingJobs.length}
+            </Badge>
+          </div>
+          <div className="divide-y divide-amber-500/10">
+            {upcomingJobs.map(job => {
+              const minsAway = Math.round((new Date(job.date_time!).getTime() - now.getTime()) / 60000);
+              const driverName = (job as any).drivers?.name ?? null;
+              return (
+                <Link key={job.id} href={`/bookings/${job.id}`}>
+                  <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-amber-500/5 transition-colors cursor-pointer">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-mono text-muted-foreground">{job.tvl_ref}</span>
+                        <span className="text-xs font-medium text-foreground truncate">{job.client_name ?? "—"}</span>
+                        {job.service_type && (
+                          <Badge variant="outline" className="text-[10px] py-0 px-1.5 border-amber-500/30 text-amber-300/80">
+                            {job.service_type}
+                          </Badge>
+                        )}
+                      </div>
+                      <div className="text-[11px] text-muted-foreground mt-0.5">
+                        {driverName ?? <span className="text-destructive font-medium">No driver</span>}
+                        {driverName && job.vehicle_type ? ` · ${job.vehicle_type}` : ""}
+                      </div>
+                    </div>
+                    <div className="text-right flex-shrink-0">
+                      <div className="text-amber-400 font-bold text-sm">{minsAway}m</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        {format(new Date(job.date_time!), "HH:mm")}
+                      </div>
+                    </div>
+                  </div>
+                </Link>
+              );
+            })}
           </div>
         </div>
       )}
