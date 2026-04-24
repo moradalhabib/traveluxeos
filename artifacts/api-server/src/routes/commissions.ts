@@ -359,6 +359,7 @@ router.get("/settlements/history", async (_req, res) => {
     { data: payouts },
     { data: settledBookings },
     { data: paidBookings },
+    { data: supplierCollections },
   ] = await Promise.all([
     supabase
       .from("commission_settlements")
@@ -385,6 +386,15 @@ router.get("/settlements/history", async (_req, res) => {
       .eq("payout_status", "Paid")
       .neq("status", "Cancelled")
       .order("date_time", { ascending: false })
+      .limit(1000),
+    // All bookings where TVL collected a supplier commission (markup)
+    supabase
+      .from("bookings")
+      .select("id, tvl_ref, date_time, supplier_commission, supplier_commission_collected_at, supplier_id, suppliers(id, name)")
+      .not("supplier_commission_collected_at", "is", null)
+      .gt("supplier_commission", 0)
+      .neq("status", "Cancelled")
+      .order("supplier_commission_collected_at", { ascending: false })
       .limit(1000),
   ]);
 
@@ -527,6 +537,34 @@ router.get("/settlements/history", async (_req, res) => {
           operator_name: null,
         };
       }),
+    // Supplier commission collections — markup TVL collected from supplier
+    ...(supplierCollections ?? []).map((b: any) => {
+      const settledAt = b.supplier_commission_collected_at;
+      const total = Number(b.supplier_commission ?? 0);
+      const supplierId = b.supplier_id ?? b.suppliers?.id;
+      const supplierName = b.suppliers?.name ?? "Supplier";
+      return {
+        kind: "supplier_collection" as const,
+        id: `supplier-${b.id}`,
+        settlement_id: `supplier-${b.id}`,
+        // Use a namespaced driver_id so the UI aggregates per-supplier, not per-driver
+        driver_id: supplierId ? `supplier-${supplierId}` : `supplier-unknown-${b.id}`,
+        driver_name: supplierName,
+        driver_staff_no: null,
+        tvl_number: null,
+        settled_at: settledAt,
+        month: settledAt ? settledAt.slice(0, 7) : null,
+        week_start: null,
+        week_end: null,
+        booking_ids: [b.id],
+        booking_refs: [b.tvl_ref ?? b.id],
+        amount: total,
+        total_amount: total,
+        notes: null,
+        operator_id: null,
+        operator_name: null,
+      };
+    }),
   ].sort((a, b) =>
     new Date(b.settled_at ?? 0).getTime() - new Date(a.settled_at ?? 0).getTime(),
   );

@@ -61,7 +61,7 @@ type Driver = {
 
 type SettlementHistoryEntry = {
   settlement_id?: string;
-  kind?: "settlement" | "payout";
+  kind?: "settlement" | "payout" | "supplier_collection";
   driver_id?: string;
   driver_name: string;
   tvl_number?: string | null;
@@ -1363,13 +1363,16 @@ function DriverMonthBreakdownDialog({
     (a, b) => new Date(b.settled_at ?? 0).getTime() - new Date(a.settled_at ?? 0).getTime(),
   );
 
-  // Split totals into settlement (cash → owed to TVL) vs payout (bank/card → owed to driver)
-  // so the breakdown header tells the operator at a glance how the total is composed.
+  // Split totals: settlement (cash → owed to TVL), payout (bank/card → owed to driver),
+  // supplier_collection (markup → TVL collected from supplier).
   const settlementTotal = sorted
-    .filter((e) => e.kind !== "payout")
+    .filter((e) => e.kind === "settlement")
     .reduce((s, e) => s + (e.total_amount ?? 0), 0);
   const payoutTotal = sorted
     .filter((e) => e.kind === "payout")
+    .reduce((s, e) => s + (e.total_amount ?? 0), 0);
+  const supplierTotal = sorted
+    .filter((e) => e.kind === "supplier_collection")
     .reduce((s, e) => s + (e.total_amount ?? 0), 0);
 
   return (
@@ -1392,8 +1395,8 @@ function DriverMonthBreakdownDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Settlement / payout split summary. */}
-        <div className="grid grid-cols-2 gap-2">
+        {/* Settlement / payout / supplier split summary. */}
+        <div className={`grid gap-2 ${supplierTotal > 0 ? "grid-cols-3" : "grid-cols-2"}`}>
           <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-3">
             <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
               Settlements (cash)
@@ -1410,6 +1413,16 @@ function DriverMonthBreakdownDialog({
               {isSuperAdmin ? fmtMoney(payoutTotal) : "—"}
             </div>
           </div>
+          {supplierTotal > 0 && (
+            <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-3">
+              <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                Supplier collected
+              </div>
+              <div className="text-base font-bold text-amber-400">
+                {isSuperAdmin ? fmtMoney(supplierTotal) : "—"}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Per-entry breakdown. */}
@@ -1420,6 +1433,8 @@ function DriverMonthBreakdownDialog({
               className={
                 e.kind === "payout"
                   ? "border-blue-500/20"
+                  : e.kind === "supplier_collection"
+                  ? "border-amber-500/20"
                   : "border-emerald-500/20"
               }
             >
@@ -1432,12 +1447,14 @@ function DriverMonthBreakdownDialog({
                         className={
                           e.kind === "payout"
                             ? "text-[10px] border-blue-500/40 text-blue-400"
+                            : e.kind === "supplier_collection"
+                            ? "text-[10px] border-amber-500/40 text-amber-400"
                             : "text-[10px] border-emerald-500/40 text-emerald-400"
                         }
                       >
-                        {e.kind === "payout" ? "Payout" : "Settlement"}
+                        {e.kind === "payout" ? "Payout" : e.kind === "supplier_collection" ? "Supplier collected" : "Settlement"}
                       </Badge>
-                      {e.settlement_id?.startsWith("direct-") && (
+                      {(e.settlement_id?.startsWith("direct-") || e.settlement_id?.startsWith("supplier-")) && (
                         <Badge variant="outline" className="text-[10px] border-muted text-muted-foreground">
                           Auto
                         </Badge>
@@ -1469,12 +1486,12 @@ function DriverMonthBreakdownDialog({
                   <div className="flex items-center gap-2">
                     <div
                       className={`text-base font-bold ${
-                        e.kind === "payout" ? "text-blue-400" : "text-emerald-400"
+                        e.kind === "payout" ? "text-blue-400" : e.kind === "supplier_collection" ? "text-amber-400" : "text-emerald-400"
                       }`}
                     >
                       {isSuperAdmin ? fmtMoney(e.total_amount ?? 0) : "—"}
                     </div>
-                    {isSuperAdmin && e.settlement_id && !e.settlement_id.startsWith("direct-") && (
+                    {isSuperAdmin && e.settlement_id && !e.settlement_id.startsWith("direct-") && !e.settlement_id.startsWith("supplier-") && (
                       <Button
                         variant="outline"
                         size="sm"
