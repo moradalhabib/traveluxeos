@@ -302,7 +302,10 @@ export function buildPdf(
       y += rowH;
       const reason = b.discount_reason ? `Discount — ${String(b.discount_reason)}` : "Discount";
       doc.fillColor(COLOR_MUTED).font("Helvetica").text(reason, 64, y, { width: doc.page.width - 200 });
-      doc.fillColor("#1a7a40").font("Helvetica-Bold").text(`−${fmtMoney(discount)}`, 0, y, {
+      // Use ASCII hyphen-minus instead of U+2212 — PDFKit's built-in
+      // Helvetica is WinAnsi-encoded and renders the Unicode minus as a
+      // garbled glyph (showed up as a stray quote in the discount line).
+      doc.fillColor("#1a7a40").font("Helvetica-Bold").text(`-${fmtMoney(discount)}`, 0, y, {
         align: "right", width: doc.page.width - 64,
       });
       y += rowH;
@@ -716,7 +719,7 @@ export function buildReceiptPdf(b: any, client: any): Promise<Buffer> {
     if (hasDiscount) {
       rows.push(["Subtotal", fmtMoney(quoted)]);
       const reasonSuffix = b.discount_reason ? ` (${String(b.discount_reason)})` : "";
-      rows.push([`Discount${reasonSuffix}`, `−${fmtMoney(discount)}`]);
+      rows.push([`Discount${reasonSuffix}`, `-${fmtMoney(discount)}`]);
     }
     rows.push(
       ["Booking Total", fmtMoney(grand)],

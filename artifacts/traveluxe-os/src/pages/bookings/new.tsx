@@ -3251,12 +3251,24 @@ export default function NewBooking() {
                           <Select
                             onValueChange={(val) => {
                               field.onChange(val);
+                              // For Airport Transfer the customer-facing
+                              // vehicle is the one picked in the airport
+                              // matrix picker (Range Rover Vogue, etc.) and
+                              // is the source of truth for the invoice/job
+                              // sheet. The driver's own car (e.g. MB V-Class)
+                              // is internal — we must NOT overwrite the
+                              // booked vehicle when the operator assigns the
+                              // driver, otherwise the confirmation PDF shows
+                              // the wrong car (this caused the "MB V-Class
+                              // instead of Range Rover Vogue" bug). For
+                              // every other service the driver's vehicle is
+                              // what the client sees, so keep auto-fill.
                               if (val && val !== "unassigned") {
                                 const selected = drivers?.find((d: any) => d.id === val);
-                                if (selected?.vehicle_model) {
+                                if (selected?.vehicle_model && !isAirportTransfer) {
                                   bookingForm.setValue("vehicle_type", selected.vehicle_model);
                                 }
-                              } else {
+                              } else if (!isAirportTransfer) {
                                 bookingForm.setValue("vehicle_type", "");
                               }
                             }}
