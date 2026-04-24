@@ -21,6 +21,8 @@ import {
   ArrowRight,
   ClipboardList,
   PackagePlus,
+  ChevronDown,
+  ChevronUp,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { fmtLondon } from "@/lib/datetime";
@@ -71,9 +73,6 @@ const TONE_CLASSES: Record<Tone, string> = {
   default: "border-border bg-muted/40 text-muted-foreground",
 };
 
-// Per-entity action labels. Anything not listed falls through to a humanised
-// version of the action key with a generic icon, so unfamiliar actions still
-// render meaningfully.
 const ACTION_META: Partial<Record<ActivityEntityType, Record<string, Meta>>> = {
   booking: {
     create_booking: { label: "Created booking", icon: <Plus className={ICON_CLASS} />, tone: "create" },
@@ -127,9 +126,6 @@ const ACTION_META: Partial<Record<ActivityEntityType, Record<string, Meta>>> = {
     update_supplier_product: { label: "Updated product", icon: <Pencil className={ICON_CLASS} />, tone: "update" },
     delete_supplier_product: { label: "Removed product", icon: <Trash2 className={ICON_CLASS} />, tone: "delete" },
   },
-  // Audit rows for supplier products are written with entity_type="supplier_product",
-  // so they need their own map — without this, every product change on a
-  // standalone product view would fall through to the generic humaniser.
   supplier_product: {
     create_supplier_product: { label: "Added product", icon: <PackagePlus className={ICON_CLASS} />, tone: "create" },
     update_supplier_product: { label: "Updated product", icon: <Pencil className={ICON_CLASS} />, tone: "update" },
@@ -154,7 +150,6 @@ function humanise(action: string): string {
 function metaFor(entityType: ActivityEntityType, action: string): Meta {
   const fromEntity = ACTION_META[entityType]?.[action];
   if (fromEntity) return fromEntity;
-  // Fallback heuristics so unfamiliar actions still get a reasonable tone.
   if (action.startsWith("create_") || action.startsWith("add_")) {
     return { label: humanise(action), icon: <Plus className={ICON_CLASS} />, tone: "create" };
   }
@@ -174,6 +169,7 @@ export function ActivityPanel({ entityType, entityId, title = "Activity", descri
   const [entries, setEntries] = useState<AuditEntry[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
 
   const fetchEntries = useCallback(async () => {
     setLoading(true);
@@ -200,84 +196,82 @@ export function ActivityPanel({ entityType, entityId, title = "Activity", descri
     fetchEntries();
   }, [entityType, entityId, fetchEntries]);
 
-  if (loading && entries === null) {
-    return (
-      <Card className="border-primary/10 bg-card" data-testid={`activity-panel-${entityType}`}>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-base flex items-center gap-2">
-            <History className="w-4 h-4" /> {title}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-xs text-muted-foreground">Loading…</p>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  if (error) {
-    return (
-      <Card className="border-destructive/40 bg-destructive/5" data-testid={`activity-panel-${entityType}`}>
-        <CardContent className="p-3 flex items-center justify-between gap-3">
-          <div className="text-xs text-destructive">Couldn't load activity. {error}</div>
-          <Button size="sm" variant="outline" onClick={fetchEntries}>Retry</Button>
-        </CardContent>
-      </Card>
-    );
-  }
-
   const list = entries ?? [];
-  if (list.length === 0) return null;
+  const count = list.length;
 
   return (
     <Card className="border-primary/10 bg-card" data-testid={`activity-panel-${entityType}`}>
-      <CardHeader className="pb-2">
+      <CardHeader
+        className="pb-2 cursor-pointer select-none hover:bg-muted/30 transition-colors rounded-t-xl"
+        onClick={() => setIsOpen(o => !o)}
+      >
         <CardTitle className="text-base flex items-center justify-between gap-2">
           <span className="flex items-center gap-2">
             <History className="w-4 h-4" /> {title}
-            <Badge variant="outline" className="text-xs">{list.length}</Badge>
+            {count > 0 && <Badge variant="outline" className="text-xs">{count}</Badge>}
+            {loading && entries === null && (
+              <span className="text-xs text-muted-foreground">Loading…</span>
+            )}
           </span>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={fetchEntries}
-            data-testid={`btn-activity-refresh-${entityType}`}
-          >
-            <RefreshCw className="w-3.5 h-3.5" />
-          </Button>
+          <span className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={(e) => { e.stopPropagation(); fetchEntries(); }}
+              data-testid={`btn-activity-refresh-${entityType}`}
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+            </Button>
+            {isOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+          </span>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-2">
-        {description && <p className="text-xs text-muted-foreground">{description}</p>}
-        <ul className="space-y-1.5" data-testid={`list-activity-${entityType}`}>
-          {list.map((entry) => {
-            const meta = metaFor(entityType, entry.action);
-            return (
-              <li
-                key={entry.id}
-                className="rounded-md border border-border/60 bg-background/40 p-2 text-xs"
-                data-testid={`activity-${entry.action}`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <Badge variant="outline" className={`text-[10px] gap-1 ${TONE_CLASSES[meta.tone]}`}>
-                    {meta.icon}
-                    {meta.label}
-                  </Badge>
-                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                    {fmtLondon(entry.created_at, "d MMM · HH:mm")}
-                  </span>
-                </div>
-                <div className="mt-1 flex items-center justify-between gap-2">
-                  <span className="text-foreground/90">{entry.detail || "—"}</span>
-                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                    {entry.operator_name ?? "System"}
-                  </span>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      </CardContent>
+      {isOpen && (
+        <CardContent className="space-y-2 pt-2">
+          {error ? (
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs text-destructive">Couldn't load activity. {error}</p>
+              <Button size="sm" variant="outline" onClick={fetchEntries}>Retry</Button>
+            </div>
+          ) : loading && entries === null ? (
+            <p className="text-xs text-muted-foreground">Loading…</p>
+          ) : count === 0 ? (
+            <p className="text-xs text-muted-foreground italic">No activity recorded yet.</p>
+          ) : (
+            <>
+              {description && <p className="text-xs text-muted-foreground">{description}</p>}
+              <ul className="space-y-1.5" data-testid={`list-activity-${entityType}`}>
+                {list.map((entry) => {
+                  const meta = metaFor(entityType, entry.action);
+                  return (
+                    <li
+                      key={entry.id}
+                      className="rounded-md border border-border/60 bg-background/40 p-2 text-xs"
+                      data-testid={`activity-${entry.action}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <Badge variant="outline" className={`text-[10px] gap-1 ${TONE_CLASSES[meta.tone]}`}>
+                          {meta.icon}
+                          {meta.label}
+                        </Badge>
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                          {fmtLondon(entry.created_at, "d MMM · HH:mm")}
+                        </span>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between gap-2">
+                        <span className="text-foreground/90">{entry.detail || "—"}</span>
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                          {entry.operator_name ?? "System"}
+                        </span>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+        </CardContent>
+      )}
     </Card>
   );
 }

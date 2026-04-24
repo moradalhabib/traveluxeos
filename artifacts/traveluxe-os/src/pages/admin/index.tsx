@@ -707,37 +707,48 @@ function PermissionsGrid() {
 }
 
 function RecentActivityPanel() {
-  // Pull only user-management actions for the activity sidebar.
   const { data: log, isLoading } = useListAuditLog(
     { action: "invite_user,change_user_role,deactivate_user,remove_user" } as any,
     { query: { queryKey: [...getListAuditLogQueryKey({}), "user-mgmt"] } }
   );
   const items = (log ?? []).slice(0, 8);
+  const [isOpen, setIsOpen] = useState(false);
   return (
     <div className="rounded-xl border border-border bg-card">
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+      <div
+        className="px-4 py-3 border-b border-border flex items-center justify-between cursor-pointer select-none hover:bg-muted/30 transition-colors rounded-t-xl"
+        onClick={() => setIsOpen(o => !o)}
+      >
         <div className="flex items-center gap-2">
           <Activity className="w-4 h-4 text-muted-foreground" />
           <p className="font-semibold text-sm text-foreground">Recent member activity</p>
+          {items.length > 0 && (
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full border border-border bg-muted text-muted-foreground">{items.length}</span>
+          )}
         </div>
-        <Link href="/admin?tab=audit" className="text-xs text-primary hover:underline">View full log →</Link>
+        <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+          <Link href="/admin?tab=audit" className="text-xs text-primary hover:underline">View full log →</Link>
+          {isOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </div>
       </div>
-      <div className="divide-y divide-border">
-        {isLoading ? (
-          [...Array(3)].map((_, i) => <div key={i} className="p-3"><Skeleton className="h-8" /></div>)
-        ) : items.length === 0 ? (
-          <p className="text-xs text-muted-foreground p-4 text-center">No member activity yet.</p>
-        ) : (
-          items.map((entry: any) => (
-            <div key={entry.id} className="px-4 py-2.5 text-xs">
-              <p className="text-foreground">{entry.detail}</p>
-              <p className="text-muted-foreground mt-0.5">
-                {entry.created_at ? format(new Date(entry.created_at), "MMM d, HH:mm") : ""}
-              </p>
-            </div>
-          ))
-        )}
-      </div>
+      {isOpen && (
+        <div className="divide-y divide-border">
+          {isLoading ? (
+            [...Array(3)].map((_, i) => <div key={i} className="p-3"><Skeleton className="h-8" /></div>)
+          ) : items.length === 0 ? (
+            <p className="text-xs text-muted-foreground p-4 text-center">No member activity yet.</p>
+          ) : (
+            items.map((entry: any) => (
+              <div key={entry.id} className="px-4 py-2.5 text-xs">
+                <p className="text-foreground">{entry.detail}</p>
+                <p className="text-muted-foreground mt-0.5">
+                  {entry.created_at ? format(new Date(entry.created_at), "MMM d, HH:mm") : ""}
+                </p>
+              </div>
+            ))
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2389,6 +2400,7 @@ function ActivityLogSection() {
   const [filter, setFilter] = useState<string>("all");
   const [entries, setEntries] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -2434,70 +2446,81 @@ function ActivityLogSection() {
 
   return (
     <Card className="border-border" data-testid="card-activity-log">
-      <CardHeader className="flex flex-row items-center justify-between gap-3 space-y-0">
+      <CardHeader
+        className="flex flex-row items-center justify-between gap-3 space-y-0 cursor-pointer select-none hover:bg-muted/30 transition-colors rounded-t-xl"
+        onClick={() => setIsOpen(o => !o)}
+      >
         <CardTitle className="text-base flex items-center gap-2">
           <Activity className="w-4 h-4" />
           Activity Log
+          {filtered.length > 0 && (
+            <Badge variant="outline" className="text-xs">{filtered.length}</Badge>
+          )}
         </CardTitle>
-        <Button
-          size="sm"
-          variant="outline"
-          onClick={exportCsv}
-          disabled={filtered.length === 0}
-          data-testid="button-export-activity-csv"
-        >
-          <Download className="w-4 h-4 mr-1" />
-          Export CSV
-        </Button>
+        <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={exportCsv}
+            disabled={filtered.length === 0}
+            data-testid="button-export-activity-csv"
+          >
+            <Download className="w-4 h-4 mr-1" />
+            Export CSV
+          </Button>
+          {isOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+        </div>
       </CardHeader>
-      <CardContent className="space-y-3">
-        <div className="flex flex-wrap gap-1.5">
-          {ACTIVITY_FILTER_GROUPS.map(g => (
-            <button
-              key={g.key}
-              type="button"
-              onClick={() => setFilter(g.key)}
-              data-testid={`chip-activity-${g.key}`}
-              className={`text-xs px-3 py-1 rounded-full border transition-colors ${
-                filter === g.key
-                  ? "bg-primary/20 border-primary/50 text-primary"
-                  : "bg-background border-border text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {g.label}
-            </button>
-          ))}
-        </div>
-        <div className="max-h-[500px] overflow-y-auto space-y-2 pr-1">
-          {loading ? (
-            [...Array(5)].map((_, i) => <Skeleton key={i} className="h-14" />)
-          ) : filtered.length === 0 ? (
-            <div className="text-sm text-muted-foreground py-6 text-center">No activity yet.</div>
-          ) : filtered.map((e: any) => (
-            <div
-              key={e.id}
-              className="p-3 border border-border rounded-xl bg-background/50 text-sm"
-              data-testid={`row-activity-${e.id}`}
-            >
-              <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium">{e.operator_name || "System"}</span>
-                  <Badge variant="secondary" className="text-[10px]">{e.action_type}</Badge>
-                  {e.entity_label && (
-                    <span className="text-xs text-muted-foreground">{e.entity_label}</span>
-                  )}
+      {isOpen && (
+        <CardContent className="space-y-3 pt-2">
+          <div className="flex flex-wrap gap-1.5">
+            {ACTIVITY_FILTER_GROUPS.map(g => (
+              <button
+                key={g.key}
+                type="button"
+                onClick={() => setFilter(g.key)}
+                data-testid={`chip-activity-${g.key}`}
+                className={`text-xs px-3 py-1 rounded-full border transition-colors ${
+                  filter === g.key
+                    ? "bg-primary/20 border-primary/50 text-primary"
+                    : "bg-background border-border text-muted-foreground hover:text-foreground"
+                }`}
+              >
+                {g.label}
+              </button>
+            ))}
+          </div>
+          <div className="max-h-[500px] overflow-y-auto space-y-2 pr-1">
+            {loading ? (
+              [...Array(5)].map((_, i) => <Skeleton key={i} className="h-14" />)
+            ) : filtered.length === 0 ? (
+              <div className="text-sm text-muted-foreground py-6 text-center">No activity yet.</div>
+            ) : filtered.map((e: any) => (
+              <div
+                key={e.id}
+                className="p-3 border border-border rounded-xl bg-background/50 text-sm"
+                data-testid={`row-activity-${e.id}`}
+              >
+                <div className="flex items-center justify-between mb-1 gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-medium">{e.operator_name || "System"}</span>
+                    <Badge variant="secondary" className="text-[10px]">{e.action_type}</Badge>
+                    {e.entity_label && (
+                      <span className="text-xs text-muted-foreground">{e.entity_label}</span>
+                    )}
+                  </div>
+                  <span className="text-xs text-muted-foreground whitespace-nowrap">
+                    {e.occurred_at ? format(new Date(e.occurred_at), "dd MMM yyyy HH:mm") : ""}
+                  </span>
                 </div>
-                <span className="text-xs text-muted-foreground whitespace-nowrap">
-                  {e.occurred_at ? format(new Date(e.occurred_at), "dd MMM yyyy HH:mm") : ""}
-                </span>
+                {e.description && (
+                  <p className="text-xs text-muted-foreground">{e.description}</p>
+                )}
               </div>
-              {e.description && (
-                <p className="text-xs text-muted-foreground">{e.description}</p>
-              )}
-            </div>
-          ))}
-        </div>
-      </CardContent>
+            ))}
+          </div>
+        </CardContent>
+      )}
     </Card>
   );
 }

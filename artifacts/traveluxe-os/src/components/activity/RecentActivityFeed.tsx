@@ -2,21 +2,10 @@ import { useEffect, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { History, RefreshCw } from "lucide-react";
+import { History, RefreshCw, ChevronDown, ChevronUp } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { fmtLondon } from "@/lib/datetime";
 import type { ActivityEntityType } from "./ActivityPanel";
-
-// A global "Recent activity" sidebar widget for list pages — same shape as
-// per-entity ActivityPanel but scoped only by entity_type so it shows the
-// most recent activity across every row on the page (e.g. every request,
-// every job, every task). Mirrors the ListActivityPanel pattern used on
-// the admin page so list views stay consistent with detail views.
-//
-// We deliberately do not reuse ActivityPanel directly: that component is
-// per-entity and requires an entity_id. Doing the lighter, untyped fetch
-// here keeps the network call to one query against the indexed
-// (entity_type, created_at) pair.
 
 type AuditEntry = {
   id: string;
@@ -46,6 +35,7 @@ export function RecentActivityFeed({
   const [entries, setEntries] = useState<AuditEntry[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isOpen, setIsOpen] = useState(false);
 
   const fetchEntries = useCallback(async () => {
     setLoading(true);
@@ -70,67 +60,74 @@ export function RecentActivityFeed({
   useEffect(() => { fetchEntries(); }, [fetchEntries]);
 
   const list = entries ?? [];
+  const count = list.length;
 
   return (
     <Card
       className={`border-primary/10 bg-card ${className ?? ""}`}
       data-testid={`recent-activity-${entityType}`}
     >
-      <CardHeader className="pb-2">
+      <CardHeader
+        className="pb-2 cursor-pointer select-none hover:bg-muted/30 transition-colors rounded-t-xl"
+        onClick={() => setIsOpen(o => !o)}
+      >
         <CardTitle className="text-sm flex items-center justify-between gap-2">
           <span className="flex items-center gap-2">
             <History className="w-4 h-4" /> {title}
-            {list.length > 0 && (
-              <Badge variant="outline" className="text-[10px]">{list.length}</Badge>
-            )}
+            {count > 0 && <Badge variant="outline" className="text-[10px]">{count}</Badge>}
           </span>
-          <Button
-            size="sm"
-            variant="ghost"
-            onClick={fetchEntries}
-            disabled={loading}
-            data-testid={`btn-recent-activity-refresh-${entityType}`}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          </Button>
+          <span className="flex items-center gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={(e) => { e.stopPropagation(); fetchEntries(); }}
+              disabled={loading}
+              data-testid={`btn-recent-activity-refresh-${entityType}`}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            </Button>
+            {isOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+          </span>
         </CardTitle>
       </CardHeader>
-      <CardContent className="space-y-1.5">
-        {error ? (
-          <p className="text-xs text-destructive">Couldn't load activity. {error}</p>
-        ) : loading && entries === null ? (
-          <p className="text-xs text-muted-foreground">Loading…</p>
-        ) : list.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No recent activity.</p>
-        ) : (
-          <ul
-            className="space-y-1.5"
-            data-testid={`list-recent-activity-${entityType}`}
-          >
-            {list.map((entry) => (
-              <li
-                key={entry.id}
-                className="rounded-md border border-border/60 bg-background/40 p-2 text-xs"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-foreground/90 truncate">
-                    {entry.entity_label ?? entry.detail ?? entry.action.replace(/_/g, " ")}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                    {fmtLondon(entry.created_at, "d MMM · HH:mm")}
-                  </span>
-                </div>
-                <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
-                  <span className="truncate">{entry.action.replace(/_/g, " ")}</span>
-                  <span className="whitespace-nowrap">
-                    {entry.operator_name ?? "System"}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
+      {isOpen && (
+        <CardContent className="space-y-1.5 pt-2">
+          {error ? (
+            <p className="text-xs text-destructive">Couldn't load activity. {error}</p>
+          ) : loading && entries === null ? (
+            <p className="text-xs text-muted-foreground">Loading…</p>
+          ) : count === 0 ? (
+            <p className="text-xs text-muted-foreground">No recent activity.</p>
+          ) : (
+            <ul
+              className="space-y-1.5"
+              data-testid={`list-recent-activity-${entityType}`}
+            >
+              {list.map((entry) => (
+                <li
+                  key={entry.id}
+                  className="rounded-md border border-border/60 bg-background/40 p-2 text-xs"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-foreground/90 truncate">
+                      {entry.entity_label ?? entry.detail ?? entry.action.replace(/_/g, " ")}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                      {fmtLondon(entry.created_at, "d MMM · HH:mm")}
+                    </span>
+                  </div>
+                  <div className="mt-0.5 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+                    <span className="truncate">{entry.action.replace(/_/g, " ")}</span>
+                    <span className="whitespace-nowrap">
+                      {entry.operator_name ?? "System"}
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </CardContent>
+      )}
     </Card>
   );
 }
