@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { supabase } from "@/lib/supabase";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -80,33 +80,20 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
   const [otherVehiclePrice, setOtherVehiclePrice] = useState("");
 
   useEffect(() => {
+    // Vehicle is no longer auto-selected. Operators must explicitly pick the
+    // car so the invoice's VEHICLE row reflects the actual vehicle assigned —
+    // even when the price is £0 because it's bundled in a supplier package.
+    // Setting the wrong default car (e.g. MB V-Class) on every blank booking
+    // produced misleading invoices and was the source of the "MB V-Class
+    // shown when Range Rover was actually used" bug.
     supabase
       .from("products")
       .select("*")
       .eq("active", true)
       .order("sort_order")
       .then(({ data }) => {
-        const loaded = data ?? [];
-        setProducts(loaded);
+        setProducts(data ?? []);
         setLoading(false);
-
-        // Auto-select MB V-Class as default vehicle if none already chosen
-        const hasVehicle = orderLines.some(l => l.category === "Vehicle");
-        if (!hasVehicle) {
-          const vClass = loaded.find(
-            p => p.category === "Vehicle" && p.name.toLowerCase().includes("v-class")
-          ) ?? loaded.find(p => p.category === "Vehicle");
-          if (vClass) {
-            onChange([...orderLines, {
-              key: `${vClass.id}-default`,
-              product_id: vClass.id,
-              name: vClass.name,
-              unit_price: vClass.unit_price,
-              quantity: 1,
-              category: "Vehicle",
-            }]);
-          }
-        }
       });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -202,6 +189,32 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
     const parsed = parseFloat(rawValue);
     const price = isNaN(parsed) ? 0 : parsed;
     onChange(orderLines.map(l => l.key === key ? { ...l, unit_price: price } : l));
+  };
+
+  // Snapshot a vehicle line's catalogue price before zero-ing it out, so the
+  // operator can untoggle "Included" and get the original price back without
+  // having to re-pick the vehicle.
+  const includedSnapshotsRef = useRef<Record<string, number>>({});
+
+  const toggleIncluded = (key: string, on: boolean, fallbackPrice: number) => {
+    if (on) {
+      const line = orderLines.find(l => l.key === key);
+      if (line && line.unit_price > 0) includedSnapshotsRef.current[key] = line.unit_price;
+      onChange(orderLines.map(l =>
+        l.key === key
+          ? { ...l, unit_price: 0, notes: l.notes && l.notes.trim() ? l.notes : "Included in package" }
+          : l
+      ));
+    } else {
+      const restore = includedSnapshotsRef.current[key] ?? fallbackPrice;
+      onChange(orderLines.map(l =>
+        l.key === key ? { ...l, unit_price: restore, notes: undefined } : l
+      ));
+    }
+  };
+
+  const updateLineNotes = (key: string, value: string) => {
+    onChange(orderLines.map(l => l.key === key ? { ...l, notes: value } : l));
   };
 
   const toggleOtherVehicle = () => {
@@ -459,6 +472,36 @@ export default function ProductPicker({ orderLines, onChange, serviceType }: Pro
                             <p className="text-[10px] text-amber-400">
                               Catalogue price is £{product.unit_price.toLocaleString()} — you've set a custom price for this booking
                             </p>
+                          )}
+                          {/* Vehicle: "Included in package" — sets price to £0
+                              and captures the reason in notes (shown on the
+                              booking detail / order summary). The vehicle name
+                              still flows to the invoice's VEHICLE row, but no
+                              charge is added to the order total. */}
+                          {cat === "Vehicle" && (
+                            <div className="rounded-lg border border-border/50 bg-muted/30 p-2 space-y-2">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={ordered.unit_price === 0}
+                                  onChange={(e) => toggleIncluded(ordered.key, e.target.checked, product.unit_price)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="w-4 h-4 accent-primary"
+                                />
+                                <span className="text-xs font-medium text-foreground">
+                                  Included in package — £0
+                                </span>
+                              </label>
+                              {ordered.unit_price === 0 && (
+                                <Input
+                                  placeholder="e.g. Included in VIP Diamond"
+                                  value={ordered.notes ?? ""}
+                                  onChange={(e) => updateLineNotes(ordered.key, e.target.value)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="h-7 text-xs"
+                                />
+                              )}
+                            </div>
                           )}
                         </div>
                       )}

@@ -606,10 +606,15 @@ export default function NewBooking() {
     }
   }, []);
 
-  // Auto-update price when order lines change (if total > 0)
+  // Auto-update price when order lines change.
+  // Skip when total is 0 — that happens legitimately when the only vehicle
+  // line is "included in package" (£0). Overwriting price with 0 would wipe
+  // out the operator's manually-entered Quoted/Client Price (e.g. the £550
+  // VIP Diamond Package figure typed into Supplier Items / Quoted Price).
   useEffect(() => {
-    if (orderLines.length > 0) {
-      const total = orderLines.reduce((s, l) => s + l.unit_price * l.quantity, 0);
+    if (orderLines.length === 0) return;
+    const total = orderLines.reduce((s, l) => s + l.unit_price * l.quantity, 0);
+    if (total > 0) {
       bookingForm.setValue("price", total);
     }
   }, [orderLines]);
@@ -894,6 +899,20 @@ export default function NewBooking() {
   const onBookingSubmit = async (values: z.infer<typeof bookingSchema>) => {
     const isAccommodationSubmit =
       values.service_type === "Hotel" || values.service_type === "Apartment";
+
+    // Vehicle is required for transport bookings — the auto-default
+    // (MB V-Class) was removed to prevent the wrong car appearing on the
+    // invoice's VEHICLE row. Operators must now explicitly pick a vehicle
+    // (with the "Included in package — £0" toggle available when the car
+    // is bundled in a supplier package such as VIP Diamond).
+    if (!isAccommodationSubmit && !values.vehicle_type?.trim()) {
+      toast({
+        title: "Vehicle required",
+        description: "Pick a vehicle from the order picker. Use 'Included in package — £0' if the car is bundled in a supplier package.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     // Hotel and Apartment have NO transport fields. Force them blank on the
     // payload so old auto-fills (name board from client name, vehicle from
