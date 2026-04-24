@@ -301,7 +301,7 @@ export default function JobSheet() {
       lines.push(`*${t.yourEarnings}*`);
       if (driverPay > 0) lines.push(`${t.youEarn}: ${fmt(driverPay)}`);
       if (driverComm > 0) lines.push(`${t.youOwe}: ${fmt(driverComm)}`);
-      if (driverPay > 0 || driverComm > 0) lines.push(`${t.yourNet}: ${fmt(Math.max(0, driverPay - driverComm))}`);
+      if (driverPay > 0 || driverComm > 0) lines.push(`${t.yourNet}: ${fmt(driverPay)}`);
     }
     return lines.join("\n");
   };
@@ -696,7 +696,9 @@ export default function JobSheet() {
         {(Number((booking as any).driver_cost ?? 0) > 0 || Number((booking as any).tvl_commission ?? 0) > 0) && (() => {
           const pay = Number((booking as any).driver_cost ?? 0);
           const owe = Number((booking as any).tvl_commission ?? 0);
-          const net = Math.max(0, pay - owe);
+          // driver_cost is already the driver's net share (client_price - tvl_commission).
+          // The commission column is informational — do NOT deduct it again.
+          const net = pay;
           const fmt = (n: number) => `£${n.toLocaleString("en-GB", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
           return (
             <Card className="bg-emerald-500/5 border-emerald-500/30" data-testid="jobsheet-earnings">
