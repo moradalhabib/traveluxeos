@@ -39,12 +39,19 @@ type Props = {
   airportCode: string | undefined;
   vehicleProductId: string;
   transferExtras: TransferExtra[];
+  /** When true, the picker emits vehiclePrice=0 regardless of the airport
+   *  matrix. Used when the car is bundled inside a supplier package (e.g.
+   *  VIP Diamond) so the auto-calc reflects the real client charge. The
+   *  reason itself is captured separately in the Discount Reason field on
+   *  the parent form (which already prints on the invoice). */
+  vehicleIncluded?: boolean;
   onChange: (next: {
     vehicleProductId: string;
     vehicleName: string;
     vehiclePrice: number;
     transferExtras: TransferExtra[];
     totalPrice: number;
+    vehicleIncluded: boolean;
   }) => void;
 };
 
@@ -65,6 +72,7 @@ export function AirportTransferProductPicker({
   airportCode,
   vehicleProductId,
   transferExtras,
+  vehicleIncluded = false,
   onChange,
 }: Props) {
   const [vehicleRows, setVehicleRows] = useState<VehicleRow[]>([]);
@@ -156,7 +164,8 @@ export function AirportTransferProductPicker({
     () => vehicleRows.find(r => r.product_id === vehicleProductId) ?? null,
     [vehicleRows, vehicleProductId],
   );
-  const vehiclePrice = Number(selectedVehicleRow?.price ?? 0);
+  const matrixVehiclePrice = Number(selectedVehicleRow?.price ?? 0);
+  const vehiclePrice = vehicleIncluded ? 0 : matrixVehiclePrice;
   const vehicleName = selectedVehicleRow?.products?.name ?? "";
 
   const extrasTotal = useMemo(
@@ -180,9 +189,14 @@ export function AirportTransferProductPicker({
   }, [extras]);
 
   // ─── Handlers ─────────────────────────────────────────────────────────────
-  function emitFromState(nextVehicleId: string, nextExtras: TransferExtra[]) {
+  function emitFromState(
+    nextVehicleId: string,
+    nextExtras: TransferExtra[],
+    nextIncluded: boolean = vehicleIncluded,
+  ) {
     const row = vehicleRows.find(r => r.product_id === nextVehicleId) ?? null;
-    const vp = Number(row?.price ?? 0);
+    const matrixVp = Number(row?.price ?? 0);
+    const vp = nextIncluded ? 0 : matrixVp;
     const vn = row?.products?.name ?? "";
     const t = vp + nextExtras.reduce((s, e) => s + Number(e.price || 0), 0);
     onChange({
@@ -191,6 +205,7 @@ export function AirportTransferProductPicker({
       vehiclePrice: vp,
       transferExtras: nextExtras,
       totalPrice: t,
+      vehicleIncluded: nextIncluded,
     });
   }
 
@@ -257,8 +272,39 @@ export function AirportTransferProductPicker({
         )}
         {selectedVehicleRow && (
           <p className="text-[11px] text-muted-foreground">
-            {vehicleName} at {airportCode} = <span className="text-primary font-semibold">£{vehiclePrice.toLocaleString()}</span>
+            {vehicleName} at {airportCode} ={" "}
+            {vehicleIncluded ? (
+              <>
+                <span className="line-through text-muted-foreground/60">£{matrixVehiclePrice.toLocaleString()}</span>{" "}
+                <span className="text-primary font-semibold">£0 — included in package</span>
+              </>
+            ) : (
+              <span className="text-primary font-semibold">£{vehiclePrice.toLocaleString()}</span>
+            )}
           </p>
+        )}
+        {/* Included-in-package toggle. When the car is bundled inside a
+            supplier package (e.g. VIP Diamond, Heathrow Meet & Greet), tick
+            this so the AUTO-CALC drops the vehicle price to £0 and matches
+            what the client is actually being charged. The reason still
+            belongs in the Discount Reason field below — that's what prints
+            on the invoice. */}
+        {selectedVehicleRow && (
+          <label className="flex items-center gap-2 mt-2 cursor-pointer p-2 rounded border border-border/50 bg-muted/20">
+            <input
+              type="checkbox"
+              checked={vehicleIncluded}
+              onChange={(e) => emitFromState(vehicleProductId, transferExtras, e.target.checked)}
+              className="w-4 h-4 accent-primary"
+              data-testid="checkbox-vehicle-included"
+            />
+            <span className="text-xs font-medium text-foreground">
+              Included in package — £0
+            </span>
+            <span className="text-[10px] text-muted-foreground ml-auto">
+              e.g. VIP Diamond
+            </span>
+          </label>
         )}
       </div>
 

@@ -209,6 +209,13 @@ export default function NewBooking() {
   const [savingFoundEdit, setSavingFoundEdit] = useState(false);
   const [nameDuplicateWarning, setNameDuplicateWarning] = useState<string | null>(null);
   const [orderLines, setOrderLines] = useState<OrderLine[]>([]);
+  // Transient session flag: when ON, the Airport Transfer picker treats the
+  // selected vehicle as £0 (bundled inside a supplier package such as VIP
+  // Diamond). The reason itself is captured in Discount Reason / Supplier,
+  // and the actual client charge is captured in Quoted/Discount/Client Price
+  // — all three persist normally. The toggle only governs the AUTO-CALC
+  // display so the in-form numbers match the saved totals.
+  const [vehicleIncluded, setVehicleIncluded] = useState<boolean>(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const createBooking = useCreateBooking();
@@ -2037,11 +2044,20 @@ export default function NewBooking() {
                         airportCode={bookingForm.watch("airport_code") as string | undefined}
                         vehicleProductId={(bookingForm.watch("vehicle_product_id" as any) as string) ?? ""}
                         transferExtras={(bookingForm.watch("transfer_extras" as any) as TransferExtra[]) ?? []}
-                        onChange={({ vehicleProductId, vehicleName, transferExtras, totalPrice }) => {
+                        vehicleIncluded={vehicleIncluded}
+                        onChange={({ vehicleProductId, vehicleName, transferExtras, totalPrice, vehicleIncluded: nextIncluded }) => {
                           bookingForm.setValue("vehicle_product_id" as any, vehicleProductId, { shouldDirty: true });
                           if (vehicleName) bookingForm.setValue("vehicle_type", vehicleName, { shouldDirty: true });
                           bookingForm.setValue("transfer_extras" as any, transferExtras, { shouldDirty: true });
-                          bookingForm.setValue("price", totalPrice, { shouldDirty: true });
+                          setVehicleIncluded(nextIncluded);
+                          // Don't clobber a manually-entered Client Price with
+                          // £0 when the operator has flagged the car as
+                          // included — they'll set the actual figure via
+                          // Quoted Price / Client Price. Only push the auto-
+                          // calc when there's a real positive total.
+                          if (totalPrice > 0) {
+                            bookingForm.setValue("price", totalPrice, { shouldDirty: true });
+                          }
                         }}
                       />
                     </>
@@ -2853,9 +2869,33 @@ export default function NewBooking() {
                           const supplierIdAt = String(bookingForm.watch("supplier_id" as any) ?? "");
                           return (
                             <div className="space-y-3">
-                              {/* Driver commission */}
-                              <div className="p-3 rounded-md border border-border bg-muted/30 space-y-2">
+                              {/* Driver pay & driver commission — two
+                                  independent fields. Driver Pay is what the
+                                  driver KEEPS (even when the supplier handed
+                                  it to him on a Heathrow / VIP collection
+                                  job). Driver Commission is what the driver
+                                  OWES TVL on top. The Job Sheet card shows
+                                  Imran his pay regardless of who collected
+                                  the cash, and the settlement statements use
+                                  the commission to track what's due back. */}
+                              <div className="p-3 rounded-md border border-border bg-muted/30 space-y-3">
                                 <div className="flex items-center justify-between gap-3">
+                                  <div className="min-w-0">
+                                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">Driver Pay (manual)</Label>
+                                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                                      What the driver keeps · shown on Job Sheet earnings card
+                                    </p>
+                                  </div>
+                                  <Input
+                                    type="number" step="0.01" min="0"
+                                    placeholder="£0"
+                                    value={(bookingForm.watch("driver_cost" as any) as any) ?? ""}
+                                    onChange={e => bookingForm.setValue("driver_cost" as any, e.target.value === "" ? undefined : Number(e.target.value), { shouldDirty: true })}
+                                    className="font-semibold w-32 text-right"
+                                    data-testid="input-driver-pay-manual"
+                                  />
+                                </div>
+                                <div className="flex items-center justify-between gap-3 pt-2 border-t border-border/40">
                                   <div className="min-w-0">
                                     <Label className="text-xs uppercase tracking-wider text-muted-foreground">Driver Commission (manual)</Label>
                                     <p className="text-[10px] text-muted-foreground mt-0.5">
