@@ -353,7 +353,13 @@ router.get("/", async (_req, res) => {
 
 // ─── Settlement history (Outstanding + Payouts unioned) ────────────────────
 router.get("/settlements/history", async (_req, res) => {
-  const [{ data: settlements }, { data: payouts }] = await Promise.all([
+  // Step 1: fetch formal ledger records + ALL settled/paid bookings in parallel.
+  const [
+    { data: settlements },
+    { data: payouts },
+    { data: settledBookings },
+    { data: paidBookings },
+  ] = await Promise.all([
     supabase
       .from("commission_settlements")
       .select("id, driver_id, settled_at, week_start, week_end, booking_ids, total_amount, notes, settled_by, drivers(name, staff_no)")
@@ -364,23 +370,43 @@ router.get("/settlements/history", async (_req, res) => {
       .select("id, driver_id, paid_at, week_start, week_end, booking_ids, total_amount, notes, paid_by, drivers(name, staff_no)")
       .order("paid_at", { ascending: false })
       .limit(500),
+    // All bookings where the driver settled the cash commission directly
+    supabase
+      .from("bookings")
+      .select("id, tvl_ref, date_time, tvl_commission, driver_id, payment_method, drivers(name, staff_no)")
+      .eq("commission_status", "Settled")
+      .neq("status", "Cancelled")
+      .order("date_time", { ascending: false })
+      .limit(1000),
+    // All bookings where TVL paid the driver (bank/card)
+    supabase
+      .from("bookings")
+      .select("id, tvl_ref, date_time, driver_receives, driver_id, payment_method, drivers(name, staff_no)")
+      .eq("payout_status", "Paid")
+      .neq("status", "Cancelled")
+      .order("date_time", { ascending: false })
+      .limit(1000),
   ]);
 
-  // Resolve booking_ids -> tvl_refs in one pass
-  const allBookingIds = new Set<string>();
-  (settlements ?? []).forEach((s: any) => (s.booking_ids ?? []).forEach((id: string) => allBookingIds.add(id)));
-  (payouts ?? []).forEach((p: any) => (p.booking_ids ?? []).forEach((id: string) => allBookingIds.add(id)));
+  // Build set of booking IDs already covered by formal ledger entries so we
+  // don't create duplicate history rows for the same booking.
+  const coveredBySettlement = new Set<string>();
+  const coveredByPayout = new Set<string>();
+  (settlements ?? []).forEach((s: any) => (s.booking_ids ?? []).forEach((id: string) => coveredBySettlement.add(id)));
+  (payouts ?? []).forEach((p: any) => (p.booking_ids ?? []).forEach((id: string) => coveredByPayout.add(id)));
 
+  // Resolve booking_ids -> tvl_refs for formal ledger entries
+  const allLedgerBookingIds = new Set<string>([...coveredBySettlement, ...coveredByPayout]);
   const bookingRefMap: Record<string, string> = {};
-  if (allBookingIds.size > 0) {
-    const { data: bookings } = await supabase
+  if (allLedgerBookingIds.size > 0) {
+    const { data: refBookings } = await supabase
       .from("bookings")
       .select("id, tvl_ref")
-      .in("id", Array.from(allBookingIds));
-    (bookings ?? []).forEach((b: any) => { bookingRefMap[b.id] = b.tvl_ref ?? b.id; });
+      .in("id", Array.from(allLedgerBookingIds));
+    (refBookings ?? []).forEach((b: any) => { bookingRefMap[b.id] = b.tvl_ref ?? b.id; });
   }
 
-  // Operator name lookup
+  // Operator name lookup for formal ledger entries
   const operatorIds = new Set<string>();
   (settlements ?? []).forEach((s: any) => s.settled_by && operatorIds.add(s.settled_by));
   (payouts ?? []).forEach((p: any) => p.paid_by && operatorIds.add(p.paid_by));
@@ -393,11 +419,9 @@ router.get("/settlements/history", async (_req, res) => {
     (users ?? []).forEach((u: any) => { operatorNameMap[u.id] = u.name ?? null; });
   }
 
-  // Build the unified history. The UI expects `total_amount`, `tvl_number`,
-  // and `month`; we also keep `amount` as an alias so legacy callers don't
-  // break. Returned both as a top-level array (preferred) and as
-  // `{ history, settlements }` for any older client code that wraps.
+  // Build the unified history.
   const enriched = [
+    // Formal settlement ledger entries (driver paid TVL cash commission)
     ...(settlements ?? []).map((s: any) => {
       const refs = (s.booking_ids ?? []).map((id: string) => bookingRefMap[id] ?? id);
       const total = Number(s.total_amount ?? 0);
@@ -423,6 +447,7 @@ router.get("/settlements/history", async (_req, res) => {
         operator_name: s.settled_by ? operatorNameMap[s.settled_by] ?? null : null,
       };
     }),
+    // Formal payout ledger entries (TVL paid driver for bank/card jobs)
     ...(payouts ?? []).map((p: any) => {
       const refs = (p.booking_ids ?? []).map((id: string) => bookingRefMap[id] ?? id);
       const total = Number(p.total_amount ?? 0);
@@ -448,14 +473,64 @@ router.get("/settlements/history", async (_req, res) => {
         operator_name: p.paid_by ? operatorNameMap[p.paid_by] ?? null : null,
       };
     }),
+    // Direct settled bookings — cash jobs marked Settled without a formal ledger entry
+    ...(settledBookings ?? [])
+      .filter((b: any) => !coveredBySettlement.has(b.id))
+      .map((b: any) => {
+        const settledAt = b.date_time;
+        const total = Number(b.tvl_commission ?? 0);
+        return {
+          kind: "settlement" as const,
+          id: `direct-settlement-${b.id}`,
+          settlement_id: `direct-settlement-${b.id}`,
+          driver_id: b.driver_id,
+          driver_name: b.drivers?.name ?? null,
+          driver_staff_no: b.drivers?.staff_no ?? null,
+          tvl_number: b.drivers?.staff_no ?? null,
+          settled_at: settledAt,
+          month: settledAt ? settledAt.slice(0, 7) : null,
+          week_start: null,
+          week_end: null,
+          booking_ids: [b.id],
+          booking_refs: [b.tvl_ref ?? b.id],
+          amount: total,
+          total_amount: total,
+          notes: null,
+          operator_id: null,
+          operator_name: null,
+        };
+      }),
+    // Direct paid bookings — bank/card jobs marked Paid without a formal ledger entry
+    ...(paidBookings ?? [])
+      .filter((b: any) => !coveredByPayout.has(b.id))
+      .map((b: any) => {
+        const settledAt = b.date_time;
+        const total = Number(b.driver_receives ?? 0);
+        return {
+          kind: "payout" as const,
+          id: `direct-payout-${b.id}`,
+          settlement_id: `direct-payout-${b.id}`,
+          driver_id: b.driver_id,
+          driver_name: b.drivers?.name ?? null,
+          driver_staff_no: b.drivers?.staff_no ?? null,
+          tvl_number: b.drivers?.staff_no ?? null,
+          settled_at: settledAt,
+          month: settledAt ? settledAt.slice(0, 7) : null,
+          week_start: null,
+          week_end: null,
+          booking_ids: [b.id],
+          booking_refs: [b.tvl_ref ?? b.id],
+          amount: total,
+          total_amount: total,
+          notes: null,
+          operator_id: null,
+          operator_name: null,
+        };
+      }),
   ].sort((a, b) =>
     new Date(b.settled_at ?? 0).getTime() - new Date(a.settled_at ?? 0).getTime(),
   );
 
-  // Express's res.json doesn't allow a top-level array AND extra fields, so
-  // we return the array directly — the UI (Array.isArray ? json : ...) handles
-  // it, and any older caller can still read response.settlements via a
-  // dedicated endpoint if needed. This is the single source of truth.
   return res.json(enriched);
 });
 

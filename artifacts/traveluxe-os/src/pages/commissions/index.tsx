@@ -1437,6 +1437,11 @@ function DriverMonthBreakdownDialog({
                       >
                         {e.kind === "payout" ? "Payout" : "Settlement"}
                       </Badge>
+                      {e.settlement_id?.startsWith("direct-") && (
+                        <Badge variant="outline" className="text-[10px] border-muted text-muted-foreground">
+                          Auto
+                        </Badge>
+                      )}
                       <span className="text-xs text-muted-foreground">
                         {e.settled_at ? format(parseISO(e.settled_at), "dd MMM yyyy") : "—"}
                         {e.operator_name && ` · by ${e.operator_name}`}
@@ -1469,7 +1474,7 @@ function DriverMonthBreakdownDialog({
                     >
                       {isSuperAdmin ? fmtMoney(e.total_amount ?? 0) : "—"}
                     </div>
-                    {isSuperAdmin && e.settlement_id && (
+                    {isSuperAdmin && e.settlement_id && !e.settlement_id.startsWith("direct-") && (
                       <Button
                         variant="outline"
                         size="sm"
