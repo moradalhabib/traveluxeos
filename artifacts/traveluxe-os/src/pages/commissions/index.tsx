@@ -1229,9 +1229,16 @@ function SettlementHistoryView({
             testId="filter-history-month"
           />
           <div className="text-xs text-muted-foreground">
-            <span className="font-semibold text-foreground">{driverAggregates.length}</span>
-            {" "}
-            driver{driverAggregates.length === 1 ? "" : "s"} · total{" "}
+            {(() => {
+              const supplierCount = driverAggregates.filter(d =>
+                d.entries.length > 0 && d.entries.every(e => e.kind === "supplier_collection")
+              ).length;
+              const driverCount = driverAggregates.length - supplierCount;
+              const parts: string[] = [];
+              if (driverCount > 0) parts.push(`${driverCount} driver${driverCount !== 1 ? "s" : ""}`);
+              if (supplierCount > 0) parts.push(`${supplierCount} supplier${supplierCount !== 1 ? "s" : ""}`);
+              return <><span className="font-semibold text-foreground">{parts.join(" · ") || "0 entries"}</span>{" · total "}</>;
+            })()}
             <span className="font-bold text-emerald-400">
               {isSuperAdmin ? fmtMoney(monthTotal) : "—"}
             </span>
