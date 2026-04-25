@@ -1908,14 +1908,16 @@ export default function NewBooking() {
                     // link on the booking detail / driver job sheet for clients
                     // arriving by air who then want a tour or chauffeur day.
                     return (
-                      <div className="grid grid-cols-3 gap-3">
-                        <div className="space-y-2">
-                          <Label>Date</Label>
-                          <Input type="date" value={dateVal} onChange={(e) => writeDate(e.target.value)} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label>Time <span className="text-[10px] text-muted-foreground font-normal">(UK)</span></Label>
-                          <TimePicker value={timeVal} onChange={writeTime} />
+                      <>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-2">
+                            <Label>Date</Label>
+                            <Input type="date" value={dateVal} onChange={(e) => writeDate(e.target.value)} />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Time <span className="text-[10px] text-muted-foreground font-normal">(UK)</span></Label>
+                            <TimePicker value={timeVal} onChange={writeTime} />
+                          </div>
                         </div>
                         <FormField control={bookingForm.control} name="flight_number" render={({ field }) => (
                           <FormItem>
@@ -1927,7 +1929,7 @@ export default function NewBooking() {
                             <FormMessage />
                           </FormItem>
                         )} />
-                      </div>
+                      </>
                     );
                   })()}
                   {serviceType === "Airport Transfer" && (

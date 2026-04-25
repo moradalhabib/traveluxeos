@@ -89,7 +89,9 @@ async function subscribeWebPush(reg: ServiceWorkerRegistration) {
     const existing = await reg.pushManager.getSubscription();
     const sub = existing ?? await reg.pushManager.subscribe({
       userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(vapidKey),
+      // Cast to BufferSource — Uint8Array is a valid BufferSource at runtime,
+      // but newer TS lib defs narrow ArrayBufferLike vs ArrayBuffer.
+      applicationServerKey: urlBase64ToUint8Array(vapidKey) as BufferSource,
     });
 
     const { data: { session } } = await (await import("@/lib/supabase")).supabase.auth.getSession();
