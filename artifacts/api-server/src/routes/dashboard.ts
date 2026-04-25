@@ -41,8 +41,16 @@ router.get("/summary", async (_req, res) => {
     supabase.from("bookings").select("id").eq("status", "Active"),
     supabase.from("bookings").select("id, tvl_ref").in("status", ["Pending", "Confirmed"]).is("driver_id", null),
     supabase.from("bookings").select("id, tvl_ref").in("payment_status", ["Unpaid", "Partial"]).neq("status", "Cancelled"),
-    supabase.from("bookings").select("driver_id, tvl_commission, payment_method, commission_status, date_time").eq("payment_method", "Cash").eq("commission_status", "Outstanding").neq("status", "Cancelled"),
-    supabase.from("bookings").select("client_id, price, additional_charges").neq("status", "Cancelled").gte("date_time", STATS_CUTOFF_ISO),
+    // "Drivers owe TVL" — realized money only: a Cash booking only puts cash
+    // in the driver's hand once payment_status='Paid'. Future/unpaid Cash
+    // bookings do NOT count yet. Also require driver_id IS NOT NULL so the
+    // headline cannot exceed the per-driver list visible on /commissions.
+    supabase.from("bookings").select("driver_id, tvl_commission, payment_method, commission_status, date_time").eq("payment_method", "Cash").eq("commission_status", "Outstanding").eq("payment_status", "Paid").not("driver_id", "is", null).neq("status", "Cancelled"),
+    // Top Clients — show realized client revenue (payment_status='Paid') so it
+    // is comparable to the Finance page's Total Revenue. Including unpaid
+    // future bookings made the Top Clients total bigger than the Total
+    // Revenue KPI and operators flagged it as a bug.
+    supabase.from("bookings").select("client_id, price, additional_charges").eq("payment_status", "Paid").neq("status", "Cancelled").gte("date_time", STATS_CUTOFF_ISO),
     supabase.from("bookings").select("driver_id").neq("status", "Cancelled").gte("date_time", STATS_CUTOFF_ISO),
     supabase.from("bookings").select("id").gte("date_time", todayStart.toISOString()).not("status", "in", '("Cancelled","Completed")'),
     supabase.from("invoices").select("id").not("status", "in", '("Paid","Cancelled")'),
@@ -148,11 +156,15 @@ router.get("/summary", async (_req, res) => {
     driver_id: b.driver_id,
   }));
 
+  // "TVL owes drivers" — realized money only: TVL only owes the driver once
+  // the client has paid TVL (payment_status='Paid'). Future Confirmed-but-
+  // Unpaid Bank/Card jobs are not yet a payable.
   const { data: pendingPayoutBookings } = await supabase
     .from("bookings")
     .select("driver_receives")
-    .eq("payment_method", "Bank Transfer")
+    .in("payment_method", ["Bank Transfer", "Card"])
     .eq("payout_status", "Pending")
+    .eq("payment_status", "Paid")
     .neq("status", "Cancelled");
   const pendingPayouts = (pendingPayoutBookings ?? []).reduce((sum, b) => sum + (b.driver_receives || 0), 0);
 

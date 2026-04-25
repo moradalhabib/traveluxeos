@@ -203,11 +203,30 @@ router.get("/summary", async (req, res) => {
     const d = driverMap[b.driver_id];
     d.jobs++;
     d.commission_owed += b.tvl_commission ?? 0;
-    if (b.commission_status === "Outstanding") {
+    // Realized-money rule: only Cash bookings can produce a "driver owes
+    // TVL" debt — for Bank/Card jobs the client pays TVL directly, so even
+    // a Bank/Card booking with commission_status='Outstanding' is not a
+    // driver debt. Plus the parent must be Paid: future/unpaid Cash bookings
+    // have no cash collected yet, so they're not "outstanding" against the
+    // driver. Without these guards, the headline would overstate against
+    // what /commissions and the dashboard show (both already filter to Cash).
+    if (
+      b.commission_status === "Outstanding" &&
+      b.payment_status === "Paid" &&
+      b.payment_method === "Cash"
+    ) {
       d.commission_outstanding += b.tvl_commission ?? 0;
     }
     d.driver_payout += b.driver_receives ?? 0;
-    if (b.payout_status === "Pending") {
+    // Mirror constraint for the "TVL owes driver" side: only counts as
+    // pending payout for Bank/Card bookings (Cash bookings — the driver
+    // already collected the cash, TVL doesn't owe them anything) AND only
+    // once the client has actually paid TVL (payment_status='Paid').
+    if (
+      b.payout_status === "Pending" &&
+      (b.payment_method === "Bank Transfer" || b.payment_method === "Card") &&
+      b.payment_status === "Paid"
+    ) {
       d.payout_pending += b.driver_receives ?? 0;
     }
   });

@@ -58,18 +58,31 @@ router.get("/", async (_req, res) => {
       .gte("date_time", monthStart.toISOString())
       .neq("status", "Cancelled"),
     // Cash jobs: driver owes TVL
+    // A Cash booking only puts cash in the driver's hand once the client has
+    // actually paid (payment_status='Paid'). Future/unpaid Cash bookings have
+    // no cash collected yet, so they must NOT count as currently owed —
+    // otherwise the headline overstates and confuses operators.
+    // We also require driver_id IS NOT NULL: an unassigned booking can't owe
+    // TVL anything because there's no party on the hook for the cash.
     supabase
       .from("bookings")
       .select("id, tvl_ref, date_time, price, additional_charges, tvl_commission, driver_receives, payment_method, commission_status, payout_status, driver_id, service_type, clients(name)")
       .eq("payment_method", "Cash")
       .eq("commission_status", "Outstanding")
+      .eq("payment_status", "Paid")
+      .not("driver_id", "is", null)
       .neq("status", "Cancelled"),
     // Bank/Card jobs: TVL owes driver
+    // Mirror constraint: TVL only owes the driver once the client has paid
+    // TVL (payment_status='Paid'). A future Confirmed-but-Unpaid Bank/Card
+    // booking is not yet a payable.
     supabase
       .from("bookings")
       .select("id, tvl_ref, date_time, price, additional_charges, tvl_commission, driver_receives, payment_method, commission_status, payout_status, driver_id, service_type, clients(name)")
       .in("payment_method", ["Bank Transfer", "Card"])
       .eq("payout_status", "Pending")
+      .eq("payment_status", "Paid")
+      .not("driver_id", "is", null)
       .neq("status", "Cancelled"),
     // Cash jobs already settled (history, last 90d) — for driver detail view
     supabase
@@ -115,7 +128,11 @@ router.get("/", async (_req, res) => {
   ] = await Promise.all([
     supabase
       .from("booking_vehicles")
-      .select("id, driver_id, tvl_commission, driver_receives, commission_status, payout_status, vehicle_type, client_share, bookings!inner(id, tvl_ref, date_time, price, additional_charges, payment_method, status, service_type, clients(name))"),
+      // payment_status is required so the realized-money rule below can gate
+      // extra-vehicle outstanding/pending totals against the parent booking's
+      // paid status — without it, the gate would always evaluate to undefined
+      // and silently suppress every extra-vehicle line.
+      .select("id, driver_id, tvl_commission, driver_receives, commission_status, payout_status, vehicle_type, client_share, bookings!inner(id, tvl_ref, date_time, price, additional_charges, payment_method, payment_status, status, service_type, clients(name))"),
   ]);
   const activeExtraVehicleRows = (extraVehicleRowsAll ?? []).filter((r: any) => {
     const b = r.bookings;
@@ -124,12 +141,25 @@ router.get("/", async (_req, res) => {
 
   // Include extra-vehicle commissions/payouts in headline totals so KPIs match
   // the per-driver breakdown (which sums booking_vehicles rows further down).
+  // Same realized-money rule as primary bookings: parent must be Paid AND the
+  // extra-vehicle row must have a driver assigned, otherwise the headline
+  // would overstate against an empty per-driver list.
   const extraOutstandingTotal = activeExtraVehicleRows
-    .filter((r: any) => r.bookings?.payment_method === "Cash" && r.commission_status === "Outstanding")
+    .filter((r: any) =>
+      r.bookings?.payment_method === "Cash" &&
+      r.commission_status === "Outstanding" &&
+      r.bookings?.payment_status === "Paid" &&
+      r.driver_id,
+    )
     .reduce((s: number, r: any) => s + Number(r.tvl_commission ?? 0), 0);
 
   const extraPendingPayoutTotal = activeExtraVehicleRows
-    .filter((r: any) => ["Bank Transfer", "Card"].includes(r.bookings?.payment_method) && r.payout_status === "Pending")
+    .filter((r: any) =>
+      ["Bank Transfer", "Card"].includes(r.bookings?.payment_method) &&
+      r.payout_status === "Pending" &&
+      r.bookings?.payment_status === "Paid" &&
+      r.driver_id,
+    )
     .reduce((s: number, r: any) => s + Number(r.driver_receives ?? 0), 0);
 
   const extraWeekTotal = activeExtraVehicleRows
@@ -243,19 +273,29 @@ router.get("/", async (_req, res) => {
     if (!r.driver_id) return;
     if (!driverMap[r.driver_id]) driverMap[r.driver_id] = blank();
     const pm = r.bookings?.payment_method;
+    const ps = r.bookings?.payment_status;
     const job = toExtraJob(r);
     if (pm === "Cash") {
-      if (r.commission_status === "Outstanding") {
+      // Realized-money rule: only Cash extras whose parent booking has been
+      // marked Paid count as outstanding against the driver. Without this
+      // gate, the per-driver list would diverge from the headline (which
+      // already filters by parent payment_status='Paid').
+      if (r.commission_status === "Outstanding" && ps === "Paid") {
         driverMap[r.driver_id].outstanding += Number(r.tvl_commission ?? 0);
         driverMap[r.driver_id].outstanding_jobs.push(job);
-      } else {
+      } else if (r.commission_status === "Settled") {
         driverMap[r.driver_id].settled_jobs.push(job);
       }
+      // Outstanding-but-Unpaid extras are intentionally hidden — the cash
+      // hasn't been collected yet, so neither the headline nor the list
+      // should surface them.
     } else if (pm === "Bank Transfer" || pm === "Card") {
-      if (r.payout_status === "Pending") {
+      // Same gate on the TVL-owes-driver side: only Bank/Card extras whose
+      // client has paid TVL count as a pending payout.
+      if (r.payout_status === "Pending" && ps === "Paid") {
         driverMap[r.driver_id].pending_payout += Number(r.driver_receives ?? 0);
         driverMap[r.driver_id].payout_jobs.push(job);
-      } else {
+      } else if (r.payout_status === "Paid") {
         driverMap[r.driver_id].paid_jobs.push(job);
       }
     }
