@@ -1,5 +1,6 @@
 import webpush from "web-push";
 import { getServiceRoleClient } from "../lib/supabase";
+import { logger } from "../lib/logger";
 
 let _configured = false;
 
@@ -43,9 +44,38 @@ async function sendToSubscriptions(
         { TTL: 3600 },
       );
     } catch (e: any) {
-      if (e?.statusCode === 410 || e?.statusCode === 404) {
-        // Subscription is dead — remove it. Fire-and-forget; ignore errors.
+      const code = e?.statusCode;
+      // Treat any 4xx as a permanently dead subscription and purge it from the
+      // table. The classic cases are:
+      //   410 Gone, 404 Not Found  → user revoked / browser cleared SW
+      //   403 Forbidden            → push service rejected; almost always a
+      //                              VAPID-key mismatch (subscription was
+      //                              minted with a different public key than
+      //                              the one we're now signing with — happens
+      //                              after a key rotation). The subscription
+      //                              will never succeed; cleanup is the only
+      //                              cure.
+      //   400 Bad Request          → malformed endpoint/keys (corrupted row)
+      // Without this cleanup, dead rows accumulate forever and every push
+      // attempt silently fails — making it look like notifications "just
+      // don't work" even though everything else is configured correctly.
+      if (code && code >= 400 && code < 500) {
         try { await svc?.from("push_subscriptions").delete().eq("endpoint", sub.endpoint); } catch {}
+        // 403/400 are configuration-level mistakes worth seeing in logs;
+        // 410/404 are normal lifecycle and stay quiet.
+        if (code !== 410 && code !== 404) {
+          logger.warn(
+            { statusCode: code, body: typeof e?.body === "string" ? e.body.slice(0, 200) : undefined, endpoint: sub.endpoint.slice(0, 60) + "..." },
+            "[push] dead subscription deleted (4xx from push service)",
+          );
+        }
+      } else {
+        // 5xx / network — transient, keep the subscription, but log it once
+        // so the user can see if pushes are systematically failing.
+        logger.warn(
+          { statusCode: code, message: e?.message, endpoint: sub.endpoint.slice(0, 60) + "..." },
+          "[push] send failed (transient — keeping subscription)",
+        );
       }
     }
   }

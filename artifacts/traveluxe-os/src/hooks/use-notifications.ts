@@ -79,6 +79,22 @@ function isAdminOrSuperAdmin(): boolean {
   }
 }
 
+// Compare two byte arrays (the browser's stored applicationServerKey vs the
+// current VAPID public key). Used to detect when a saved PushSubscription was
+// minted with a different key than we're using now (e.g. after a key
+// rotation) — in that case the subscription is permanently dead and we must
+// unsubscribe and re-subscribe with the current key, otherwise FCM/APNs will
+// 403 every push and the user will see no notifications.
+function bytesEqual(a: ArrayBuffer | null | undefined, b: Uint8Array): boolean {
+  if (!a) return false;
+  const aa = new Uint8Array(a);
+  if (aa.length !== b.length) return false;
+  for (let i = 0; i < aa.length; i++) {
+    if (aa[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 async function subscribeWebPush(reg: ServiceWorkerRegistration) {
   try {
     if (!isAdminOrSuperAdmin()) return;
@@ -86,12 +102,26 @@ async function subscribeWebPush(reg: ServiceWorkerRegistration) {
     if (!vapidKey) return;
     if (!("PushManager" in window)) return;
 
-    const existing = await reg.pushManager.getSubscription();
+    const currentKey = urlBase64ToUint8Array(vapidKey);
+
+    let existing = await reg.pushManager.getSubscription();
+    if (existing) {
+      // The browser may still hold a subscription from a previous VAPID key
+      // pair. PushSubscriptionOptions exposes the key it was created with;
+      // if it doesn't match the current key, the subscription is dead — the
+      // push service will reject sends with 403. Drop it and re-subscribe.
+      const storedKey = existing.options?.applicationServerKey as ArrayBuffer | null;
+      if (!bytesEqual(storedKey, currentKey)) {
+        try { await existing.unsubscribe(); } catch {}
+        existing = null;
+      }
+    }
+
     const sub = existing ?? await reg.pushManager.subscribe({
       userVisibleOnly: true,
       // Cast to BufferSource — Uint8Array is a valid BufferSource at runtime,
       // but newer TS lib defs narrow ArrayBufferLike vs ArrayBuffer.
-      applicationServerKey: urlBase64ToUint8Array(vapidKey) as BufferSource,
+      applicationServerKey: currentKey as BufferSource,
     });
 
     const { data: { session } } = await (await import("@/lib/supabase")).supabase.auth.getSession();
