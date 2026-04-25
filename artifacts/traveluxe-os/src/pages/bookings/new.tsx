@@ -13,7 +13,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue, SelectGr
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Search, Check, UserPlus, AlertTriangle, ArrowLeft, Phone, Pencil, X, Plus } from "lucide-react";
+import { Loader2, Search, Check, UserPlus, AlertTriangle, ArrowLeft, Phone, Pencil, X, Plus, ChevronDown } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { supabase } from "@/lib/supabase";
 import { format } from "date-fns";
 import { isoToLondonInput, londonInputToIso } from "@/lib/datetime";
@@ -171,6 +172,11 @@ export default function NewBooking() {
   const [showReferralSplit, setShowReferralSplit] = useState(false);
   const [showVehiclePref, setShowVehiclePref] = useState(false);
   const [showVehicleOverride, setShowVehicleOverride] = useState(false);
+  // Optional sections start collapsed to keep the form compact. They auto-expand
+  // if the underlying field already has content (e.g. carry-over from a source
+  // booking) or once the operator opens them via the trigger button.
+  const [openSpecialReq, setOpenSpecialReq] = useState(false);
+  const [openInternalNotes, setOpenInternalNotes] = useState(false);
   // MV3 — multi-vehicle bookings: extra cars beyond the primary driver.
   // Each row will be POSTed to /api/booking-vehicles after the booking is
   // created. Empty by default — the operator opts in via "+ Add vehicle".
@@ -511,7 +517,7 @@ export default function NewBooking() {
       const price = params.get("price");
       if (svc) bookingForm.setValue("service_type", svc as any);
       if (dt)  bookingForm.setValue("date_time", isoToLondonInput(dt));
-      if (notes) bookingForm.setValue("notes", notes);
+      if (notes) { bookingForm.setValue("notes", notes); setOpenInternalNotes(true); }
       if (price) bookingForm.setValue("price", Number(price));
 
       // Per-service-type details captured at request time. Map only the
@@ -581,8 +587,8 @@ export default function NewBooking() {
         if (src.vehicle_type) bookingForm.setValue("vehicle_type", src.vehicle_type);
         if (src.passengers) bookingForm.setValue("passengers", src.passengers);
         if (src.luggage) bookingForm.setValue("luggage", src.luggage);
-        if (src.notes) bookingForm.setValue("notes" as any, src.notes);
-        if (src.special_requests) bookingForm.setValue("special_requests" as any, src.special_requests);
+        if (src.notes) { bookingForm.setValue("notes" as any, src.notes); setOpenInternalNotes(true); }
+        if (src.special_requests) { bookingForm.setValue("special_requests" as any, src.special_requests); setOpenSpecialReq(true); }
         if (src.price) bookingForm.setValue("price", Number(src.price));
         toast({
           title: "Rebooking prefilled",
@@ -1566,7 +1572,7 @@ export default function NewBooking() {
           )}
 
           <Form {...bookingForm}>
-            <form onSubmit={bookingForm.handleSubmit(onBookingSubmit)} className="space-y-5">
+            <form onSubmit={bookingForm.handleSubmit(onBookingSubmit)} className="space-y-3">
 
               {/* Service */}
               <Card className="border-primary/10">
@@ -2794,30 +2800,54 @@ export default function NewBooking() {
                   )}
 
                   <FormField control={bookingForm.control} name="special_requests" render={({ field }) => {
-                    const len = (field.value ?? "").length;
+                    const val = field.value ?? "";
+                    const len = val.length;
                     const over = len > 500;
+                    const labelText = isAccommodation || isHotel ? "Note to Manager" : "Special Requests";
+                    // Fully user-controlled — the operator can collapse the section
+                    // even when content exists (their content is preserved). Carry-over
+                    // prefill (clone_of / return_of) auto-opens the section by calling
+                    // setOpenSpecialReq(true) at the prefill site.
                     return (
                       <FormItem>
-                        <div className="flex items-center justify-between">
-                          <FormLabel>
-                            {isAccommodation || isHotel ? "Note to Manager" : "Special Requests"}
-                          </FormLabel>
-                          <span className={`text-[11px] tabular-nums ${over ? "text-destructive font-bold" : len > 450 ? "text-amber-400" : "text-muted-foreground"}`}>
-                            {len}/500
-                          </span>
-                        </div>
-                        <FormControl>
-                          <Textarea
-                            placeholder={isAccommodation || isHotel
-                              ? "Instructions or requests for the property manager..."
-                              : "Client preferences, notes for driver..."}
-                            className="resize-none" rows={3} maxLength={500}
-                            {...field}
-                            onChange={(e) => field.onChange(e.target.value.slice(0, 500))}
-                            data-testid="textarea-special-requests"
-                          />
-                        </FormControl>
-                        <FormMessage />
+                        <Collapsible open={openSpecialReq} onOpenChange={setOpenSpecialReq}>
+                          <CollapsibleTrigger asChild>
+                            <button
+                              type="button"
+                              className="w-full flex items-center justify-between rounded-md border border-border/50 bg-secondary/20 hover:bg-secondary/40 px-3 py-2 text-left transition-colors"
+                              data-testid="toggle-special-requests"
+                            >
+                              <span className="flex items-center gap-2 text-sm font-medium">
+                                {labelText}
+                                {len > 0 && (
+                                  <span className="text-[10px] text-muted-foreground font-normal">
+                                    · {len} char{len === 1 ? "" : "s"}
+                                  </span>
+                                )}
+                              </span>
+                              <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${openSpecialReq ? "rotate-180" : ""}`} />
+                            </button>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="pt-2">
+                            <div className="flex items-center justify-end mb-1">
+                              <span className={`text-[11px] tabular-nums ${over ? "text-destructive font-bold" : len > 450 ? "text-amber-400" : "text-muted-foreground"}`}>
+                                {len}/500
+                              </span>
+                            </div>
+                            <FormControl>
+                              <Textarea
+                                placeholder={isAccommodation || isHotel
+                                  ? "Instructions or requests for the property manager..."
+                                  : "Client preferences, notes for driver..."}
+                                className="resize-none" rows={3} maxLength={500}
+                                {...field}
+                                onChange={(e) => field.onChange(e.target.value.slice(0, 500))}
+                                data-testid="textarea-special-requests"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </CollapsibleContent>
+                        </Collapsible>
                       </FormItem>
                     );
                   }} />
@@ -3792,15 +3822,38 @@ export default function NewBooking() {
                     </>
                   )}
 
-                  <FormField control={bookingForm.control} name="notes" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Internal Notes <span className="text-muted-foreground font-normal text-xs">(not shared with client or driver)</span></FormLabel>
-                      <FormControl>
-                        <Textarea placeholder="Operator-only notes..." className="resize-none" rows={2} {...field} />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
+                  <FormField control={bookingForm.control} name="notes" render={({ field }) => {
+                    const val = (field.value ?? "") as string;
+                    const len = val.length;
+                    // Fully user-controlled (see Special Requests note above).
+                    return (
+                      <FormItem>
+                        <Collapsible open={openInternalNotes} onOpenChange={setOpenInternalNotes}>
+                          <CollapsibleTrigger asChild>
+                            <button
+                              type="button"
+                              className="w-full flex items-center justify-between rounded-md border border-border/50 bg-secondary/20 hover:bg-secondary/40 px-3 py-2 text-left transition-colors"
+                              data-testid="toggle-internal-notes"
+                            >
+                              <span className="flex items-center gap-2 text-sm font-medium">
+                                Internal Notes
+                                <span className="text-[10px] text-muted-foreground font-normal">
+                                  {len > 0 ? `· ${len} char${len === 1 ? "" : "s"}` : "(operator-only)"}
+                                </span>
+                              </span>
+                              <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${openInternalNotes ? "rotate-180" : ""}`} />
+                            </button>
+                          </CollapsibleTrigger>
+                          <CollapsibleContent className="pt-2">
+                            <FormControl>
+                              <Textarea placeholder="Operator-only notes — not shared with client or driver..." className="resize-none" rows={2} {...field} />
+                            </FormControl>
+                            <FormMessage />
+                          </CollapsibleContent>
+                        </Collapsible>
+                      </FormItem>
+                    );
+                  }} />
                 </CardContent>
               </Card>
 
