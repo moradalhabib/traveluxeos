@@ -191,11 +191,25 @@ export async function upsertCache(db: any, data: FlightData, date: string): Prom
 }
 
 /**
- * Poll flight status for ALL upcoming Airport Transfer bookings in the next
- * 24 hours (and up to 2 hours ago, to catch in-progress arrivals).
- * Only re-fetches when the cache entry is stale (>5 min old).
- * Called by the scheduler every minute.
+ * Poll flight status for Airport Transfer bookings in the **active window**
+ * only — from 2 hours before scheduled time to 2 hours after. Outside that
+ * window we don't burn the API quota at all; operators can still trigger a
+ * manual lookup from the booking form whenever they want a fresh status.
+ *
+ * Within the active window:
+ *   • cache TTL is a fixed 10 min (good balance of freshness vs cost)
+ *   • once status is "Landed" or "Cancelled" we stop polling entirely
+ *
+ * Called by the scheduler every minute, but most ticks return immediately
+ * because no booking is in-window.
  */
+const ACTIVE_WINDOW_BEFORE_MS = 2 * 60 * 60 * 1000; // start polling 2h before flight
+const ACTIVE_WINDOW_AFTER_MS  = 2 * 60 * 60 * 1000; // keep polling 2h after to catch late landings
+const ACTIVE_CACHE_TTL_MS     = 10 * 60 * 1000;     // 10 min freshness
+// "Early" is intentionally NOT terminal — it can mean either "landed early"
+// or "in-flight running early"; we can't tell from the cached label alone.
+const TERMINAL_STATUSES       = new Set(["Landed", "Cancelled"]);
+
 export async function pollUpcomingFlights(): Promise<void> {
   // Hard short-circuit: if monthly quota is exhausted, don't even hit the DB
   // for upcoming bookings. The poll resumes automatically on the configured
@@ -205,8 +219,9 @@ export async function pollUpcomingFlights(): Promise<void> {
   const db = getServiceRoleClient() ?? supabase;
 
   const now = new Date();
-  const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
-  const in24h       = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
+  // Active window: from 2h before scheduled time to 2h after.
+  const windowStart = new Date(now.getTime() - ACTIVE_WINDOW_AFTER_MS).toISOString();
+  const windowEnd   = new Date(now.getTime() + ACTIVE_WINDOW_BEFORE_MS).toISOString();
 
   const { data: bookings, error } = await db
     .from("bookings")
@@ -214,8 +229,8 @@ export async function pollUpcomingFlights(): Promise<void> {
     .eq("service_type", "Airport Transfer")
     .not("flight_number", "is", null)
     .in("status", ["Confirmed", "Active"])
-    .gte("date_time", twoHoursAgo)
-    .lte("date_time", in24h);
+    .gte("date_time", windowStart)
+    .lte("date_time", windowEnd);
 
   if (error) {
     console.error("[FlightPoll] query error:", error.message);
@@ -223,7 +238,9 @@ export async function pollUpcomingFlights(): Promise<void> {
   }
   if (!bookings?.length) return;
 
-  console.info(`[FlightPoll] ${bookings.length} upcoming Airport Transfer booking(s) — checking flight cache`);
+  console.info(`[FlightPoll] ${bookings.length} flight(s) in active window — checking cache`);
+
+  const cacheCutoff = new Date(Date.now() - ACTIVE_CACHE_TTL_MS).toISOString();
 
   await Promise.allSettled(
     bookings.map(async (b: any) => {
@@ -234,18 +251,6 @@ export async function pollUpcomingFlights(): Promise<void> {
       const negUntil = negativeCache.get(negKey);
       if (negUntil && Date.now() < negUntil) return;
 
-      // ── Adaptive cache TTL ─────────────────────────────────────────────
-      // Polling every minute when the flight is 24h away wastes quota. Use a
-      // wider TTL when the flight is far out, narrowing it as departure nears.
-      const flightMs = new Date(b.date_time).getTime();
-      const hoursToFlight = (flightMs - Date.now()) / (60 * 60 * 1000);
-      let cacheTtlMs: number;
-      if (hoursToFlight > 12)      cacheTtlMs = 4 * 60 * 60 * 1000;   // 4h
-      else if (hoursToFlight > 6)  cacheTtlMs = 60 * 60 * 1000;        // 1h
-      else if (hoursToFlight > 2)  cacheTtlMs = 15 * 60 * 1000;        // 15m
-      else                         cacheTtlMs = 5 * 60 * 1000;         // 5m (active window)
-      const cacheCutoff = new Date(Date.now() - cacheTtlMs).toISOString();
-
       // Read existing cached entry (status + delay) BEFORE fetching fresh data,
       // so we can detect meaningful status changes and fire push notifications.
       const { data: cached } = await db
@@ -254,6 +259,9 @@ export async function pollUpcomingFlights(): Promise<void> {
         .eq("flight_number", b.flight_number)
         .eq("date", flightDate)
         .single();
+
+      // Terminal status — flight is done. No further polling needed.
+      if (cached?.status && TERMINAL_STATUSES.has(cached.status)) return;
 
       // Skip if cache is still fresh — avoids burning API quota on unchanged data.
       if (cached?.last_updated && cached.last_updated > cacheCutoff) return;
