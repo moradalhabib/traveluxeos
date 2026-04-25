@@ -25,14 +25,16 @@ import { useAuth } from "@/hooks/use-auth";
 // Sort + Group controls (Fix 3). Default sort is Most Recent (created_at desc)
 // across all list pages in the app; bookings additionally exposes Group By
 // Service Type so operators can scan bookings clustered by service.
-type SortKey = "recent" | "oldest" | "service" | "status" | "price";
+type SortKey = "date_asc" | "date_desc" | "recent" | "oldest" | "service" | "status" | "price";
 type GroupKey = "none" | "service";
 const SORT_OPTIONS: { value: SortKey; label: string }[] = [
-  { value: "recent",  label: "Most Recent" },
-  { value: "oldest",  label: "Oldest" },
-  { value: "service", label: "By Service Type" },
-  { value: "status",  label: "By Status" },
-  { value: "price",   label: "By Price" },
+  { value: "date_asc",  label: "By Date (Soonest)" },
+  { value: "date_desc", label: "By Date (Latest)" },
+  { value: "recent",    label: "Most Recent (created)" },
+  { value: "oldest",    label: "Oldest (created)" },
+  { value: "service",   label: "By Service Type" },
+  { value: "status",    label: "By Status" },
+  { value: "price",     label: "By Price" },
 ];
 const STATUS_ORDER: Record<string, number> = {
   Pending: 0, Confirmed: 1, Active: 2, Completed: 3, Cancelled: 4,
@@ -149,7 +151,7 @@ export default function Bookings() {
   const [status, setStatus] = useFilterState<string>("status", "");
   const [search, setSearch] = useFilterState<string>("q", "");
   const [source, setSource] = useFilterState<"active" | "imported">("source", "active");
-  const [sortKey, setSortKey] = useFilterState<SortKey>("sort", "recent");
+  const [sortKey, setSortKey] = useFilterState<SortKey>("sort", "date_asc");
   const [groupKey, setGroupKey] = useFilterState<GroupKey>("group", "none");
   const urlSearch = useSearch();
   const upcomingOnly = new URLSearchParams(urlSearch).get("upcoming") === "1";
@@ -194,12 +196,28 @@ export default function Bookings() {
     return list;
   }, [rawBookings, isResidenceManager, search, upcomingOnly]);
 
-  // Sort the filtered list by the selected key. Defaults to Most Recent
-  // (created_at desc) per Fix 3 — replaces whatever order the API returned.
+  // Sort the filtered list by the selected key. Defaults to By Date Ascending
+  // (date_time asc) so the soonest upcoming booking always appears first.
   const sortedBookings = useMemo(() => {
     const arr = [...bookings];
     const ts = (v: any) => (v ? new Date(v).getTime() : 0);
+    // For date sorts, items with no date_time are pushed to the end.
+    const NO_DATE = 9_999_999_999_999;
     switch (sortKey) {
+      case "date_asc":
+        arr.sort((a, b) => {
+          const da = a.date_time ? ts(a.date_time) : NO_DATE;
+          const db = b.date_time ? ts(b.date_time) : NO_DATE;
+          return da - db;
+        });
+        break;
+      case "date_desc":
+        arr.sort((a, b) => {
+          const da = a.date_time ? ts(a.date_time) : -1;
+          const db = b.date_time ? ts(b.date_time) : -1;
+          return db - da;
+        });
+        break;
       case "oldest":
         arr.sort((a, b) => ts(a.created_at) - ts(b.created_at));
         break;

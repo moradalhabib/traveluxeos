@@ -204,12 +204,16 @@ export default function Invoices() {
         );
       });
     }
-    // Fix 3 — default Most Recent first across all list pages.
+    // Sort by booking date ascending (soonest upcoming first).
+    // Falls back to invoice generated_at when no booking date is available.
     const ts = (v: any) => (v ? new Date(v).getTime() : 0);
-    return [...list].sort((a, b) =>
-      ts((b as any).generated_at ?? (b as any).created_at) -
-      ts((a as any).generated_at ?? (a as any).created_at)
-    );
+    return [...list].sort((a, b) => {
+      const bkA = bookingMap[(a as any).booking_id];
+      const bkB = bookingMap[(b as any).booking_id];
+      const dateA = ts(bkA?.date_time ?? (a as any).generated_at ?? (a as any).created_at);
+      const dateB = ts(bkB?.date_time ?? (b as any).generated_at ?? (b as any).created_at);
+      return dateA - dateB;
+    });
   }, [invoices, searchQuery, statusFilter, sourceFilter, bookingMap, overdueOnly, cutoff48h]);
 
   const statuses = ["Generated", "Sent", "Paid", "Overdue"];
