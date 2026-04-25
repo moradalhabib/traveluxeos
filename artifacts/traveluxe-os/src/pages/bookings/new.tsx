@@ -2966,6 +2966,34 @@ export default function NewBooking() {
                             </div>
                           ) : null}
                         </>
+                      ) : isAirportTransfer ? (
+                        // ── Airport Transfer: Client Price only ────────────
+                        // Vehicle revenue and supplier cost are already set
+                        // by the pickers above. The price field is auto-filled
+                        // there too (vehicle + supplier_cost). Show it here
+                        // as a confirmation / manual-override field only.
+                        <FormField control={bookingForm.control} name="price" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>
+                              Client Price (£)
+                              <span className="text-[10px] text-muted-foreground font-normal ml-1">— auto from vehicle + supplier quote above</span>
+                            </FormLabel>
+                            <FormControl>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                placeholder="Auto-filled"
+                                value={field.value ?? ""}
+                                onChange={e => field.onChange(e.target.value === "" ? undefined : Number(e.target.value))}
+                                className="text-lg font-bold"
+                                data-testid="input-client-price"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                            <p className="text-[10px] text-muted-foreground">Override only if the quote above doesn't match what you agreed with the client.</p>
+                          </FormItem>
+                        )}
+                        />
                       ) : (
                         <>
                         {/* ── Quoted Price + Discount (client-facing) ──────
@@ -2987,8 +3015,6 @@ export default function NewBooking() {
                                 onChange={e => {
                                   const v = e.target.value === "" ? undefined : Number(e.target.value);
                                   bookingForm.setValue("quoted_price" as any, v as any, { shouldDirty: true });
-                                  // Auto-fill Client Price = Quoted - Discount.
-                                  // Operator can still type a different price below.
                                   if (v != null) {
                                     const d = Number(bookingForm.watch("discount_amount" as any) ?? 0) || 0;
                                     bookingForm.setValue("price", Number(v) - d, { shouldDirty: true });
@@ -3054,33 +3080,24 @@ export default function NewBooking() {
                               data-testid="input-supplier-cost"
                             />
                           </div>
-                          {/* Driver Rate / Fuel Cost — hidden for Airport Transfer.
-                              AT pricing is fixed-price-per-zone (vehicle + extras
-                              + meet & greet auto-summed into Client Price by the
-                              picker). Supplier Cost stays for third-party luxury
-                              vehicles (e.g. Rolls Royce Cullinan). */}
-                          {serviceType !== "Airport Transfer" && (
-                            <>
-                              <div className="space-y-2">
-                                <Label>Driver Rate (£)</Label>
-                                <Input
-                                  type="number" step="0.01" min="0"
-                                  value={(bookingForm.watch("driver_cost" as any) as any) ?? ""}
-                                  onChange={e => bookingForm.setValue("driver_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
-                                  data-testid="input-driver-rate"
-                                />
-                              </div>
-                              <div className="space-y-2">
-                                <Label>Fuel Cost (£)</Label>
-                                <Input
-                                  type="number" step="0.01" min="0"
-                                  value={(bookingForm.watch("fuel_cost" as any) as any) ?? ""}
-                                  onChange={e => bookingForm.setValue("fuel_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
-                                  data-testid="input-fuel-cost"
-                                />
-                              </div>
-                            </>
-                          )}
+                          <div className="space-y-2">
+                            <Label>Driver Rate (£)</Label>
+                            <Input
+                              type="number" step="0.01" min="0"
+                              value={(bookingForm.watch("driver_cost" as any) as any) ?? ""}
+                              onChange={e => bookingForm.setValue("driver_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
+                              data-testid="input-driver-rate"
+                            />
+                          </div>
+                          <div className="space-y-2">
+                            <Label>Fuel Cost (£)</Label>
+                            <Input
+                              type="number" step="0.01" min="0"
+                              value={(bookingForm.watch("fuel_cost" as any) as any) ?? ""}
+                              onChange={e => bookingForm.setValue("fuel_cost" as any, e.target.value === "" ? undefined : Number(e.target.value))}
+                              data-testid="input-fuel-cost"
+                            />
+                          </div>
                         </div>
                         </>
                       )}
@@ -3218,7 +3235,12 @@ export default function NewBooking() {
                         const sc = Number(bookingForm.watch("supplier_cost" as any)) || 0;
                         const dr = Number(bookingForm.watch("driver_cost" as any)) || 0;
                         const fc = Number(bookingForm.watch("fuel_cost" as any)) || 0;
-                        const margin = cp - sc - dr - fc;
+                        // AT: TVL margin = driver commission + supplier commission
+                        // (both are internal slices, not additive costs).
+                        // Other services: standard price − costs formula.
+                        const margin = isAirportTransfer
+                          ? (Number(bookingForm.watch("tvl_commission")) || 0) + (Number(bookingForm.watch("supplier_commission" as any)) || 0)
+                          : cp - sc - dr - fc;
                         const partner = (bookingForm.watch("referral_partner_name") ?? "").trim();
                         const splitOn = showReferralSplit || partner.length > 0;
                         const ctype = (bookingForm.watch("referral_commission_type") ?? "percent") as "percent" | "amount";
