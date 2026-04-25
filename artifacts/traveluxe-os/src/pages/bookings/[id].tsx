@@ -29,6 +29,8 @@ import { supabase } from "@/lib/supabase";
 import { BookingVehiclesRoster } from "@/components/booking/BookingVehiclesRoster";
 import { BookingRouteOverridesHint } from "@/components/booking/BookingRouteOverridesHint";
 import { BookingActivityPanel } from "@/components/booking/BookingActivityPanel";
+import { AirportTransferProductPicker, type TransferExtra } from "@/components/booking/AirportTransferProductPicker";
+import { SupplierProductPicker } from "@/components/SupplierProductPicker";
 import { Phone, MessageCircle, Mail, Pencil, Plus, Trash2, FileDown } from "lucide-react";
 import { getVipBadgeColor } from "@/lib/vip";
 import { Label } from "@/components/ui/label";
@@ -863,6 +865,19 @@ export default function BookingDetail() {
   const [editQuotedPrice, setEditQuotedPrice] = useState<number>(0);
   const [editDiscountAmount, setEditDiscountAmount] = useState<number>(0);
   const [editDiscountReason, setEditDiscountReason] = useState<string>("");
+  // Airport-Transfer structured pricing (mirrors the New Booking flow so the
+  // operator can amend the vehicle, supplier and supplier products with the
+  // same combined auto-quote — no more typing the wrong total by hand).
+  const [editVehicleProductId, setEditVehicleProductId] = useState<string>("");
+  const [editTransferExtras, setEditTransferExtras]     = useState<TransferExtra[]>([]);
+  const [editVehicleIncluded, setEditVehicleIncluded]   = useState<boolean>(false);
+  const [editSupplierId, setEditSupplierId]             = useState<string>("");
+  const [editSupplierItems, setEditSupplierItems]       = useState<any[]>([]);
+  // Vehicle + extras subtotal emitted by the picker. Combined with
+  // editSupplierCost + editSupplierCommission to drive editPrice.
+  const [editVehicleQuoteTotal, setEditVehicleQuoteTotal] = useState<number>(0);
+  // Supplier list for the dropdown (loaded once when the dialog opens).
+  const [editSupplierList, setEditSupplierList] = useState<Array<{ id: string; name: string; city?: string | null }>>([]);
 
   const openEdit = () => {
     if (!booking) return;
@@ -917,8 +932,59 @@ export default function BookingDetail() {
     // current booking row.
     setEditNameboard(String(b.nameboard || ""));
     setEditSpecialRequests(String(b.special_requests || ""));
+    // Airport-Transfer structured fields. Hydrate even when the row doesn't
+    // have them yet (legacy bookings) so the picker starts blank without
+    // throwing. The picker emits editVehicleQuoteTotal on first render so we
+    // don't need to seed it here.
+    setEditVehicleProductId(String(b.vehicle_product_id || ""));
+    setEditTransferExtras(Array.isArray(b.transfer_extras) ? b.transfer_extras as TransferExtra[] : []);
+    setEditVehicleIncluded(false);
+    setEditSupplierId(String(b.supplier_id || ""));
+    setEditSupplierItems(Array.isArray(b.supplier_items) ? b.supplier_items : []);
+    setEditVehicleQuoteTotal(0);
     setIsEditOpen(true);
   };
+
+  // Load supplier list for the AT supplier dropdown when the dialog opens.
+  useEffect(() => {
+    if (!isEditOpen) return;
+    let active = true;
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const res = await fetch("/api/suppliers?active=true", {
+          headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        if (active) setEditSupplierList(Array.isArray(data) ? data : (data?.items ?? []));
+      } catch { /* offline / API hiccup — leave list empty, supplier picker hides itself */ }
+    })();
+    return () => { active = false; };
+  }, [isEditOpen]);
+
+  // Airport-Transfer unified auto-quote — vehicle + extras + supplier_cost
+  // + supplier_commission → Client Price. Same rule as the New Booking flow
+  // so the balance check never disagrees with what the operator sees in the
+  // auto-quote box. Operator can still type a custom Client Price; the next
+  // form change will overwrite it (mirrors new.tsx behaviour).
+  useEffect(() => {
+    if (!isEditOpen) return;
+    if (booking?.service_type !== "Airport Transfer") return;
+    // Only auto-push once the picker has produced a real vehicle quote.
+    // Without this guard, opening a legacy booking that has supplier_cost
+    // but no vehicle_product_id would push a partial total (just supplier
+    // costs) into editPrice on first render and clobber the stored price.
+    // When the operator has no vehicle product, they edit Total Fare by hand.
+    if (editVehicleQuoteTotal <= 0) return;
+    const total = editVehicleQuoteTotal + editSupplierCost + editSupplierCommission;
+    if (Math.abs(editPrice - total) < 0.005) return;
+    setEditPrice(total);
+    // Keep Quoted Price in sync when the operator hasn't entered a discount —
+    // otherwise the Total Fare field would silently drift out of step with
+    // Quoted - Discount on save.
+    if (editDiscountAmount <= 0) setEditQuotedPrice(total);
+  }, [isEditOpen, booking?.service_type, editVehicleQuoteTotal, editSupplierCost, editSupplierCommission]);
 
   // Recompute nights for accommodation when dates change
   useEffect(() => {
@@ -989,6 +1055,15 @@ export default function BookingDetail() {
         payload.driver_cost        = editDriverCost > 0 ? editDriverCost : null;
         payload.supplier_cost      = editSupplierCost > 0 ? editSupplierCost : null;
         payload.supplier_commission = editSupplierCommission > 0 ? editSupplierCommission : null;
+        // Structured AT fields (mirrors the New Booking write path) so the
+        // amended booking carries the same picker selections forward — the
+        // job sheet, invoice, supplier-product card and reports all read
+        // these columns. Send `null` when cleared so the column wipes
+        // cleanly instead of leaving stale state.
+        payload.vehicle_product_id = editVehicleProductId || null;
+        payload.transfer_extras    = editTransferExtras;
+        payload.supplier_id        = editSupplierId || null;
+        payload.supplier_items     = editSupplierItems;
       }
       if (svcType === "Tour") {
         payload.tour_name = editTourName || undefined;
@@ -1840,27 +1915,159 @@ export default function BookingDetail() {
                   );
                 })()}
 
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Vehicle</p>
-                    <Input value={editVehicle} onChange={e => setEditVehicle(e.target.value)} placeholder="Mercedes E-Class" />
-                  </div>
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">
-                      {svc === "Tour" || svc === "As Directed" ? "Duration (hrs)" : "Pax"}
-                    </p>
-                    {svc === "Tour" || svc === "As Directed" ? (
-                      <Input type="number" value={editDuration || ""} onChange={e => setEditDuration(Number(e.target.value))} />
-                    ) : (
-                      <Input type="number" value={editPax || ""} onChange={e => setEditPax(Number(e.target.value))} />
-                    )}
-                  </div>
-                </div>
+                {/* Vehicle picker — Airport Transfer uses the structured
+                    picker so vehicle + Additional Services are amended the
+                    same way as on the New Booking screen. Tour and As
+                    Directed keep the free-text vehicle field. */}
+                {svc === "Airport Transfer" ? (
+                  <>
+                    <AirportTransferProductPicker
+                      airportCode={editAirportCode || undefined}
+                      vehicleProductId={editVehicleProductId}
+                      transferExtras={editTransferExtras}
+                      vehicleIncluded={editVehicleIncluded}
+                      hideAutoPrice
+                      onChange={({ vehicleProductId, vehicleName, transferExtras, totalPrice, vehicleIncluded: nextIncluded }) => {
+                        setEditVehicleProductId(vehicleProductId);
+                        if (vehicleName) setEditVehicle(vehicleName);
+                        setEditTransferExtras(transferExtras);
+                        setEditVehicleIncluded(nextIncluded);
+                        setEditVehicleQuoteTotal(totalPrice);
+                      }}
+                    />
 
-                {svc === "Airport Transfer" && (
-                  <div>
-                    <p className="text-xs text-muted-foreground mb-1">Luggage</p>
-                    <Input type="number" value={editLuggage || ""} onChange={e => setEditLuggage(Number(e.target.value))} />
+                    {/* Third-party supplier — sits next to the vehicle so the
+                        operator amends the FULL quote in one place, exactly
+                        like the New Booking screen. Picking a supplier +
+                        product auto-fills supplier_cost; the combined auto-
+                        quote box below recomputes Client Price live. */}
+                    <div className="rounded-md border border-border bg-secondary/20 p-3 space-y-3" data-testid="edit-at-supplier-section">
+                      <div>
+                        <p className="text-xs uppercase tracking-wider text-muted-foreground">
+                          Third-party Supplier <span className="normal-case text-[10px] text-muted-foreground/80">(optional — e.g. Heathrow Meet &amp; Greet agents)</span>
+                        </p>
+                        <p className="text-[10px] text-muted-foreground mt-0.5">
+                          Pick the supplier + their products. Subtotal &amp; markup are added to the auto-quote.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <p className="text-[11px] text-muted-foreground">Supplier</p>
+                          <Select
+                            value={editSupplierId || "none"}
+                            onValueChange={(v) => {
+                              const next = v === "none" ? "" : v;
+                              setEditSupplierId(next);
+                              // Wipe items + cost when the operator clears the
+                              // supplier so a stale subtotal can't carry over.
+                              if (!next) {
+                                setEditSupplierItems([]);
+                                setEditSupplierCost(0);
+                              }
+                            }}
+                          >
+                            <SelectTrigger data-testid="edit-select-at-supplier"><SelectValue placeholder="Select supplier…" /></SelectTrigger>
+                            <SelectContent className="max-h-[55vh] overflow-y-auto">
+                              <SelectItem value="none">— None —</SelectItem>
+                              {editSupplierList.map((s) => (
+                                <SelectItem key={s.id} value={s.id}>
+                                  {s.name}{s.city ? ` · ${s.city}` : ""}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-[11px] text-muted-foreground">Supplier Markup (£) <span className="normal-case text-[10px] text-muted-foreground/80">— TVL profit on supplier</span></p>
+                          <Input
+                            type="number" step="0.01" min="0"
+                            placeholder="e.g. 50"
+                            value={editSupplierCommission || ""}
+                            onChange={e => setEditSupplierCommission(Number(e.target.value) || 0)}
+                            data-testid="edit-input-supplier-commission"
+                          />
+                        </div>
+                      </div>
+                      {editSupplierId && (
+                        <SupplierProductPicker
+                          supplierId={editSupplierId}
+                          value={editSupplierItems}
+                          onChange={(items) => {
+                            setEditSupplierItems(items);
+                            // Auto-sum supplier_cost from picked items
+                            // (qty × daily_rate, falling back to hourly_rate).
+                            const total = items.reduce((s, it) => {
+                              const rate = it.daily_rate != null ? Number(it.daily_rate)
+                                : it.hourly_rate != null ? Number(it.hourly_rate)
+                                : 0;
+                              return s + rate * Number(it.qty || 0);
+                            }, 0);
+                            setEditSupplierCost(total);
+                          }}
+                        />
+                      )}
+                      {(editSupplierCost > 0 || editSupplierCommission > 0) && (
+                        <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-border/40">
+                          <span className="text-muted-foreground">Supplier subtotal (cost + markup)</span>
+                          <span className="font-semibold">£{(editSupplierCost + editSupplierCommission).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Unified AUTO-QUOTE — single source of truth for Client
+                        Price. Sums every line above. The effect at the top of
+                        the component pushes this total into editPrice. */}
+                    {(() => {
+                      const grandTotal = editVehicleQuoteTotal + editSupplierCost + editSupplierCommission;
+                      if (grandTotal <= 0) return null;
+                      const extrasTotal = editTransferExtras.reduce((s, e) => s + Number(e.price || 0), 0);
+                      const vehiclePart = Math.max(0, editVehicleQuoteTotal - extrasTotal);
+                      return (
+                        <div className="rounded-md border border-primary/40 bg-primary/5 p-3 space-y-1" data-testid="edit-at-auto-quote">
+                          <div className="flex items-center justify-between">
+                            <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Auto-calculated price</span>
+                            <span className="text-xl font-bold text-primary">£{grandTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="text-[11px] text-muted-foreground space-y-0.5 pt-1 border-t border-primary/20">
+                            {vehiclePart > 0 && (
+                              <div className="flex justify-between"><span>Vehicle</span><span>£{vehiclePart.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
+                            )}
+                            {editTransferExtras.map(e => (
+                              <div key={e.id} className="flex justify-between"><span>+ {e.name}</span><span>£{Number(e.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
+                            ))}
+                            {editSupplierCost > 0 && (
+                              <div className="flex justify-between"><span>+ Supplier cost</span><span>£{editSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
+                            )}
+                            {editSupplierCommission > 0 && (
+                              <div className="flex justify-between"><span>+ Supplier markup</span><span>£{editSupplierCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-muted-foreground pt-1">Pushed into Total Fare below — override manually if needed.</p>
+                        </div>
+                      );
+                    })()}
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Pax</p>
+                        <Input type="number" value={editPax || ""} onChange={e => setEditPax(Number(e.target.value))} />
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground mb-1">Luggage</p>
+                        <Input type="number" value={editLuggage || ""} onChange={e => setEditLuggage(Number(e.target.value))} />
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Vehicle</p>
+                      <Input value={editVehicle} onChange={e => setEditVehicle(e.target.value)} placeholder="Mercedes E-Class" />
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Duration (hrs)</p>
+                      <Input type="number" value={editDuration || ""} onChange={e => setEditDuration(Number(e.target.value))} />
+                    </div>
                   </div>
                 )}
 
