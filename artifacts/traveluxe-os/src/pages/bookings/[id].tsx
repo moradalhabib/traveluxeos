@@ -963,11 +963,12 @@ export default function BookingDetail() {
     return () => { active = false; };
   }, [isEditOpen]);
 
-  // Airport-Transfer unified auto-quote — vehicle + extras + supplier_cost
-  // + supplier_commission → Client Price. Same rule as the New Booking flow
-  // so the balance check never disagrees with what the operator sees in the
-  // auto-quote box. Operator can still type a custom Client Price; the next
-  // form change will overwrite it (mirrors new.tsx behaviour).
+  // Airport-Transfer unified auto-quote — Client Price = vehicle + supplier_cost.
+  // PRICING MODEL (corrected): supplier_cost IS the client-facing supplier
+  // charge (e.g. £250). supplier_commission is TVL's profit slice DEDUCTED
+  // FROM that — supplier receives cost − commission. Adding supplier_commission
+  // on top of the client price would double-charge the client. Same logic
+  // applies to driver_cost / tvl_commission for the vehicle side.
   useEffect(() => {
     if (!isEditOpen) return;
     if (booking?.service_type !== "Airport Transfer") return;
@@ -977,14 +978,14 @@ export default function BookingDetail() {
     // costs) into editPrice on first render and clobber the stored price.
     // When the operator has no vehicle product, they edit Total Fare by hand.
     if (editVehicleQuoteTotal <= 0) return;
-    const total = editVehicleQuoteTotal + editSupplierCost + editSupplierCommission;
+    const total = editVehicleQuoteTotal + editSupplierCost;
     if (Math.abs(editPrice - total) < 0.005) return;
     setEditPrice(total);
     // Keep Quoted Price in sync when the operator hasn't entered a discount —
     // otherwise the Total Fare field would silently drift out of step with
     // Quoted - Discount on save.
     if (editDiscountAmount <= 0) setEditQuotedPrice(total);
-  }, [isEditOpen, booking?.service_type, editVehicleQuoteTotal, editSupplierCost, editSupplierCommission]);
+  }, [isEditOpen, booking?.service_type, editVehicleQuoteTotal, editSupplierCost]);
 
   // Recompute nights for accommodation when dates change
   useEffect(() => {
@@ -1936,6 +1937,43 @@ export default function BookingDetail() {
                       }}
                     />
 
+                    {/* Driver Pay + Driver Commission — placed next to the
+                        vehicle picker. Vehicle revenue (£160 in the example)
+                        splits into Driver Pay (kept by driver) + Driver
+                        Commission (owed to TVL, written to tvl_commission).
+                        Together they should equal vehicle revenue — the
+                        balance check below flags mistakes. */}
+                    <div className="rounded-md border border-border bg-secondary/20 p-3 space-y-2" data-testid="edit-at-driver-payout">
+                      <div className="flex items-baseline justify-between gap-3">
+                        <p className="text-xs uppercase tracking-wider text-muted-foreground">Driver Payout</p>
+                        {editVehicleQuoteTotal > 0 && (
+                          <span className="text-[10px] text-muted-foreground">Vehicle revenue · £{editVehicleQuoteTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1">
+                          <p className="text-[11px] text-muted-foreground">Driver Pay (£)</p>
+                          <Input
+                            type="number" step="0.01" min="0"
+                            placeholder="What driver keeps"
+                            value={editDriverCost || ""}
+                            onChange={e => setEditDriverCost(Number(e.target.value) || 0)}
+                            data-testid="edit-driver-cost-top"
+                          />
+                        </div>
+                        <div className="space-y-1">
+                          <p className="text-[11px] text-muted-foreground">Driver Commission (£) <span className="normal-case text-[10px] text-muted-foreground/80">— TVL profit</span></p>
+                          <Input
+                            type="number" step="0.01"
+                            placeholder="What driver owes TVL"
+                            value={editTvlCommission || ""}
+                            onChange={e => setEditTvlCommission(Number(e.target.value) || 0)}
+                            data-testid="edit-driver-commission-top"
+                          />
+                        </div>
+                      </div>
+                    </div>
+
                     {/* Third-party supplier — sits next to the vehicle so the
                         operator amends the FULL quote in one place, exactly
                         like the New Booking screen. Picking a supplier +
@@ -2006,43 +2044,37 @@ export default function BookingDetail() {
                           }}
                         />
                       )}
-                      {(editSupplierCost > 0 || editSupplierCommission > 0) && (
-                        <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-border/40">
-                          <span className="text-muted-foreground">Supplier subtotal (cost + markup)</span>
-                          <span className="font-semibold">£{(editSupplierCost + editSupplierCommission).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                      {editSupplierCost > 0 && (
+                        <div className="text-[11px] pt-1.5 border-t border-border/40 space-y-0.5">
+                          <div className="flex items-center justify-between">
+                            <span className="text-muted-foreground">Client charge</span>
+                            <span className="font-semibold">£{editSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          </div>
+                          {editSupplierCommission > 0 && (
+                            <div className="flex items-center justify-between text-muted-foreground/80 text-[10px]">
+                              <span>· incl. £{editSupplierCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })} TVL profit · supplier receives £{Math.max(0, editSupplierCost - editSupplierCommission).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
 
-                    {/* Unified AUTO-QUOTE — single source of truth for Client
-                        Price. Sums every line above. The effect at the top of
-                        the component pushes this total into editPrice. */}
+                    {/* Unified AUTO-QUOTE — Client Price = vehicle +
+                        supplier_cost. Compact one-line summary keeps the
+                        edit dialog short on mobile. */}
                     {(() => {
-                      const grandTotal = editVehicleQuoteTotal + editSupplierCost + editSupplierCommission;
+                      const grandTotal = editVehicleQuoteTotal + editSupplierCost;
                       if (grandTotal <= 0) return null;
-                      const extrasTotal = editTransferExtras.reduce((s, e) => s + Number(e.price || 0), 0);
-                      const vehiclePart = Math.max(0, editVehicleQuoteTotal - extrasTotal);
+                      const parts: string[] = [];
+                      if (editVehicleQuoteTotal > 0) parts.push(`Vehicle £${editVehicleQuoteTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}`);
+                      if (editSupplierCost > 0) parts.push(`Supplier £${editSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}`);
                       return (
-                        <div className="rounded-md border border-primary/40 bg-primary/5 p-3 space-y-1" data-testid="edit-at-auto-quote">
-                          <div className="flex items-center justify-between">
-                            <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Auto-calculated price</span>
-                            <span className="text-xl font-bold text-primary">£{grandTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                        <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-primary/40 bg-primary/5" data-testid="edit-at-auto-quote">
+                          <div className="min-w-0">
+                            <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Auto Price → Client</p>
+                            <p className="text-[10px] text-muted-foreground truncate">{parts.join(" + ")}</p>
                           </div>
-                          <div className="text-[11px] text-muted-foreground space-y-0.5 pt-1 border-t border-primary/20">
-                            {vehiclePart > 0 && (
-                              <div className="flex justify-between"><span>Vehicle</span><span>£{vehiclePart.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
-                            )}
-                            {editTransferExtras.map(e => (
-                              <div key={e.id} className="flex justify-between"><span>+ {e.name}</span><span>£{Number(e.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
-                            ))}
-                            {editSupplierCost > 0 && (
-                              <div className="flex justify-between"><span>+ Supplier cost</span><span>£{editSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
-                            )}
-                            {editSupplierCommission > 0 && (
-                              <div className="flex justify-between"><span>+ Supplier markup</span><span>£{editSupplierCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
-                            )}
-                          </div>
-                          <p className="text-[10px] text-muted-foreground pt-1">Pushed into Total Fare below — override manually if needed.</p>
+                          <span className="text-lg font-bold text-primary whitespace-nowrap">£{grandTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                         </div>
                       );
                     })()}
@@ -2162,53 +2194,52 @@ export default function BookingDetail() {
                   </div>
                 </div>
 
-                {svc === "Airport Transfer" && (
-                  <div className="space-y-3 pt-2 border-t border-border">
-                    <p className="text-xs uppercase tracking-wider text-muted-foreground">Driver &amp; Supplier Payout</p>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <p className="text-[11px] text-muted-foreground mb-1">Driver Pay (£)</p>
-                        <Input type="number" step="0.01" min="0" value={editDriverCost || ""}
-                          onChange={e => setEditDriverCost(Number(e.target.value) || 0)}
-                          data-testid="edit-driver-cost" />
+                {svc === "Airport Transfer" && (() => {
+                  // PRICING MODEL: client_price = driver_pay + driver_commission + supplier_cost.
+                  // Driver Pay/Commission are entered in the vehicle area
+                  // above; Supplier Cost/Commission in the Third-party
+                  // Supplier section above. This block only surfaces the
+                  // balance check + TVL profit summary so all inputs live
+                  // next to the things they describe.
+                  const bal = editPrice - editDriverCost - editSupplierCost - editTvlCommission;
+                  const ok  = Math.abs(bal) < 0.01;
+                  const tvlProfit = editTvlCommission + editSupplierCommission;
+                  if (editPrice <= 0) return null;
+                  return (
+                    <div className="space-y-3 pt-2 border-t border-border">
+                      <div className="flex items-center justify-between p-2.5 rounded-md border border-primary/30 bg-primary/5">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Total TVL Profit</p>
+                          <p className="text-[10px] text-muted-foreground">Driver Commission + Supplier Commission</p>
+                        </div>
+                        <span className={`text-lg font-bold ${tvlProfit >= 0 ? "text-green-400" : "text-destructive"}`}>£{tvlProfit.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                       </div>
-                      <div>
-                        <p className="text-[11px] text-muted-foreground mb-1">Supplier Cost (£)</p>
-                        <Input type="number" step="0.01" min="0" value={editSupplierCost || ""}
-                          onChange={e => setEditSupplierCost(Number(e.target.value) || 0)}
-                          data-testid="edit-supplier-cost" />
-                      </div>
-                      <div className="col-span-2">
-                        <p className="text-[11px] text-muted-foreground mb-1">Supplier Commission (£) <span className="text-[10px] normal-case">TVL markup earned from supplier</span></p>
-                        <Input type="number" step="0.01" min="0" value={editSupplierCommission || ""}
-                          onChange={e => setEditSupplierCommission(Number(e.target.value) || 0)}
-                          data-testid="edit-supplier-commission" />
+                      <div className={`p-2.5 rounded-md border text-[11px] space-y-1 ${ok ? "border-green-500/30 bg-green-500/5" : "border-amber-500/40 bg-amber-500/5"}`}>
+                        <p className={`font-semibold text-[10px] uppercase tracking-wider ${ok ? "text-green-400" : "text-amber-400"}`}>
+                          {ok ? "Balance: OK" : "Balance: does not add up"}
+                        </p>
+                        <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-muted-foreground">
+                          <span>Client price</span><span className="text-right font-medium text-foreground">£{editPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          <span>Driver pay</span><span className="text-right">− £{editDriverCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          <span>Driver commission</span><span className="text-right">− £{editTvlCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          <span>Supplier cost</span><span className="text-right">− £{editSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                        </div>
+                        <div className={`flex justify-between border-t pt-1 font-semibold ${ok ? "text-green-400 border-green-500/30" : "text-amber-400 border-amber-500/30"}`}>
+                          <span>Unaccounted</span>
+                          <span>{bal >= 0 ? "+" : ""}£{bal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                        </div>
+                        {!ok && (
+                          <p className="text-amber-400/80 text-[10px]">Driver Pay + Driver Commission + Supplier Cost must equal Client Price.</p>
+                        )}
+                        {editSupplierCommission > 0 && (
+                          <p className="text-muted-foreground/80 text-[10px] pt-1 border-t border-border/40">
+                            Supplier markup of £{editSupplierCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })} is your profit on the £{editSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} supplier service — already inside Supplier Cost (supplier receives £{Math.max(0, editSupplierCost - editSupplierCommission).toLocaleString(undefined, { maximumFractionDigits: 2 })}).
+                          </p>
+                        )}
                       </div>
                     </div>
-                    {(() => {
-                      const bal = editPrice - editDriverCost - editSupplierCost - editTvlCommission - editSupplierCommission;
-                      const ok  = Math.abs(bal) < 0.01;
-                      return editPrice > 0 ? (
-                        <div className={`p-2.5 rounded-md border text-[11px] space-y-1 ${ok ? "border-green-500/30 bg-green-500/5" : "border-amber-500/40 bg-amber-500/5"}`}>
-                          <p className={`font-semibold text-[10px] uppercase tracking-wider ${ok ? "text-green-400" : "text-amber-400"}`}>
-                            {ok ? "Balance: OK" : "Balance: does not add up"}
-                          </p>
-                          <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-muted-foreground">
-                            <span>Client price</span><span className="text-right font-medium text-foreground">£{editPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                            <span>Driver pay</span><span className="text-right">− £{editDriverCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                            <span>Supplier cost</span><span className="text-right">− £{editSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                            <span>Driver commission</span><span className="text-right">− £{editTvlCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                            <span>Supplier commission</span><span className="text-right">− £{editSupplierCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                          </div>
-                          <div className={`flex justify-between border-t pt-1 font-semibold ${ok ? "text-green-400 border-green-500/30" : "text-amber-400 border-amber-500/30"}`}>
-                            <span>Unaccounted</span>
-                            <span>{bal >= 0 ? "+" : ""}£{bal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                          </div>
-                        </div>
-                      ) : null;
-                    })()}
-                  </div>
-                )}
+                  );
+                })()}
               </>
             )}
 

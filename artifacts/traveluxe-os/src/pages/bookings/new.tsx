@@ -761,25 +761,23 @@ export default function NewBooking() {
   }, [serviceType, adRentalDays, adPricePerDay, adSupplierPerDay, adDriverPerDay, adFuelPerDay]);
 
   // ─── Airport Transfer: unified auto-quote ───────────────────────────────
-  // The Client Price for an Airport Transfer = vehicle + Additional Services
-  // (vehicleQuoteTotal, emitted by the picker) + supplier_cost (auto-summed
-  // from the supplier products picker) + supplier_commission (TVL markup on
-  // the supplier). Whenever any of those moves, recompute and push the total
-  // into the `price` field so the balance check in the financials section
-  // always matches what the operator sees in the auto-quote box. The
-  // operator can still type a different number into Client Price afterwards
-  // — the next form change will overwrite it, which is the same behaviour
-  // the picker always had on its own.
-  const atSupplierCostWatch       = Number(bookingForm.watch("supplier_cost" as any)) || 0;
-  const atSupplierCommissionWatch = Number(bookingForm.watch("supplier_commission" as any)) || 0;
+  // PRICING MODEL (corrected): Client Price = vehicle + supplier_cost.
+  // supplier_cost IS the client-facing supplier price (e.g. £250 Heathrow
+  // Meet & Greet). The supplier_commission field is TVL's profit slice,
+  // *deducted from* supplier_cost (supplier actually receives
+  // supplier_cost − supplier_commission). It is NOT added on top of the
+  // client price — adding it would double-charge the client. Driver
+  // commission works the same way for the vehicle side: it's TVL's slice
+  // of the vehicle revenue, not extra charge to the client.
+  const atSupplierCostWatch = Number(bookingForm.watch("supplier_cost" as any)) || 0;
   useEffect(() => {
     if (!isAirportTransfer) return;
-    const total = vehicleQuoteTotal + atSupplierCostWatch + atSupplierCommissionWatch;
+    const total = vehicleQuoteTotal + atSupplierCostWatch;
     if (total <= 0) return;
     const current = Number(bookingForm.getValues("price")) || 0;
     if (Math.abs(current - total) < 0.005) return;
     bookingForm.setValue("price", total, { shouldDirty: true });
-  }, [isAirportTransfer, vehicleQuoteTotal, atSupplierCostWatch, atSupplierCommissionWatch]);
+  }, [isAirportTransfer, vehicleQuoteTotal, atSupplierCostWatch]);
 
   // Reset the local vehicle subtotal whenever the operator switches away
   // from Airport Transfer so a stale value can't leak into another flow.
@@ -2094,11 +2092,50 @@ export default function NewBooking() {
                           bookingForm.setValue("transfer_extras" as any, transferExtras, { shouldDirty: true });
                           setVehicleIncluded(nextIncluded);
                           // Track vehicle+extras subtotal locally; combined
-                          // Client Price (incl. supplier cost + markup) is set
-                          // by the unified auto-quote effect below.
+                          // Client Price is set by the unified auto-quote
+                          // effect (vehicle + supplier_cost — markup is
+                          // INSIDE supplier_cost, never added on top).
                           setVehicleQuoteTotal(totalPrice);
                         }}
                       />
+
+                      {/* Driver Pay + Driver Commission — sits right next to
+                          the vehicle picker. The £160 vehicle revenue splits
+                          into what the driver KEEPS (Driver Pay) and what the
+                          driver OWES TVL (Driver Commission, written to the
+                          tvl_commission column). Together they should equal
+                          the vehicle subtotal — the balance check below uses
+                          this split to flag mistakes. */}
+                      <div className="rounded-md border border-border bg-secondary/20 p-3 space-y-2" data-testid="at-driver-payout">
+                        <div className="flex items-baseline justify-between gap-3">
+                          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Driver Payout</Label>
+                          {vehicleQuoteTotal > 0 && (
+                            <span className="text-[10px] text-muted-foreground">Vehicle revenue · £{vehicleQuoteTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-muted-foreground">Driver Pay (£)</Label>
+                            <Input
+                              type="number" step="0.01" min="0"
+                              placeholder="What driver keeps"
+                              value={(bookingForm.watch("driver_cost" as any) as any) ?? ""}
+                              onChange={e => bookingForm.setValue("driver_cost" as any, e.target.value === "" ? undefined : Number(e.target.value), { shouldDirty: true })}
+                              data-testid="input-driver-pay-manual"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <Label className="text-[11px] text-muted-foreground">Driver Commission (£) <span className="normal-case text-[10px] text-muted-foreground/80">— TVL profit</span></Label>
+                            <Input
+                              type="number" step="0.01"
+                              placeholder="What driver owes TVL"
+                              value={(bookingForm.watch("tvl_commission") as any) ?? ""}
+                              onChange={e => bookingForm.setValue("tvl_commission", e.target.value === "" ? 0 : Number(e.target.value), { shouldDirty: true })}
+                              data-testid="input-driver-commission-manual"
+                            />
+                          </div>
+                        </div>
+                      </div>
 
                       {/* Third-party Supplier — sits next to the vehicle so
                           the operator builds the FULL quote in one place,
@@ -2168,51 +2205,41 @@ export default function NewBooking() {
                                 }}
                               />
                             )}
-                            {(scAt > 0 || scmAt > 0) && (
-                              <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-border/40">
-                                <span className="text-muted-foreground">Supplier subtotal (cost + markup)</span>
-                                <span className="font-semibold">£{(scAt + scmAt).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                            {scAt > 0 && (
+                              <div className="text-[11px] pt-1.5 border-t border-border/40 space-y-0.5">
+                                <div className="flex items-center justify-between">
+                                  <span className="text-muted-foreground">Client charge</span>
+                                  <span className="font-semibold">£{scAt.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                                </div>
+                                {scmAt > 0 && (
+                                  <div className="flex items-center justify-between text-muted-foreground/80 text-[10px]">
+                                    <span>· incl. £{scmAt.toLocaleString(undefined, { maximumFractionDigits: 2 })} TVL profit · supplier receives £{Math.max(0, scAt - scmAt).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                                  </div>
+                                )}
                               </div>
                             )}
                           </div>
                         );
                       })()}
 
-                      {/* Unified AUTO-QUOTE box — single source of truth for
-                          Client Price. Sums every line the operator entered
-                          above (vehicle + extras + supplier cost + supplier
-                          markup). The effect below pushes this total into the
-                          Client Price field so the balance check in the
-                          financials section always matches. */}
+                      {/* Unified AUTO-QUOTE — Client Price = vehicle +
+                          supplier_cost. Markup is a slice of supplier_cost,
+                          NOT additive. One-line summary keeps the form
+                          compact for mobile operators. */}
                       {(() => {
                         const scAt = Number(bookingForm.watch("supplier_cost" as any)) || 0;
-                        const scmAt = Number(bookingForm.watch("supplier_commission" as any)) || 0;
-                        const grandTotal = vehicleQuoteTotal + scAt + scmAt;
+                        const grandTotal = vehicleQuoteTotal + scAt;
                         if (grandTotal <= 0) return null;
-                        const extrasArr = (bookingForm.watch("transfer_extras" as any) as TransferExtra[]) ?? [];
-                        const extrasTotal = extrasArr.reduce((s, e) => s + Number(e.price || 0), 0);
-                        const vehiclePart = Math.max(0, vehicleQuoteTotal - extrasTotal);
+                        const parts: string[] = [];
+                        if (vehicleQuoteTotal > 0) parts.push(`Vehicle £${vehicleQuoteTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}`);
+                        if (scAt > 0) parts.push(`Supplier £${scAt.toLocaleString(undefined, { maximumFractionDigits: 2 })}`);
                         return (
-                          <div className="rounded-md border border-primary/40 bg-primary/5 p-3 space-y-1" data-testid="at-auto-quote">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Auto-calculated price</span>
-                              <span className="text-xl font-bold text-primary">£{grandTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-md border border-primary/40 bg-primary/5" data-testid="at-auto-quote">
+                            <div className="min-w-0">
+                              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">Auto Price → Client</p>
+                              <p className="text-[10px] text-muted-foreground truncate">{parts.join(" + ")}</p>
                             </div>
-                            <div className="text-[11px] text-muted-foreground space-y-0.5 pt-1 border-t border-primary/20">
-                              {vehiclePart > 0 && (
-                                <div className="flex justify-between"><span>Vehicle</span><span>£{vehiclePart.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
-                              )}
-                              {extrasArr.map(e => (
-                                <div key={e.id} className="flex justify-between"><span>+ {e.name}</span><span>£{Number(e.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
-                              ))}
-                              {scAt > 0 && (
-                                <div className="flex justify-between"><span>+ Supplier cost</span><span>£{scAt.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
-                              )}
-                              {scmAt > 0 && (
-                                <div className="flex justify-between"><span>+ Supplier markup</span><span>£{scmAt.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
-                              )}
-                            </div>
-                            <p className="text-[10px] text-muted-foreground pt-1">Pushed into Client Price below — override manually if needed.</p>
+                            <span className="text-lg font-bold text-primary whitespace-nowrap">£{grandTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                           </div>
                         );
                       })()}
@@ -3039,18 +3066,20 @@ export default function NewBooking() {
                       {(() => {
                         const isAT = serviceType === "Airport Transfer";
 
-                        // ── Airport Transfer: MANUAL split commission ────────
-                        // Two independent commissions, both manual:
-                        //   1. Driver commission → tvl_commission column
-                        //      (what driver owes TVL on cash; feeds the
-                        //       Commissions page, driver profiles, settlement
-                        //       statements, finance reports)
-                        //   2. Supplier commission → supplier_commission column
-                        //      (TVL markup on third-party services like
-                        //       Heathrow Meet & Greet agents — supplier
-                        //       charges X, we charge client X+commission)
-                        // Supplier dropdown writes supplier_id so finance can
-                        // group payouts per third-party supplier.
+                        // ── Airport Transfer: TVL profit + balance check ─────
+                        // Driver Pay + Driver Commission are entered next to
+                        // the vehicle picker (so the operator splits the
+                        // vehicle revenue right where the vehicle is chosen).
+                        // Supplier Cost + Supplier Commission are entered in
+                        // the Third-party Supplier section. This block just
+                        // surfaces the auto-calculated totals.
+                        //
+                        // PRICING MODEL: client_price = vehicle + supplier_cost.
+                        // supplier_commission is TVL's slice INSIDE
+                        // supplier_cost (supplier receives cost − commission),
+                        // not a separate add-on. Same for driver commission
+                        // on the vehicle side. Balance check: client price
+                        // = driver_pay + driver_commission + supplier_cost.
                         if (isAT) {
                           const dc = Number(bookingForm.watch("tvl_commission")) || 0;
                           const sc = Number(bookingForm.watch("supplier_commission" as any)) || 0;
@@ -3059,62 +3088,10 @@ export default function NewBooking() {
                           const atPrice = Number(bookingForm.watch("price")) || 0;
                           const atDriverPay = Number(bookingForm.watch("driver_cost" as any)) || 0;
                           const atSupplierCost = Number(bookingForm.watch("supplier_cost" as any)) || 0;
-                          const atBalance = atPrice - atDriverPay - atSupplierCost - dc - sc;
+                          const atBalance = atPrice - atDriverPay - atSupplierCost - dc;
                           const atBalanced = Math.abs(atBalance) < 0.01;
                           return (
                             <div className="space-y-3">
-                              {/* Driver pay & driver commission — two
-                                  independent fields. Driver Pay is what the
-                                  driver KEEPS (even when the supplier handed
-                                  it to him on a Heathrow / VIP collection
-                                  job). Driver Commission is what the driver
-                                  OWES TVL on top. The Job Sheet card shows
-                                  Imran his pay regardless of who collected
-                                  the cash, and the settlement statements use
-                                  the commission to track what's due back. */}
-                              <div className="p-3 rounded-md border border-border bg-muted/30 space-y-3">
-                                <div className="flex items-center justify-between gap-3">
-                                  <div className="min-w-0">
-                                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">Driver Pay (manual)</Label>
-                                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                                      What the driver keeps · shown on Job Sheet earnings card
-                                    </p>
-                                  </div>
-                                  <Input
-                                    type="number" step="0.01" min="0"
-                                    placeholder="£0"
-                                    value={(bookingForm.watch("driver_cost" as any) as any) ?? ""}
-                                    onChange={e => bookingForm.setValue("driver_cost" as any, e.target.value === "" ? undefined : Number(e.target.value), { shouldDirty: true })}
-                                    className="font-semibold w-32 text-right"
-                                    data-testid="input-driver-pay-manual"
-                                  />
-                                </div>
-                                <div className="flex items-center justify-between gap-3 pt-2 border-t border-border/40">
-                                  <div className="min-w-0">
-                                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">Driver Commission (manual)</Label>
-                                    <p className="text-[10px] text-muted-foreground mt-0.5">
-                                      What the driver owes TVL · feeds Commissions, driver profile &amp; settlement statements
-                                    </p>
-                                  </div>
-                                  <Input
-                                    type="number" step="0.01"
-                                    placeholder="£0"
-                                    value={(bookingForm.watch("tvl_commission") as any) ?? ""}
-                                    onChange={e => bookingForm.setValue("tvl_commission", e.target.value === "" ? 0 : Number(e.target.value), { shouldDirty: true })}
-                                    className="font-semibold w-32 text-right"
-                                    data-testid="input-driver-commission-manual"
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Third-party supplier section moved UP next to
-                                  the vehicle picker so the operator builds the
-                                  full quote in one place. The supplier_id /
-                                  supplier_cost / supplier_commission /
-                                  supplier_items form fields are written from
-                                  there and read here for the totals & balance
-                                  check below. */}
-
                               {/* Total TVL profit (driver + supplier commission) */}
                               <div className="flex items-center justify-between p-3 rounded-md border border-primary/30 bg-primary/5">
                                 <div>
@@ -3126,7 +3103,9 @@ export default function NewBooking() {
                                 </div>
                               </div>
 
-                              {/* Balance check — all four numbers must sum to the client price */}
+                              {/* Balance check — vehicle revenue (driver pay
+                                  + driver commission) + supplier cost must
+                                  equal the client price. */}
                               {atPrice > 0 && (
                                 <div className={`p-3 rounded-md border text-[11px] space-y-1.5 ${atBalanced ? "border-green-500/30 bg-green-500/5" : "border-amber-500/40 bg-amber-500/5"}`} data-testid="at-balance-check">
                                   <p className={`font-semibold uppercase tracking-wider text-[10px] ${atBalanced ? "text-green-400" : "text-amber-400"}`}>
@@ -3137,12 +3116,10 @@ export default function NewBooking() {
                                     <span className="text-right font-medium text-foreground">£{atPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                                     <span>Driver pay</span>
                                     <span className="text-right">− £{atDriverPay.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                                    <span>Supplier cost</span>
-                                    <span className="text-right">− £{atSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                                     <span>Driver commission</span>
                                     <span className="text-right">− £{dc.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                                    <span>Supplier markup</span>
-                                    <span className="text-right">− £{sc.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                                    <span>Supplier cost</span>
+                                    <span className="text-right">− £{atSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                                   </div>
                                   <div className={`flex justify-between border-t pt-1.5 font-semibold ${atBalanced ? "text-green-400 border-green-500/30" : "text-amber-400 border-amber-500/30"}`}>
                                     <span>Unaccounted</span>
@@ -3150,7 +3127,12 @@ export default function NewBooking() {
                                   </div>
                                   {!atBalanced && (
                                     <p className="text-amber-400/80 text-[10px]">
-                                      All four amounts must add up to the client price before saving.
+                                      Driver Pay + Driver Commission + Supplier Cost must equal the Client Price.
+                                    </p>
+                                  )}
+                                  {sc > 0 && (
+                                    <p className="text-muted-foreground/80 text-[10px] pt-1 border-t border-border/40">
+                                      Supplier markup of £{sc.toLocaleString(undefined, { maximumFractionDigits: 2 })} is your profit on the £{atSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} supplier service — already inside Supplier Cost (supplier receives £{Math.max(0, atSupplierCost - sc).toLocaleString(undefined, { maximumFractionDigits: 2 })}).
                                     </p>
                                   )}
                                 </div>
