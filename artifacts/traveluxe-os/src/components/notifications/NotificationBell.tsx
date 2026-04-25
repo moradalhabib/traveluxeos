@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import { useLocation } from "wouter";
-import { Bell, BellRing, X, Check, Trash2, PlaneLanding, PlaneTakeoff, Calendar, RefreshCw, Car, Clock } from "lucide-react";
+import { Bell, BellRing, X, Check, Trash2, PlaneLanding, PlaneTakeoff, Calendar, RefreshCw, Car, Clock, BellOff, Smartphone } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { useNotifications, type AppNotification, type NotifType } from "@/hooks/use-notifications";
+import { useNotifications, type AppNotification, type NotifType, requestPushPermission, getPushPermission } from "@/hooks/use-notifications";
 import { format, isToday, isYesterday } from "date-fns";
 
 function typeIcon(type: NotifType) {
@@ -84,6 +84,15 @@ export function NotificationBell({ className = "" }: Props) {
   const [open, setOpen] = useState(false);
   const [, setLocation] = useLocation();
   const { items, unreadCount, markAllRead, dismiss, clearAll } = useNotifications();
+  const [pushPerm, setPushPerm] = useState<string>(() => getPushPermission());
+  const [pushBusy, setPushBusy] = useState(false);
+
+  const handleEnablePush = useCallback(async () => {
+    setPushBusy(true);
+    const result = await requestPushPermission();
+    setPushPerm(result);
+    setPushBusy(false);
+  }, []);
 
   const handleOpen = () => {
     setOpen(o => !o);
@@ -171,14 +180,46 @@ export function NotificationBell({ className = "" }: Props) {
               )}
             </div>
 
-            {/* Footer */}
-            {items.length > 0 && (
-              <div className="border-t border-border px-4 py-2.5 bg-card/80">
-                <p className="text-[10px] text-muted-foreground/60 text-center">
-                  Flight status refreshes every 4 minutes · Realtime booking updates active
-                </p>
+            {/* Push notifications opt-in banner */}
+            {pushPerm !== "granted" && pushPerm !== "unsupported" && (
+              <div className="border-t border-border px-4 py-3 bg-secondary/30">
+                <div className="flex items-center gap-3">
+                  <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
+                    <Smartphone className="w-4 h-4 text-primary" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-foreground leading-tight">Get phone alerts</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">
+                      {pushPerm === "denied"
+                        ? "Notifications blocked — enable in browser settings"
+                        : "Tap to receive OS-level flight & booking alerts"}
+                    </p>
+                  </div>
+                  {pushPerm !== "denied" && (
+                    <Button
+                      size="sm"
+                      className="h-7 px-3 text-[11px] flex-shrink-0"
+                      onClick={handleEnablePush}
+                      disabled={pushBusy}
+                    >
+                      {pushBusy ? "..." : "Enable"}
+                    </Button>
+                  )}
+                  {pushPerm === "denied" && (
+                    <BellOff className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                  )}
+                </div>
               </div>
             )}
+
+            {/* Footer */}
+            <div className="border-t border-border px-4 py-2.5 bg-card/80">
+              <p className="text-[10px] text-muted-foreground/60 text-center">
+                {pushPerm === "granted"
+                  ? "OS push · flight alerts every 5 min · realtime updates"
+                  : "Flight status refreshes every 4 minutes · Realtime booking updates active"}
+              </p>
+            </div>
           </div>
         </>
       )}

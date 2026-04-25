@@ -24,6 +24,8 @@ export type NotifType =
   | "no_driver_3h"
   | "no_driver_24h"
   | "flight_delay"
+  | "flight_early"
+  | "flight_landed"
   | "follow_up_due"
   | "task_assigned"
   | "task_overdue"
@@ -53,6 +55,8 @@ const PREF_COL: Record<NotifType, string | null> = {
   no_driver_3h:       "no_driver_3h",
   no_driver_24h:      "no_driver_24h",
   flight_delay:       "flight_delay",
+  flight_early:       "flight_delay",
+  flight_landed:      "flight_delay",
   follow_up_due:      "follow_up_due",
   task_overdue:       "task_overdue",
   weekly_commission:  "weekly_commission",

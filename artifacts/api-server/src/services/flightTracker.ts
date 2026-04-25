@@ -1,4 +1,6 @@
 import { supabase, getServiceRoleClient } from "../lib/supabase";
+import { sendWebPushToAll } from "./webpush";
+import { notifyByRoles, STAFF_ROLES } from "./notify";
 
 const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
 const AERO_HOST    = "aerodatabox.p.rapidapi.com";
@@ -182,14 +184,20 @@ export async function pollUpcomingFlights(): Promise<void> {
     bookings.map(async (b: any) => {
       const flightDate = new Date(b.date_time).toISOString().split("T")[0];
 
-      // Skip if cache is still fresh — avoids burning API quota on unchanged data.
+      // Read existing cached entry (status + delay) BEFORE fetching fresh data,
+      // so we can detect meaningful status changes and fire push notifications.
       const { data: cached } = await db
         .from("flight_status_cache")
-        .select("last_updated")
+        .select("last_updated, status, delay_minutes")
         .eq("flight_number", b.flight_number)
         .eq("date", flightDate)
         .single();
+
+      // Skip if cache is still fresh — avoids burning API quota on unchanged data.
       if (cached?.last_updated && cached.last_updated > fiveMinAgo) return;
+
+      const prevStatus    = cached?.status      ?? null;
+      const prevDelayMins = cached?.delay_minutes ?? 0;
 
       const dir = b.direction === "Departure" ? "Departure" : "Arrival" as const;
       const result = await fetchFlightStatus(b.flight_number, flightDate, dir);
@@ -202,6 +210,65 @@ export async function pollUpcomingFlights(): Promise<void> {
             ? `${Math.abs(d.delay_minutes)}m early`
             : "on time";
         console.info(`[FlightPoll] ${b.flight_number} (${b.tvl_ref ?? ""}): ${d.status} — ${delayNote}`);
+
+        // ── Detect meaningful status changes → OS push + in-app notification ──
+        const flightLabel = b.flight_number.toUpperCase();
+        const ref         = b.tvl_ref ? ` (${b.tvl_ref})` : "";
+        const link        = b.id ? `/bookings/${b.id}` : "/flights";
+
+        const statusChanged = d.status !== prevStatus;
+        // Delay increase of ≥5 min compared to previous value (even within same status label)
+        const delayIncreased = d.status === "Delayed" && d.delay_minutes >= (prevDelayMins + 5);
+
+        if (statusChanged || delayIncreased) {
+          let pushTitle: string | null = null;
+          let pushBody:  string | null = null;
+          let notifType: "flight_delay" | "flight_early" | "flight_landed" = "flight_delay";
+          let severity: "warning" | "success" | "info" = "info";
+
+          if (d.status === "Delayed") {
+            pushTitle = `✈️ Flight Delayed — ${flightLabel}`;
+            pushBody  = `${flightLabel}${ref} is now ${d.delay_minutes} min late.`;
+            notifType = "flight_delay";
+            severity  = "warning";
+          } else if (d.status === "Early") {
+            pushTitle = `✈️ Flight Early — ${flightLabel}`;
+            const earlyMin = Math.abs(d.delay_minutes);
+            pushBody  = `${flightLabel}${ref} is arriving ${earlyMin} min early — driver may need to move sooner.`;
+            notifType = "flight_early";
+            severity  = "warning";
+          } else if (d.status === "Landed") {
+            pushTitle = `✈️ Landed — ${flightLabel}`;
+            pushBody  = `${flightLabel}${ref} has landed.`;
+            notifType = "flight_landed";
+            severity  = "success";
+          } else if (d.status === "Cancelled") {
+            pushTitle = `✈️ Flight Cancelled — ${flightLabel}`;
+            pushBody  = `${flightLabel}${ref} has been cancelled. Check with the client.`;
+            notifType = "flight_delay";
+            severity  = "warning";
+          } else if (prevStatus && d.status !== prevStatus) {
+            // Generic status change (e.g. Scheduled → On Time, EnRoute, etc.)
+            pushTitle = `✈️ ${flightLabel} — ${d.status}`;
+            pushBody  = `${flightLabel}${ref} status updated to ${d.status}.`;
+            notifType = "flight_delay";
+            severity  = "info";
+          }
+
+          if (pushTitle && pushBody) {
+            // OS-level push notification to all subscribed devices
+            sendWebPushToAll({ title: pushTitle, body: pushBody, link, tag: `flight-${b.flight_number}`, requireInteraction: true }).catch(() => {});
+            // In-app notification bell (for all staff)
+            notifyByRoles(STAFF_ROLES, {
+              type:     notifType,
+              title:    pushTitle,
+              message:  pushBody,
+              link,
+              severity,
+              dedupeKey: `flight-${b.flight_number}-${d.status}-${d.delay_minutes}`,
+            }).catch(() => {});
+          }
+        }
       } else {
         console.warn(`[FlightPoll] ${b.flight_number} (${b.tvl_ref ?? ""}): ${result.reason} — ${result.message ?? ""}`);
       }

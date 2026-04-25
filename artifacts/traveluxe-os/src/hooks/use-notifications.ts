@@ -120,6 +120,31 @@ if (typeof navigator !== "undefined" && "serviceWorker" in navigator) {
     .catch(() => {});
 }
 
+/**
+ * Called explicitly from UI (e.g. "Enable Notifications" button).
+ * On mobile Safari you must call this from a user gesture.
+ * Returns the final permission state ("granted" | "denied" | "default").
+ */
+export async function requestPushPermission(): Promise<NotificationPermission> {
+  if (typeof Notification === "undefined") return "denied";
+  if (!isAdminOrSuperAdmin()) return "denied";
+
+  let perm = Notification.permission;
+  if (perm === "default") {
+    perm = await Notification.requestPermission().catch(() => "denied" as NotificationPermission);
+  }
+  if (perm === "granted" && swReg) {
+    await subscribeWebPush(swReg);
+  }
+  return perm;
+}
+
+/** Current OS notification permission state (reactive snapshot). */
+export function getPushPermission(): NotificationPermission | "unsupported" {
+  if (typeof Notification === "undefined") return "unsupported";
+  return Notification.permission;
+}
+
 function browserNotify(title: string, body: string, link?: string) {
   if (typeof Notification === "undefined") return;
   if (Notification.permission !== "granted") return;
@@ -232,15 +257,14 @@ export function useNotifications() {
 
   // ── Browser-notification permission + Web Push subscription ─────────
   // Only admins and super admins receive OS-level push notifications.
+  // We only AUTO-subscribe if the user has ALREADY granted permission.
+  // On mobile Safari, requestPermission() requires a user gesture — the
+  // NotificationBell "Enable" button handles that explicit opt-in flow.
   useEffect(() => {
     if (typeof Notification === "undefined") return;
     if (!isAdminOrSuperAdmin()) return;
-    if (Notification.permission === "granted") {
-      if (swReg) subscribeWebPush(swReg);
-    } else if (Notification.permission === "default") {
-      Notification.requestPermission().then(perm => {
-        if (perm === "granted" && swReg) subscribeWebPush(swReg);
-      }).catch(() => {});
+    if (Notification.permission === "granted" && swReg) {
+      subscribeWebPush(swReg);
     }
   }, []);
 
