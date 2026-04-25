@@ -79,6 +79,7 @@ const T: Record<Lang, Record<string, string>> = {
     flightEstimated: "Estimated",
     flightTerminal: "Terminal",
     flightDelayed: "DELAYED",
+    flightEarly: "EARLY",
     flightOnTime: "ON TIME",
     flightLanded: "LANDED",
     flightCancelled: "CANCELLED",
@@ -129,6 +130,7 @@ const T: Record<Lang, Record<string, string>> = {
     flightEstimated: "الوقت المتوقع",
     flightTerminal: "الصالة",
     flightDelayed: "متأخر",
+    flightEarly: "مبكر",
     flightOnTime: "في الموعد",
     flightLanded: "هبط",
     flightCancelled: "ملغاة",
@@ -481,6 +483,7 @@ export default function JobSheet() {
             if (!iso) return null;
             try {
               return new Intl.DateTimeFormat("en-GB", {
+                day: "numeric", month: "short",
                 hour: "2-digit", minute: "2-digit", timeZone: "Europe/London",
               }).format(new Date(iso));
             } catch { return null; }
@@ -488,6 +491,7 @@ export default function JobSheet() {
           const statusLabel = (() => {
             switch (fs.status?.toLowerCase()) {
               case "delayed":   return t.flightDelayed;
+              case "early":     return t.flightEarly;
               case "on time":   return t.flightOnTime;
               case "landed":    return t.flightLanded;
               case "cancelled": return t.flightCancelled;
@@ -497,6 +501,7 @@ export default function JobSheet() {
           const statusClass = (() => {
             switch (fs.status?.toLowerCase()) {
               case "delayed":   return "bg-amber-500/20 text-amber-400 border-amber-500/40";
+              case "early":     return "bg-emerald-500/20 text-emerald-400 border-emerald-500/40";
               case "on time":   return "bg-green-500/20 text-green-400 border-green-500/40";
               case "landed":    return "bg-blue-500/20 text-blue-400 border-blue-500/40";
               case "cancelled": return "bg-destructive/20 text-destructive border-destructive/40";
