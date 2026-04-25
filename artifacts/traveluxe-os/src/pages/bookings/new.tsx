@@ -1929,6 +1929,29 @@ export default function NewBooking() {
                   })()}
                   {serviceType === "Airport Transfer" && (
                     <>
+                      {/* Flight lookup card — sits above the airport picker so the
+                          operator sees the live status and can auto-fill before
+                          selecting the terminal. */}
+                      <FlightLookupCard
+                        flightNumber={watchedFlightNumber}
+                        direction={watchedDirection}
+                        date={(bookingForm.watch("date_time") ?? "").slice(0, 10)}
+                        onAutoFill={(timeUk, origin, destination, terminal) => {
+                            const currentDt = bookingForm.getValues("date_time") ?? "";
+                            const datePart = currentDt.slice(0, 10);
+                            if (datePart && /^\d{4}-\d{2}-\d{2}$/.test(datePart) && timeUk) {
+                              bookingForm.setValue("date_time", `${datePart}T${timeUk}`);
+                            }
+                            const term = terminal ? ` Terminal ${terminal}` : "";
+                            if (watchedDirection === "Arrival" && destination) {
+                              bookingForm.setValue("pickup", `${destination}${term}`);
+                            }
+                            if (watchedDirection === "Departure" && origin) {
+                              bookingForm.setValue("dropoff", `${origin}${term}`);
+                            }
+                        }}
+                      />
+
                       <FormField control={bookingForm.control} name="airport_code" render={({ field }) => (
                         <FormItem>
                           <FormLabel>
@@ -1968,11 +1991,7 @@ export default function NewBooking() {
                         </FormItem>
                       )} />
 
-                      {/* OTHER airport → manual location input.
-                          Mirrors the typed value into pickup (Arrival) or
-                          dropoff (Departure) so the custom location flows
-                          through to the job sheet, invoice, and WhatsApp
-                          messages without any further editing. */}
+                      {/* OTHER airport → manual location input. */}
                       {bookingForm.watch("airport_code") === "OTHER" && (
                         <div className="rounded-md border border-primary/30 bg-primary/5 p-3 space-y-2">
                           <Label className="text-xs uppercase tracking-wider text-primary">
@@ -2000,32 +2019,27 @@ export default function NewBooking() {
                           </p>
                         </div>
                       )}
-                      <FlightLookupCard
-                        flightNumber={watchedFlightNumber}
-                        direction={watchedDirection}
-                        date={(bookingForm.watch("date_time") ?? "").slice(0, 10)}
-                        onAutoFill={(timeUk, origin, destination, terminal) => {
-                            // The operator manually enters the date because clients
-                            // pre-book. We only set the time portion (UK / GMT) on
-                            // top of whatever date they've already picked. If they
-                            // haven't picked a date yet, the time fill is skipped —
-                            // they can hit Auto-fill again once the date is in.
-                            const currentDt = bookingForm.getValues("date_time") ?? "";
-                            const datePart = currentDt.slice(0, 10); // YYYY-MM-DD
-                            if (datePart && /^\d{4}-\d{2}-\d{2}$/.test(datePart) && timeUk) {
-                              bookingForm.setValue("date_time", `${datePart}T${timeUk}`);
-                            }
-                            // For Arrival  → chauffeur meets client at the DESTINATION airport (where the plane lands).
-                            // For Departure → chauffeur drops client at the ORIGIN airport (where the plane takes off).
-                            const term = terminal ? ` Terminal ${terminal}` : "";
-                            if (watchedDirection === "Arrival" && destination) {
-                              bookingForm.setValue("pickup", `${destination}${term}`);
-                            }
-                            if (watchedDirection === "Departure" && origin) {
-                              bookingForm.setValue("dropoff", `${origin}${term}`);
-                            }
-                        }}
-                      />
+
+                      {/* Pickup / Dropoff — shown here for Airport Transfer so the
+                          operator can see them update in real-time as the flight
+                          auto-fill runs. */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField control={bookingForm.control} name="pickup" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Pickup</FormLabel>
+                            <FormControl><Input placeholder="Address or Airport" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="dropoff" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Dropoff</FormLabel>
+                            <FormControl><Input placeholder="Address or Airport" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      </div>
+
                       <FormField control={bookingForm.control} name="nameboard" render={({ field }) => (
                         <FormItem>
                           <FormLabel>
@@ -2424,8 +2438,29 @@ export default function NewBooking() {
                     </div>
                   )}
 
-                  {/* Pickup / Dropoff / Passengers / Luggage — transport services only */}
-                  {(serviceType === "Airport Transfer" || serviceType === "As Directed") && (
+                  {/* Passengers / Luggage for Airport Transfer
+                      (Pickup & Dropoff live in the Airport Transfer block above) */}
+                  {serviceType === "Airport Transfer" && (
+                    <div className="grid grid-cols-2 gap-3">
+                      <FormField control={bookingForm.control} name="passengers" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Passengers</FormLabel>
+                          <FormControl><Input type="number" min="1" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                      <FormField control={bookingForm.control} name="luggage" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Luggage</FormLabel>
+                          <FormControl><Input type="number" min="0" {...field} /></FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
+                    </div>
+                  )}
+
+                  {/* Pickup / Dropoff / Passengers / Luggage — As Directed only */}
+                  {serviceType === "As Directed" && (
                     <div className="grid grid-cols-2 gap-3">
                       <FormField control={bookingForm.control} name="pickup" render={({ field }) => (
                         <FormItem>
