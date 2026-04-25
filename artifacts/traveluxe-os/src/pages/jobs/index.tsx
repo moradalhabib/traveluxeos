@@ -446,12 +446,30 @@ export default function Jobs() {
                         {job.service_type}{(job as any).direction ? ` · ${(job as any).direction}` : ""}
                       </Badge>
                     )}
-                    {(job as any).flight_number && (
-                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-blue-500/10 text-blue-400 border-blue-500/30 flex items-center gap-0.5">
-                        <Plane className="w-2.5 h-2.5" />
-                        {(job as any).flight_number}
-                      </Badge>
-                    )}
+                    {(job as any).flight_number && (() => {
+                      const fs = (job as any).flight_status;
+                      const st = fs?.status as string | undefined;
+                      const delayMins = fs?.delay_minutes ?? 0;
+                      const cls =
+                        st === "Delayed"   ? "bg-amber-500/15 text-amber-400 border-amber-500/40" :
+                        st === "Early"     ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40" :
+                        st === "Cancelled" ? "bg-destructive/15 text-destructive border-destructive/40" :
+                        st === "Landed"    ? "bg-blue-500/15 text-blue-400 border-blue-500/30" :
+                        st === "On Time"   ? "bg-green-500/15 text-green-400 border-green-500/30" :
+                                            "bg-blue-500/10 text-blue-400 border-blue-500/30";
+                      const note =
+                        st === "Delayed" && delayMins > 0 ? ` +${delayMins}m` :
+                        st === "Early"   && delayMins < 0 ? ` ${Math.abs(delayMins)}m early` : "";
+                      return (
+                        <Badge variant="outline" className={`text-[10px] py-0 px-1.5 flex items-center gap-0.5 ${cls}`}>
+                          <Plane className="w-2.5 h-2.5" />
+                          {(job as any).flight_number}
+                          {st && st !== "Unknown" && (
+                            <span className="ml-0.5 font-normal opacity-80">{st}{note}</span>
+                          )}
+                        </Badge>
+                      );
+                    })()}
                     {/* T004: tiny last-email status indicator. Only shows when
                         we have a logged event — so unset bookings stay clean. */}
                     {(job as any).last_email_status === 'sent' && (

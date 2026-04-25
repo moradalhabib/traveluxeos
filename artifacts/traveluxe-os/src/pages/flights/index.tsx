@@ -43,6 +43,7 @@ export default function Flights() {
   const statusBadgeClass = (status?: string) => {
     switch (status?.toLowerCase()) {
       case "landed":    return "bg-blue-500/20 text-blue-400 border-blue-500/40";
+      case "early":     return "bg-emerald-500/20 text-emerald-400 border-emerald-500/40";
       case "delayed":   return "bg-amber-500/20 text-amber-400 border-amber-500/40";
       case "cancelled": return "bg-destructive/20 text-destructive border-destructive/40";
       case "on time":   return "bg-green-500/20 text-green-400 border-green-500/40";

@@ -1153,11 +1153,12 @@ export default function BookingDetail() {
 
   const flightStatusColor = (status?: string) => {
     switch (status?.toLowerCase()) {
-      case 'landed': return 'text-blue-400';
-      case 'delayed': return 'text-amber-400';
+      case 'landed':    return 'text-blue-400';
+      case 'early':     return 'text-emerald-400';
+      case 'delayed':   return 'text-amber-400';
       case 'cancelled': return 'text-destructive';
-      case 'on time': return 'text-green-400';
-      default: return 'text-muted-foreground';
+      case 'on time':   return 'text-green-400';
+      default:          return 'text-muted-foreground';
     }
   };
 

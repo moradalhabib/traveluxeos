@@ -31,11 +31,12 @@ interface Props {
 }
 
 const STATUS_META: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  "On Time":  { label: "On Time",  color: "text-green-400 border-green-500/30 bg-green-500/10", icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
-  "Delayed":  { label: "Delayed",  color: "text-amber-400 border-amber-500/30 bg-amber-500/10", icon: <AlertTriangle className="w-3.5 h-3.5" /> },
-  "Landed":   { label: "Landed",   color: "text-blue-400 border-blue-500/30 bg-blue-500/10",   icon: <PlaneLanding className="w-3.5 h-3.5" /> },
-  "Cancelled":{ label: "Cancelled",color: "text-red-400 border-red-500/30 bg-red-500/10",     icon: <XCircle className="w-3.5 h-3.5" /> },
-  "Unknown":  { label: "Unknown",  color: "text-muted-foreground border-border",               icon: <Clock className="w-3.5 h-3.5" /> },
+  "On Time":  { label: "On Time",  color: "text-green-400 border-green-500/30 bg-green-500/10",  icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+  "Early":    { label: "Early",    color: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10", icon: <PlaneLanding className="w-3.5 h-3.5" /> },
+  "Delayed":  { label: "Delayed",  color: "text-amber-400 border-amber-500/30 bg-amber-500/10",  icon: <AlertTriangle className="w-3.5 h-3.5" /> },
+  "Landed":   { label: "Landed",   color: "text-blue-400 border-blue-500/30 bg-blue-500/10",    icon: <PlaneLanding className="w-3.5 h-3.5" /> },
+  "Cancelled":{ label: "Cancelled",color: "text-red-400 border-red-500/30 bg-red-500/10",      icon: <XCircle className="w-3.5 h-3.5" /> },
+  "Unknown":  { label: "Unknown",  color: "text-muted-foreground border-border",                icon: <Clock className="w-3.5 h-3.5" /> },
 };
 
 export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: Props) {
@@ -164,6 +165,7 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
           <Badge variant="outline" className={`text-[10px] gap-1 ${meta.color}`}>
             {meta.icon} {meta.label}
             {(data.delay_minutes ?? 0) > 0 && ` +${data.delay_minutes}m`}
+            {(data.delay_minutes ?? 0) < 0 && ` ${Math.abs(data.delay_minutes!)}m early`}
           </Badge>
         </div>
         {data.terminal && (

@@ -20,16 +20,19 @@ export type FlightLookupResult =
   | { ok: true; data: FlightData }
   | { ok: false; reason: "no_key" | "not_found" | "api_error"; message?: string };
 
-// Map AeroDataBox status strings → our UI labels
+// Map AeroDataBox status strings → our UI labels.
+// delayMins: positive = late, negative = early.
 export function mapAeroStatus(raw: string, delayMins: number): string {
+  const isDelayed = delayMins >= 15;
+  const isEarly   = delayMins <= -10;
   switch (raw) {
-    case "Arrived":           return "Landed";
-    case "EnRoute":           return delayMins >= 15 ? "Delayed" : "On Time";
-    case "Scheduled":         return delayMins >= 15 ? "Delayed" : "On Time";
-    case "Expected":          return delayMins >= 15 ? "Delayed" : "On Time";
-    case "CheckIn":           return "On Time";
-    case "GateClosed":        return "On Time";
-    case "Departed":          return delayMins >= 15 ? "Delayed" : "On Time";
+    case "Arrived":           return delayMins <= -10 ? "Early" : "Landed";
+    case "EnRoute":           return isDelayed ? "Delayed" : isEarly ? "Early" : "On Time";
+    case "Scheduled":         return isDelayed ? "Delayed" : isEarly ? "Early" : "On Time";
+    case "Expected":          return isDelayed ? "Delayed" : isEarly ? "Early" : "On Time";
+    case "CheckIn":           return isDelayed ? "Delayed" : "On Time";
+    case "GateClosed":        return isDelayed ? "Delayed" : "On Time";
+    case "Departed":          return isDelayed ? "Delayed" : isEarly ? "Early" : "On Time";
     case "Canceled":
     case "CanceledUncertain":
     case "Diverted":          return "Cancelled";
@@ -79,7 +82,9 @@ export async function fetchFlightStatus(
 
     const scheduledMs = scheduledUtc  ? new Date(scheduledUtc).getTime()  : null;
     const estimatedMs = estimatedTime ? new Date(estimatedTime).getTime() : null;
-    const delayMins   = (scheduledMs && estimatedMs && estimatedMs > scheduledMs)
+    // Positive = delayed, Negative = early arrival. Keep full signed value
+    // so the UI can show both "Delayed +25m" and "10 min early".
+    const delayMins   = (scheduledMs && estimatedMs)
       ? Math.round((estimatedMs - scheduledMs) / 60000)
       : 0;
 
@@ -142,15 +147,17 @@ export async function upsertCache(db: any, data: FlightData, date: string): Prom
 }
 
 /**
- * Poll flight status for Airport Transfer bookings starting in 25–35 min.
+ * Poll flight status for ALL upcoming Airport Transfer bookings in the next
+ * 24 hours (and up to 2 hours ago, to catch in-progress arrivals).
+ * Only re-fetches when the cache entry is stale (>5 min old).
  * Called by the scheduler every minute.
  */
 export async function pollUpcomingFlights(): Promise<void> {
   const db = getServiceRoleClient() ?? supabase;
 
   const now = new Date();
-  const in25 = new Date(now.getTime() + 25 * 60 * 1000).toISOString();
-  const in35 = new Date(now.getTime() + 35 * 60 * 1000).toISOString();
+  const twoHoursAgo = new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString();
+  const in24h       = new Date(now.getTime() + 24 * 60 * 60 * 1000).toISOString();
 
   const { data: bookings, error } = await db
     .from("bookings")
@@ -158,8 +165,8 @@ export async function pollUpcomingFlights(): Promise<void> {
     .eq("service_type", "Airport Transfer")
     .not("flight_number", "is", null)
     .in("status", ["Confirmed", "Active"])
-    .gte("date_time", in25)
-    .lte("date_time", in35);
+    .gte("date_time", twoHoursAgo)
+    .lte("date_time", in24h);
 
   if (error) {
     console.error("[FlightPoll] query error:", error.message);
@@ -167,21 +174,36 @@ export async function pollUpcomingFlights(): Promise<void> {
   }
   if (!bookings?.length) return;
 
-  console.info(`[FlightPoll] ${bookings.length} booking(s) starting in 25-35 min — refreshing flight status`);
+  console.info(`[FlightPoll] ${bookings.length} upcoming Airport Transfer booking(s) — checking flight cache`);
+
+  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
 
   await Promise.allSettled(
     bookings.map(async (b: any) => {
       const flightDate = new Date(b.date_time).toISOString().split("T")[0];
+
+      // Skip if cache is still fresh — avoids burning API quota on unchanged data.
+      const { data: cached } = await db
+        .from("flight_status_cache")
+        .select("last_updated")
+        .eq("flight_number", b.flight_number)
+        .eq("date", flightDate)
+        .single();
+      if (cached?.last_updated && cached.last_updated > fiveMinAgo) return;
+
       const dir = b.direction === "Departure" ? "Departure" : "Arrival" as const;
       const result = await fetchFlightStatus(b.flight_number, flightDate, dir);
       if (result.ok) {
         await upsertCache(db, result.data, flightDate);
         const d = result.data;
-        if (d.delay_minutes > 0) {
-          console.info(`[FlightPoll] ${b.flight_number} (${b.tvl_ref}): ${d.status}, ${d.delay_minutes} min delay`);
-        }
+        const delayNote = d.delay_minutes > 0
+          ? `+${d.delay_minutes}m late`
+          : d.delay_minutes < 0
+            ? `${Math.abs(d.delay_minutes)}m early`
+            : "on time";
+        console.info(`[FlightPoll] ${b.flight_number} (${b.tvl_ref ?? ""}): ${d.status} — ${delayNote}`);
       } else {
-        console.warn(`[FlightPoll] ${b.flight_number} (${b.tvl_ref}): ${result.reason} — ${result.message ?? ""}`);
+        console.warn(`[FlightPoll] ${b.flight_number} (${b.tvl_ref ?? ""}): ${result.reason} — ${result.message ?? ""}`);
       }
     })
   );

@@ -544,8 +544,38 @@ router.get("/", async (req, res) => {
     }
   }
 
+  // Batch-enrich Airport Transfer bookings with cached flight status so the
+  // jobs board and anywhere using the list can show Delayed / Early / On Time.
+  const cacheDb = getServiceRoleClient() ?? supabase;
+  const flightBookings = (data ?? []).filter(
+    (b: any) => b.service_type === "Airport Transfer" && b.flight_number && b.date_time
+  );
+  const flightStatusByKey = new Map<string, any>();
+  if (flightBookings.length > 0) {
+    // Collect unique flight_number+date pairs to avoid N queries.
+    const pairs = Array.from(
+      new Set(
+        flightBookings.map((b: any) => `${b.flight_number}|${new Date(b.date_time).toISOString().split("T")[0]}`)
+      )
+    );
+    for (const pair of pairs) {
+      const [fn, dt] = pair.split("|");
+      const { data: cached } = await cacheDb
+        .from("flight_status_cache")
+        .select("*")
+        .eq("flight_number", fn)
+        .eq("date", dt)
+        .maybeSingle();
+      if (cached) flightStatusByKey.set(pair, cached);
+    }
+  }
+
   const result = (data ?? []).map((b: any) => {
     const latest = latestEmailByBooking.get(b.id);
+    const flightKey = b.flight_number && b.date_time
+      ? `${b.flight_number}|${new Date(b.date_time).toISOString().split("T")[0]}`
+      : null;
+    const cachedFlight = flightKey ? flightStatusByKey.get(flightKey) ?? null : null;
     return {
       ...b,
       client_name: b.clients?.name ?? null,
@@ -560,6 +590,7 @@ router.get("/", async (req, res) => {
       last_email_status: latest?.status ?? null,
       last_email_kind: latest?.kind ?? null,
       last_email_at: latest?.created_at ?? null,
+      flight_status: cachedFlight,
       clients: undefined,
       drivers: undefined,
       users: undefined,
@@ -933,19 +964,39 @@ router.get("/:id", async (req, res) => {
     .eq("booking_id", req.params.id)
     .single();
 
-  // Get flight status if applicable (Arrival and Departure Airport Transfers)
+  // Get flight status if applicable (Arrival and Departure Airport Transfers).
+  // Always refresh if the cache is stale (>5 min old) so the detail page
+  // shows the latest delay/early-arrival data — not a stale snapshot.
   let flightStatus = null;
   if (booking.flight_number && booking.service_type === "Airport Transfer") {
     const flightDate = booking.date_time ? new Date(booking.date_time).toISOString().split("T")[0] : null;
     if (flightDate) {
       const cacheDb = getServiceRoleClient() ?? supabase;
+      const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
       const { data: cachedFlight } = await cacheDb
         .from("flight_status_cache")
         .select("*")
         .eq("flight_number", booking.flight_number)
         .eq("date", flightDate)
         .single();
-      flightStatus = cachedFlight ?? null;
+
+      if (cachedFlight && cachedFlight.last_updated > fiveMinAgo) {
+        // Cache is fresh — use it directly.
+        flightStatus = cachedFlight;
+      } else {
+        // Cache is stale or absent — hit AeroDataBox and update the cache.
+        const { fetchFlightStatus, upsertCache, buildCacheResponse } = await import("../services/flightTracker");
+        const dir = booking.direction === "Departure" ? "Departure" : "Arrival" as const;
+        const live = await fetchFlightStatus(booking.flight_number, flightDate, dir);
+        if (live.ok) {
+          await upsertCache(cacheDb, live.data, flightDate);
+          flightStatus = live.data;
+        } else if (cachedFlight) {
+          // Live lookup failed — fall back to stale cache rather than returning nothing.
+          flightStatus = buildCacheResponse(cachedFlight, booking.flight_number);
+        }
+      }
     }
   }
 
