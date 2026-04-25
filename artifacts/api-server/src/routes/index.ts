@@ -28,6 +28,7 @@ import issuesRouter from "./issues";
 import amendmentsRouter from "./amendments";
 import bookingVehiclesRouter from "./booking-vehicles";
 import pushSubscriptionsRouter from "./push-subscriptions";
+import intelRouter from "./intel";
 
 const router: IRouter = Router();
 
@@ -61,5 +62,6 @@ router.use("/issues", issuesRouter);
 router.use("/amendments", amendmentsRouter);
 router.use("/booking-vehicles", bookingVehiclesRouter);
 router.use("/push-subscriptions", pushSubscriptionsRouter);
+router.use("/intel", intelRouter);
 
 export default router;
