@@ -972,7 +972,7 @@ export default function NewBooking() {
       if (!isNaN(picked.getTime())) {
         const todayStart = new Date();
         todayStart.setHours(0, 0, 0, 0);
-        if (picked < todayStart) {
+        if (picked < todayStart && picked.getFullYear() >= 1900) {
           const human = picked.toLocaleDateString("en-GB", {
             weekday: "short", day: "2-digit", month: "short", year: "numeric",
           });
@@ -1850,7 +1850,7 @@ export default function NewBooking() {
                       if (d) {
                         const today = new Date(); today.setHours(0,0,0,0);
                         const chosen = new Date(`${d}T00:00:00`);
-                        if (chosen < today) {
+                        if (chosen < today && chosen.getFullYear() >= 1900) {
                           const ok = window.confirm(
                             `Pickup date ${d} is in the past. Continue anyway?\n\n(Useful for back-dating completed bookings — otherwise pick a future date.)`,
                           );
