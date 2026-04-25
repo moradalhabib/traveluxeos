@@ -1952,6 +1952,26 @@ export default function NewBooking() {
                         }}
                       />
 
+                      {/* Pickup / Dropoff — immediately after flight lookup so the
+                          operator sees auto-fill land here before scrolling further.
+                          Positioned above the airport grid for mobile visibility. */}
+                      <div className="grid grid-cols-2 gap-3">
+                        <FormField control={bookingForm.control} name="pickup" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Pickup</FormLabel>
+                            <FormControl><Input placeholder="Address or Airport" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                        <FormField control={bookingForm.control} name="dropoff" render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Dropoff</FormLabel>
+                            <FormControl><Input placeholder="Address or Airport" {...field} /></FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )} />
+                      </div>
+
                       <FormField control={bookingForm.control} name="airport_code" render={({ field }) => (
                         <FormItem>
                           <FormLabel>
@@ -2019,26 +2039,6 @@ export default function NewBooking() {
                           </p>
                         </div>
                       )}
-
-                      {/* Pickup / Dropoff — shown here for Airport Transfer so the
-                          operator can see them update in real-time as the flight
-                          auto-fill runs. */}
-                      <div className="grid grid-cols-2 gap-3">
-                        <FormField control={bookingForm.control} name="pickup" render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Pickup</FormLabel>
-                            <FormControl><Input placeholder="Address or Airport" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
-                        <FormField control={bookingForm.control} name="dropoff" render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Dropoff</FormLabel>
-                            <FormControl><Input placeholder="Address or Airport" {...field} /></FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )} />
-                      </div>
 
                       <FormField control={bookingForm.control} name="nameboard" render={({ field }) => (
                         <FormItem>
