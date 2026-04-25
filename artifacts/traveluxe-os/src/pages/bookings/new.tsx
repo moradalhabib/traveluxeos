@@ -2135,6 +2135,28 @@ export default function NewBooking() {
                             />
                           </div>
                         </div>
+                        {/* Live split summary — mirrors the supplier subtotal
+                            line ("Client charge £X · incl £Y TVL profit ·
+                            supplier receives £Z") so the operator can see at
+                            a glance that vehicle revenue = driver keeps + TVL
+                            keeps. Green ✓ when the split matches the vehicle
+                            quote, amber ⚠ when there's a mismatch. */}
+                        {(() => {
+                          const dp = Number(bookingForm.watch("driver_cost" as any)) || 0;
+                          const dc = Number(bookingForm.watch("tvl_commission")) || 0;
+                          if (dp <= 0 && dc <= 0) return null;
+                          const split = dp + dc;
+                          const ok = vehicleQuoteTotal > 0 && Math.abs(split - vehicleQuoteTotal) < 0.01;
+                          const warn = vehicleQuoteTotal > 0 && !ok;
+                          return (
+                            <p className={`text-[10px] ${warn ? "text-amber-400" : "text-muted-foreground"}`}>
+                              Driver keeps £{dp.toLocaleString(undefined, { maximumFractionDigits: 2 })} · TVL keeps £{dc.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                              {vehicleQuoteTotal > 0 && (
+                                <> · {ok ? "matches vehicle revenue ✓" : `split totals £${split.toLocaleString(undefined, { maximumFractionDigits: 2 })} vs vehicle £${vehicleQuoteTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} ⚠`}</>
+                              )}
+                            </p>
+                          );
+                        })()}
                       </div>
 
                       {/* Third-party Supplier — sits next to the vehicle so

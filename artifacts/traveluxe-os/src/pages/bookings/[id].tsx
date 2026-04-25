@@ -1972,6 +1972,24 @@ export default function BookingDetail() {
                           />
                         </div>
                       </div>
+                      {/* Live split summary — same pattern as the supplier
+                          subtotal line. Lets the operator confirm at a glance
+                          that Driver Pay + Driver Commission = vehicle revenue
+                          (£160 → £130 + £30 in the worked example). */}
+                      {(() => {
+                        if (editDriverCost <= 0 && editTvlCommission <= 0) return null;
+                        const split = editDriverCost + editTvlCommission;
+                        const ok = editVehicleQuoteTotal > 0 && Math.abs(split - editVehicleQuoteTotal) < 0.01;
+                        const warn = editVehicleQuoteTotal > 0 && !ok;
+                        return (
+                          <p className={`text-[10px] ${warn ? "text-amber-400" : "text-muted-foreground"}`}>
+                            Driver keeps £{editDriverCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} · TVL keeps £{editTvlCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                            {editVehicleQuoteTotal > 0 && (
+                              <> · {ok ? "matches vehicle revenue ✓" : `split totals £${split.toLocaleString(undefined, { maximumFractionDigits: 2 })} vs vehicle £${editVehicleQuoteTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} ⚠`}</>
+                            )}
+                          </p>
+                        );
+                      })()}
                     </div>
 
                     {/* Third-party supplier — sits next to the vehicle so the
