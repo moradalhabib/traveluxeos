@@ -831,6 +831,12 @@ export default function BookingDetail() {
   const [editTourBasePrice, setEditTourBasePrice] = useState<number>(0);
   const [editTourAltLabel, setEditTourAltLabel] = useState<string>("");
   const [editTourAltUplift, setEditTourAltUplift] = useState<number>(0);
+  // Meet & Greet board text + free-form special requests. Both are shown on
+  // the journey card, the job sheet, the client invoice and the booking PDF,
+  // so making them editable lets the operator correct typos (e.g. client
+  // name spelling on the airport board) without recreating the booking.
+  const [editNameboard, setEditNameboard] = useState<string>("");
+  const [editSpecialRequests, setEditSpecialRequests] = useState<string>("");
   const [tourCatalogue, setTourCatalogue] = useState<Array<{ id: string; name: string; unit_price: number | null; tour_alt_vehicles: Array<{ label: string; uplift: number }> | null }>>([]);
   useEffect(() => {
     if (booking?.service_type !== "Tour") return;
@@ -906,6 +912,11 @@ export default function BookingDetail() {
     setEditQuotedPrice(Number(b.quoted_price || 0));
     setEditDiscountAmount(Number(b.discount_amount || 0));
     setEditDiscountReason(String(b.discount_reason || ""));
+    // Meet & Greet board + special requests — non-accommodation only, but
+    // hydrate them unconditionally so the dialog is always in sync with the
+    // current booking row.
+    setEditNameboard(String(b.nameboard || ""));
+    setEditSpecialRequests(String(b.special_requests || ""));
     setIsEditOpen(true);
   };
 
@@ -961,6 +972,11 @@ export default function BookingDetail() {
       payload.passengers = Number.isFinite(editPax) ? editPax : undefined;
       payload.luggage = Number.isFinite(editLuggage) ? editLuggage : undefined;
       payload.tvl_commission = Number.isFinite(editTvlCommission) ? editTvlCommission : undefined;
+      // Meet & Greet board + special requests apply to every transport-type
+      // service (Airport Transfer, Tour, As Directed). Persist as null when
+      // cleared so the column wipes cleanly instead of holding stale text.
+      payload.nameboard = editNameboard.trim() ? editNameboard.trim() : null;
+      payload.special_requests = editSpecialRequests.trim() ? editSpecialRequests.trim() : null;
       if (svcType === "Airport Transfer") {
         payload.flight_number = editFlight ? editFlight.toUpperCase() : undefined;
         payload.direction = editDirection || undefined;
@@ -1847,6 +1863,40 @@ export default function BookingDetail() {
                     <Input type="number" value={editLuggage || ""} onChange={e => setEditLuggage(Number(e.target.value))} />
                   </div>
                 )}
+
+                {/* Meet & Greet board — applies to every transport-type
+                    service (driver waits at arrivals/meeting point with the
+                    name-board). Edits flow straight to the journey card,
+                    job sheet, booking PDF, client invoice and outbound
+                    WhatsApp/email templates because every consumer reads
+                    the same `nameboard` column. */}
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Meet &amp; Greet Board</p>
+                  <Input
+                    value={editNameboard}
+                    onChange={e => setEditNameboard(e.target.value)}
+                    placeholder={(booking as any)?.client_name || "Name for board"}
+                    data-testid="edit-nameboard"
+                  />
+                  <p className="text-[10px] text-muted-foreground mt-1">
+                    Shown on the job sheet, booking PDF and client invoice. Leave blank if no board needed.
+                  </p>
+                </div>
+
+                {/* Special Requests — operator-facing notes (e.g. "write
+                    names as Fatima ✨ Dolla ✨"). Surfaces on the same
+                    journey card, the driver-facing job sheet and the
+                    client invoice. */}
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1">Special Requests</p>
+                  <Textarea
+                    value={editSpecialRequests}
+                    onChange={e => setEditSpecialRequests(e.target.value)}
+                    rows={3}
+                    placeholder="Any client requests for the driver / operator…"
+                    data-testid="edit-special-requests"
+                  />
+                </div>
 
                 {/* Invoice breakdown (Quoted / Discount / Reason). Optional.
                     When Quoted is set, Total Fare auto-fills = Quoted - Discount.

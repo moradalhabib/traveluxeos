@@ -698,6 +698,7 @@ const AMENDMENT_FIELD_LABELS: Record<string, string> = {
   supplier_cost: "Supplier Cost",
   driver_cost: "Driver Pay",
   notes: "Notes",
+  nameboard: "Meet & Greet Board",
   special_requests: "Special Requests",
   driver_acceptance_status: "Driver Acceptance",
 };
