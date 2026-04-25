@@ -187,6 +187,9 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
         const fmtHm = (iso: string) => new Intl.DateTimeFormat("en-GB", {
           hour: "2-digit", minute: "2-digit", timeZone: "Europe/London",
         }).format(new Date(iso));
+        const fmtDate = (iso: string) => new Intl.DateTimeFormat("en-GB", {
+          day: "numeric", month: "short", timeZone: "Europe/London",
+        }).format(new Date(iso));
         const diffMins = data.estimated_time
           ? Math.round((new Date(data.estimated_time).getTime() - new Date(data.scheduled_time).getTime()) / 60000)
           : 0;
@@ -197,14 +200,14 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
             <span className="flex items-center gap-1">
               🕐 Scheduled:{" "}
               <span className={`font-medium ${(isDelayed || isEarly) ? "line-through text-muted-foreground" : "text-foreground"}`}>
-                {fmtHm(data.scheduled_time)}
+                {fmtDate(data.scheduled_time)} · {fmtHm(data.scheduled_time)}
               </span>
             </span>
             {data.estimated_time && (isDelayed || isEarly) && (
               <span className="flex items-center gap-1">
                 ⏱ Est:{" "}
                 <span className={`font-medium ${isDelayed ? "text-amber-400" : "text-green-400"}`}>
-                  {fmtHm(data.estimated_time)}
+                  {fmtDate(data.estimated_time)} · {fmtHm(data.estimated_time)}
                   {isDelayed && <span className="ml-1 text-amber-500 font-normal">(+{diffMins}m)</span>}
                   {isEarly  && <span className="ml-1 text-green-500 font-normal">({Math.abs(diffMins)}m early)</span>}
                 </span>

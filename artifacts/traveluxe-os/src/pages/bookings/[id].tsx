@@ -1173,6 +1173,7 @@ export default function BookingDetail() {
     if (!iso) return null;
     try {
       return new Intl.DateTimeFormat("en-GB", {
+        day: "numeric", month: "short",
         hour: "2-digit", minute: "2-digit", timeZone: "Europe/London",
       }).format(new Date(iso));
     } catch {
