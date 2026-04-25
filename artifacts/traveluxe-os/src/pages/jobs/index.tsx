@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect } from "react";
 import {
   useListBookings, getListBookingsQueryKey,
-  useUpdateBookingStatus, useUpdateBooking,
+  useUpdateBookingStatus, useUpdateBooking, useDeleteBooking,
   useListDrivers, getListDriversQueryKey,
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
@@ -10,14 +10,23 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLocation, useSearch, Link } from "wouter";
 import { format, isToday, isTomorrow, startOfDay, endOfDay, addDays, isBefore, isAfter } from "date-fns";
-import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCircle, Plane } from "lucide-react";
+import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCircle, Plane, Trash2, CheckSquare } from "lucide-react";
 import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { RecentActivityFeed } from "@/components/activity/RecentActivityFeed";
 import { useQueryClient, useQuery } from "@tanstack/react-query";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { getVipBadgeColor } from "@/lib/vip";
 import { supabase } from "@/lib/supabase";
+import { useBulkSelect } from "@/hooks/use-bulk-select";
+import { BulkActionBar } from "@/components/bulk-action-bar";
+import { useAuth } from "@/hooks/use-auth";
+import { useToast } from "@/hooks/use-toast";
 
 const STATUS_COLORS: Record<string, string> = {
   'Pending':   'bg-amber-500/20 text-amber-400 border-amber-500/50',
@@ -35,6 +44,9 @@ const PAYMENT_COLORS: Record<string, string> = {
 
 export default function Jobs() {
   const [, setLocation] = useLocation();
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const canDelete = user?.role === "admin" || user?.role === "super_admin";
   // URL-backed filters so a refresh / shared link restores the same view.
   // `status` and `filter` were already URL-driven; we now also persist
   // `time` and `unassigned` so every dropdown survives a reload.
@@ -43,6 +55,7 @@ export default function Jobs() {
   const statusFilter = new URLSearchParams(search).get("status") ?? "";
   const customFilter = new URLSearchParams(search).get("filter") ?? "";
   const qc = useQueryClient();
+  const bulk = useBulkSelect();
 
   const { data: bookings, isLoading } = useListBookings(
     {},
@@ -51,6 +64,53 @@ export default function Jobs() {
 
   const updateStatus  = useUpdateBookingStatus();
   const updateBooking = useUpdateBooking();
+
+  const deleteBookingMut = useDeleteBooking({
+    mutation: {
+      onSuccess: (data: any) => {
+        toast({ title: "Job deleted", description: data?.tvl_ref ? `${data.tvl_ref} permanently removed` : "Removed" });
+        qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) });
+      },
+      onError: (err: any) => {
+        toast({ title: "Delete failed", description: err?.response?.data?.error ?? err?.message ?? "Unknown error", variant: "destructive" });
+      },
+    },
+  });
+
+  const handleBulkDelete = async () => {
+    const ids = bulk.ids;
+    const { data: { session } } = await supabase.auth.getSession();
+    const token = session?.access_token;
+    const results = await Promise.allSettled(
+      ids.map(id => fetch(`/api/bookings/${id}?silent=1`, {
+        method: "DELETE",
+        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      }).then(r => { if (!r.ok) throw new Error(String(r.status)); }))
+    );
+    const ok = results.filter(r => r.status === "fulfilled").length;
+    const fail = results.length - ok;
+    if (ok > 0) {
+      fetch("/api/notifications/broadcast-staff", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({
+          type: "booking_cancelled",
+          title: "Jobs Deleted",
+          message: `${ok} job${ok === 1 ? "" : "s"} permanently removed in a bulk action`,
+          link: "/jobs",
+          severity: "warning",
+        }),
+      }).catch(() => {});
+    }
+    toast({
+      title: fail === 0 ? "Jobs deleted" : `${ok} deleted, ${fail} failed`,
+      description: fail === 0 ? `${ok} job${ok === 1 ? "" : "s"} permanently removed` : "Some deletions failed — check audit log",
+      variant: fail === 0 ? undefined : "destructive",
+    });
+    qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) });
+    bulk.exitSelectMode();
+  };
+
   const { data: drivers } = useListDrivers({}, { query: { queryKey: getListDriversQueryKey({}) } });
   const driversById = useMemo(() => {
     const m = new Map<string, any>();
@@ -147,6 +207,10 @@ export default function Jobs() {
       e.preventDefault();
       e.stopPropagation();
       longPressFired.current = false;
+      return;
+    }
+    if (bulk.selectMode) {
+      bulk.toggle(jobId);
       return;
     }
     setLocation(`/bookings/${jobId}`);
@@ -276,7 +340,7 @@ export default function Jobs() {
   return (
     <div className="space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-foreground">
             {statusFilter ? `${statusFilter} Jobs` : "Jobs Board"}
@@ -286,13 +350,39 @@ export default function Jobs() {
             {statusFilter ? ` · status: ${statusFilter}` : ` · ${activeJobs.length} total active`}
           </p>
         </div>
-        <Button
-          className="shadow-[0_0_15px_rgba(201,168,76,0.25)] hover:shadow-[0_0_25px_rgba(201,168,76,0.4)]"
-          onClick={() => setLocation("/bookings/new")}
-        >
-          <Plus className="w-4 h-4 mr-2" />
-          New Booking
-        </Button>
+        <div className="flex items-center gap-2">
+          {canDelete && (
+            bulk.selectMode ? (
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => bulk.selectAll(filteredBookings.map((j: any) => j.id))}
+                  data-testid="button-select-all"
+                >
+                  <CheckSquare className="w-4 h-4 mr-1.5" />
+                  All
+                </Button>
+                <Button variant="outline" size="sm" onClick={bulk.exitSelectMode} data-testid="button-cancel-select">
+                  <X className="w-4 h-4 mr-1.5" /> Cancel
+                </Button>
+              </>
+            ) : (
+              <Button variant="outline" size="sm" onClick={bulk.enterSelectMode} data-testid="button-select-mode">
+                <CheckSquare className="w-4 h-4 mr-1.5" /> Select
+              </Button>
+            )
+          )}
+          {!bulk.selectMode && (
+            <Button
+              className="shadow-[0_0_15px_rgba(201,168,76,0.25)] hover:shadow-[0_0_25px_rgba(201,168,76,0.4)]"
+              onClick={() => setLocation("/bookings/new")}
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              New Booking
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Urgent alert — tap to instantly filter to unassigned jobs only. */}
@@ -429,22 +519,29 @@ export default function Jobs() {
               <div key={job.id} className="space-y-1.5">
               <Card
             key={job.id}
-            className="border-border hover:border-primary/40 hover:bg-secondary/10 transition-all bg-card overflow-hidden cursor-pointer select-none"
+            className={`border-border hover:border-primary/40 hover:bg-secondary/10 transition-all bg-card overflow-hidden cursor-pointer select-none ${
+              bulk.selectMode && bulk.isSelected(job.id) ? "ring-2 ring-primary border-primary" : ""
+            }`}
             onClick={(e) => handleCardClick(job.id, e)}
-            onTouchStart={() => startLongPress(job)}
-            onTouchEnd={cancelLongPress}
-            onTouchMove={cancelLongPress}
-            onTouchCancel={cancelLongPress}
-            onMouseDown={() => startLongPress(job)}
-            onMouseUp={cancelLongPress}
-            onMouseLeave={cancelLongPress}
-            onContextMenu={(e) => { e.preventDefault(); setQuickMenuJob(job); longPressFired.current = true; }}
+            onTouchStart={() => !bulk.selectMode && startLongPress(job)}
+            onTouchEnd={() => !bulk.selectMode && cancelLongPress()}
+            onTouchMove={() => !bulk.selectMode && cancelLongPress()}
+            onTouchCancel={() => !bulk.selectMode && cancelLongPress()}
+            onMouseDown={() => !bulk.selectMode && startLongPress(job)}
+            onMouseUp={() => !bulk.selectMode && cancelLongPress()}
+            onMouseLeave={() => !bulk.selectMode && cancelLongPress()}
+            onContextMenu={(e) => { e.preventDefault(); if (!bulk.selectMode) { setQuickMenuJob(job); longPressFired.current = true; } }}
           >
             <CardContent className="p-4">
               {/* Top row: ref + time + status dropdown */}
               <div className="flex items-start justify-between mb-3">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
+                    {bulk.selectMode && (
+                      <div className={`flex-shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center ${bulk.isSelected(job.id) ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                        {bulk.isSelected(job.id) && <CheckSquare className="w-2.5 h-2.5 text-primary-foreground" />}
+                      </div>
+                    )}
                     <div className="text-xs text-muted-foreground font-mono">{job.tvl_ref}</div>
                     {job.service_type && (
                       <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-secondary/40 text-foreground border-border">
@@ -649,6 +746,43 @@ export default function Jobs() {
                   )}
                 </div>
               )}
+
+              {/* Per-card delete — admin/super-admin only, hidden in select mode */}
+              {canDelete && !bulk.selectMode && (
+                <div className="flex justify-end mt-2 pt-2 border-t border-border/50" onClick={(e) => e.stopPropagation()}>
+                  <AlertDialog>
+                    <AlertDialogTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-7 w-7 text-destructive/60 hover:text-destructive hover:bg-destructive/10"
+                        title="Delete job"
+                        data-testid={`button-delete-${job.id}`}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete {job.tvl_ref}?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This permanently removes the booking and all related records (invoice, follow-ups, email log). For real cancellations use the Cancel status instead. This cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Keep job</AlertDialogCancel>
+                        <AlertDialogAction
+                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                          onClick={() => deleteBookingMut.mutate({ id: job.id })}
+                          data-testid={`button-confirm-delete-${job.id}`}
+                        >
+                          Delete permanently
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -797,6 +931,14 @@ export default function Jobs() {
       </Sheet>
 
       <RecentActivityFeed entityType="booking" title="Recent job activity" />
+
+      <BulkActionBar
+        count={bulk.count}
+        noun="job"
+        onClear={bulk.clear}
+        onDelete={handleBulkDelete}
+        warning="This permanently removes the selected jobs and all related records (invoices, follow-ups, email logs). This cannot be undone."
+      />
     </div>
   );
 }
