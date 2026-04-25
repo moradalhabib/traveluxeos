@@ -1,18 +1,10 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { parseISO, format } from "date-fns";
 import { supabase } from "@/lib/supabase";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, LineChart, Line, CartesianGrid, Legend
-} from "recharts";
-import {
-  TrendingUp, TrendingDown, Minus, CalendarRange,
-  PoundSterling, Users, Award, AlertTriangle, ChevronDown
-} from "lucide-react";
+import { TrendingUp } from "lucide-react";
 
 const API_BASE = `${import.meta.env.VITE_API_URL ?? ""}/api`;
 
@@ -50,7 +42,6 @@ interface MonthData {
   month: string;
   revenue: number;
   bookings: number;
-  byService: Record<string, number>;
 }
 
 interface ServiceSummary {
@@ -84,12 +75,6 @@ export default function Analytics() {
   const forecast = forecastQuery.data;
   const sortedServices = [...(forecast?.by_service_type ?? [])].sort((a, b) => b.revenue - a.revenue);
 
-  // Wrapped in react-query so queryClient.invalidateQueries() (fired by
-  // every bulk-delete handler) refreshes the Intel page immediately.
-  // New TVL stack launched 20-Apr-2026; Intel rolls up only post-cutoff data
-  // so headline totals match Finance/Profit. Without this clamp the page
-  // shows the full year including the legacy Odoo import (where the wrong
-  // £17,100 / 100 bookings number was coming from).
   const STATS_CUTOFF_ISO = "2026-04-20T00:00:00";
   const bookingsQuery = useQuery<Booking[]>({
     queryKey: ["analytics-bookings", selectedYear],
@@ -110,26 +95,17 @@ export default function Analytics() {
   const bookings = bookingsQuery.data ?? [];
   const loading = bookingsQuery.isLoading;
 
-  // ── Build monthly data ──────────────────────────────────────────────────
+  // ── Monthly data (for bestMonth in Intel Summary) ──────────────────────────
   const monthlyData: MonthData[] = MONTHS.map((month, idx) => {
-    const monthBookings = bookings.filter(b => {
-      if (!b.date_time) return false;
-      return new Date(b.date_time).getMonth() === idx;
-    });
-    const byService: Record<string, number> = {};
-    monthBookings.forEach(b => {
-      const svc = b.service_type || "Other";
-      byService[svc] = (byService[svc] || 0) + (b.price || 0);
-    });
+    const mb = bookings.filter(b => b.date_time && new Date(b.date_time).getMonth() === idx);
     return {
       month,
-      revenue: monthBookings.reduce((s, b) => s + (b.price || 0), 0),
-      bookings: monthBookings.length,
-      byService,
+      revenue: mb.reduce((s, b) => s + (b.price || 0), 0),
+      bookings: mb.length,
     };
   });
 
-  // ── Service breakdown ───────────────────────────────────────────────────
+  // ── Service breakdown (for Intel Summary) ──────────────────────────────────
   const serviceMap: Record<string, ServiceSummary> = {};
   bookings.forEach(b => {
     const svc = b.service_type || "Other";
@@ -138,14 +114,14 @@ export default function Analytics() {
     serviceMap[svc].bookings += 1;
   });
   const serviceSummaries = Object.values(serviceMap).sort((a, b) => b.revenue - a.revenue);
-  const totalRevenue = bookings.reduce((s, b) => s + (b.price || 0), 0);
+  const totalRevenue  = bookings.reduce((s, b) => s + (b.price || 0), 0);
   const totalBookings = bookings.length;
   const avgBookingValue = totalBookings > 0 ? totalRevenue / totalBookings : 0;
 
-  // ── Top clients ─────────────────────────────────────────────────────────
+  // ── Top clients ─────────────────────────────────────────────────────────────
   const clientMap: Record<string, ClientSummary> = {};
   bookings.forEach(b => {
-    const cid = b.client_id || "unknown";
+    const cid  = b.client_id || "unknown";
     const name = (b.clients as any)?.name || "Unknown";
     if (!clientMap[cid]) clientMap[cid] = { client_id: cid, name, total: 0, count: 0 };
     clientMap[cid].total += b.price || 0;
@@ -153,54 +129,28 @@ export default function Analytics() {
   });
   const topClients = Object.values(clientMap).sort((a, b) => b.total - a.total).slice(0, 5);
 
-  // ── Best & worst months ─────────────────────────────────────────────────
+  // ── Best & worst months (for Intel Summary) ─────────────────────────────────
   const filledMonths = monthlyData.filter(m => m.bookings > 0);
-  const bestMonth = filledMonths.length > 0
-    ? filledMonths.reduce((a, b) => b.revenue > a.revenue ? b : a)
-    : null;
-  const worstMonth = filledMonths.length > 0
-    ? filledMonths.reduce((a, b) => b.revenue < a.revenue ? b : a)
-    : null;
-
-  // ── YoY trend (current vs prev month) ──────────────────────────────────
-  const currentMonthIdx = new Date().getMonth();
-  const currentMonthRevenue = monthlyData[currentMonthIdx]?.revenue ?? 0;
-  const prevMonthRevenue = monthlyData[Math.max(0, currentMonthIdx - 1)]?.revenue ?? 0;
-  const trend = prevMonthRevenue === 0
-    ? null
-    : ((currentMonthRevenue - prevMonthRevenue) / prevMonthRevenue) * 100;
+  const bestMonth  = filledMonths.length > 0 ? filledMonths.reduce((a, b) => b.revenue > a.revenue ? b : a) : null;
+  const worstMonth = filledMonths.length > 0 ? filledMonths.reduce((a, b) => b.revenue < a.revenue ? b : a) : null;
 
   const availableYears = [selectedYear - 1, selectedYear, selectedYear + 1];
 
-  const CustomTooltip = ({ active, payload, label }: any) => {
-    if (!active || !payload?.length) return null;
-    return (
-      <div className="bg-card border border-border rounded-xl p-3 shadow-xl text-xs">
-        <p className="font-semibold text-foreground mb-2">{label}</p>
-        {payload.map((p: any) => (
-          <div key={p.dataKey} className="flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full" style={{ background: p.fill || p.color }} />
-            <span className="text-muted-foreground">{p.dataKey}:</span>
-            <span className="font-semibold">£{(p.value as number).toLocaleString()}</span>
-          </div>
-        ))}
-      </div>
-    );
-  };
-
   return (
     <div className="space-y-5">
-      {/* Header */}
+      {/* ── Header ──────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">Monthly Intel</h1>
-          <p className="text-sm text-muted-foreground mt-0.5">Operations, trends & revenue breakdown</p>
+          <h1 className="text-2xl font-bold tracking-tight text-foreground">Intel</h1>
+          <p className="text-sm text-muted-foreground mt-0.5">
+            Morning briefing — what's coming, who matters, what to act on
+          </p>
         </div>
         <div className="flex gap-1">
           {availableYears.map(y => (
             <button
               key={y}
-              onClick={() => { setSelectedYear(y); }}
+              onClick={() => setSelectedYear(y)}
               className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
                 y === selectedYear
                   ? "bg-primary text-primary-foreground"
@@ -213,7 +163,7 @@ export default function Analytics() {
         </div>
       </div>
 
-      {/* Revenue Forecast */}
+      {/* ── 1. Revenue Forecast ─────────────────────────────────────────────── */}
       <Card className="border-primary/20" data-testid="card-revenue-forecast">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -231,14 +181,11 @@ export default function Analytics() {
               <div className="grid grid-cols-2 gap-3">
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-4" data-testid="text-forecast-7d">
                   <div className="text-xs text-muted-foreground uppercase tracking-wider">Next 7 days</div>
-                  <div className="text-2xl font-bold text-primary mt-1">£{(Number(forecast.next_7_days_revenue) || 0).toLocaleString()}</div>
+                  <div className="text-2xl font-bold text-primary mt-1">
+                    £{(Number(forecast.next_7_days_revenue) || 0).toLocaleString()}
+                  </div>
                   <div className="text-xs text-muted-foreground mt-0.5">
                     {(() => {
-                      // Fix 1a — Revenue Forecast was showing "NaN bookings"
-                      // when an old API response omitted the count key AND
-                      // any by_day row was missing/non-numeric. Coerce every
-                      // input to a finite number and short-circuit nullish
-                      // counts at the source.
                       const direct = Number(forecast.next_7_days_count);
                       if (Number.isFinite(direct)) return direct;
                       const fallback = (forecast.by_day ?? []).slice(0, 7)
@@ -249,7 +196,9 @@ export default function Analytics() {
                 </div>
                 <div className="rounded-xl border border-primary/20 bg-primary/5 p-4" data-testid="text-forecast-30d">
                   <div className="text-xs text-muted-foreground uppercase tracking-wider">Next 30 days</div>
-                  <div className="text-2xl font-bold text-primary mt-1">£{(Number(forecast.next_30_days_revenue) || 0).toLocaleString()}</div>
+                  <div className="text-2xl font-bold text-primary mt-1">
+                    £{(Number(forecast.next_30_days_revenue) || 0).toLocaleString()}
+                  </div>
                   <div className="text-xs text-muted-foreground mt-0.5">
                     {(() => {
                       const direct = Number(forecast.next_30_days_count);
@@ -264,7 +213,9 @@ export default function Analytics() {
 
               {sortedServices.length > 0 && (
                 <div>
-                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">By Service Type</div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                    By Service Type
+                  </div>
                   <div className="space-y-1">
                     {sortedServices.map(s => (
                       <div key={s.service_type} className="flex items-center justify-between text-xs px-3 py-2 rounded-lg bg-muted/30">
@@ -283,12 +234,11 @@ export default function Analytics() {
               )}
 
               <div>
-                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Next 30 Days</div>
+                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  Next 30 Days
+                </div>
                 <div className="space-y-0.5 max-h-[400px] overflow-y-auto">
                   {forecast.by_day.map(d => {
-                    // Empty days are normal — show them muted, not red. Red
-                    // is reserved for actual problems (cancellation spikes,
-                    // overdue payouts), not "no jobs booked yet".
                     const isEmpty = d.count === 0;
                     return (
                       <div
@@ -296,11 +246,11 @@ export default function Analytics() {
                         data-testid={`row-forecast-day-${d.date}`}
                         className={`flex items-center justify-between text-xs px-3 py-2 rounded-lg ${isEmpty ? "bg-muted/20" : ""}`}
                       >
-                        <span className={`font-medium ${isEmpty ? "text-muted-foreground" : ""}`}>{format(parseISO(d.date), "EEE dd MMM")}</span>
+                        <span className={`font-medium ${isEmpty ? "text-muted-foreground" : ""}`}>
+                          {format(parseISO(d.date), "EEE dd MMM")}
+                        </span>
                         <div className="flex items-center gap-3">
-                          <span className="text-muted-foreground">
-                            {d.count} job{d.count !== 1 ? "s" : ""}
-                          </span>
+                          <span className="text-muted-foreground">{d.count} job{d.count !== 1 ? "s" : ""}</span>
                           <span className={`font-semibold w-20 text-right ${isEmpty ? "text-muted-foreground" : "text-foreground"}`}>
                             {d.revenue > 0 ? `£${d.revenue.toLocaleString()}` : "—"}
                           </span>
@@ -315,196 +265,14 @@ export default function Analytics() {
         </CardContent>
       </Card>
 
+      {/* ── Year-scoped data (Top Clients + Intel Summary) ──────────────────── */}
       {loading ? (
         <div className="space-y-4">
-          {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-32 w-full" />)}
+          {[...Array(2)].map((_, i) => <Skeleton key={i} className="h-32 w-full" />)}
         </div>
       ) : (
         <>
-          {/* KPI Strip */}
-          <div className="grid grid-cols-3 gap-3">
-            <Card className="border-primary/10">
-              <CardContent className="p-4">
-                <PoundSterling className="w-4 h-4 text-primary mb-1" />
-                <div className="text-xl font-bold text-primary">£{totalRevenue.toLocaleString()}</div>
-                <div className="text-xs text-muted-foreground">Total Revenue</div>
-                {trend !== null && (
-                  <div className={`flex items-center gap-0.5 text-xs mt-1 ${trend >= 0 ? "text-green-400" : "text-destructive"}`}>
-                    {trend > 0 ? <TrendingUp className="w-3 h-3" /> : trend < 0 ? <TrendingDown className="w-3 h-3" /> : <Minus className="w-3 h-3" />}
-                    {Math.abs(trend).toFixed(0)}% vs last month
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-            <Card className="border-primary/10">
-              <CardContent className="p-4">
-                <CalendarRange className="w-4 h-4 text-blue-400 mb-1" />
-                <div className="text-xl font-bold text-foreground">{totalBookings}</div>
-                <div className="text-xs text-muted-foreground">Bookings</div>
-                <div className="text-xs text-muted-foreground mt-1">
-                  Avg £{avgBookingValue.toFixed(0)}
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="border-primary/10">
-              <CardContent className="p-4">
-                <Users className="w-4 h-4 text-purple-400 mb-1" />
-                <div className="text-xl font-bold text-foreground">{Object.keys(clientMap).length}</div>
-                <div className="text-xs text-muted-foreground">Active Clients</div>
-                <div className="text-xs text-muted-foreground mt-1">in {selectedYear}</div>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Revenue by Month — Bar Chart */}
-          <Card className="border-primary/10">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold">Revenue by Month {selectedYear}</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0 px-2">
-              <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={monthlyData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#6b7280" }} />
-                  <YAxis tick={{ fontSize: 9, fill: "#6b7280" }} tickFormatter={v => `£${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
-                  <Tooltip content={<CustomTooltip />} />
-                  <Bar dataKey="revenue" fill="#C9A84C" radius={[4,4,0,0]} name="Revenue" />
-                </BarChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          {/* Bookings Volume by Month */}
-          <Card className="border-primary/10">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold">Booking Volume Trend</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0 px-2">
-              <ResponsiveContainer width="100%" height={150}>
-                <LineChart data={monthlyData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-                  <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#6b7280" }} />
-                  <YAxis tick={{ fontSize: 9, fill: "#6b7280" }} allowDecimals={false} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="bookings" stroke="#C9A84C" strokeWidth={2} dot={{ r: 3, fill: "#C9A84C" }} name="Bookings" />
-                </LineChart>
-              </ResponsiveContainer>
-            </CardContent>
-          </Card>
-
-          {/* Revenue by Department */}
-          <Card className="border-primary/10">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold">Revenue by Department</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="flex items-start gap-4">
-                <div className="w-36 h-36 flex-shrink-0">
-                  <ResponsiveContainer width="100%" height={144}>
-                    <PieChart>
-                      <Pie
-                        data={serviceSummaries}
-                        dataKey="revenue"
-                        nameKey="service"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={38}
-                        outerRadius={60}
-                        paddingAngle={3}
-                      >
-                        {serviceSummaries.map(s => (
-                          <Cell key={s.service} fill={SERVICE_COLORS[s.service] || "#6B7280"} />
-                        ))}
-                      </Pie>
-                    </PieChart>
-                  </ResponsiveContainer>
-                </div>
-                <div className="flex-1 space-y-2 py-1">
-                  {serviceSummaries.map(s => {
-                    const pct = totalRevenue > 0 ? (s.revenue / totalRevenue * 100) : 0;
-                    return (
-                      <div key={s.service}>
-                        <div className="flex items-center justify-between text-xs mb-1">
-                          <div className="flex items-center gap-1.5">
-                            <div className="w-2.5 h-2.5 rounded-sm" style={{ background: SERVICE_COLORS[s.service] || "#6B7280" }} />
-                            <span className="text-foreground font-medium truncate max-w-[120px]">{s.service}</span>
-                          </div>
-                          <span className="font-semibold text-foreground ml-1">£{s.revenue.toLocaleString()}</span>
-                        </div>
-                        <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
-                          <div className="h-full rounded-full" style={{ width: `${pct}%`, background: SERVICE_COLORS[s.service] || "#6B7280" }} />
-                        </div>
-                        <div className="text-[10px] text-muted-foreground mt-0.5">{s.bookings} bookings · {pct.toFixed(0)}%</div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Best & Worst Months */}
-          {(bestMonth || worstMonth) && (
-            <div className="grid grid-cols-2 gap-3">
-              {bestMonth && (
-                <Card className="border-green-500/20 bg-green-500/5">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Award className="w-4 h-4 text-green-400" />
-                      <span className="text-xs font-semibold text-green-400 uppercase tracking-wider">Best Month</span>
-                    </div>
-                    <div className="text-lg font-bold text-foreground">{bestMonth.month}</div>
-                    <div className="text-sm text-primary font-semibold">£{bestMonth.revenue.toLocaleString()}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">{bestMonth.bookings} bookings</div>
-                  </CardContent>
-                </Card>
-              )}
-              {worstMonth && worstMonth.month !== bestMonth?.month && (
-                <Card className="border-destructive/20 bg-destructive/5">
-                  <CardContent className="p-4">
-                    <div className="flex items-center gap-2 mb-2">
-                      <AlertTriangle className="w-4 h-4 text-destructive" />
-                      <span className="text-xs font-semibold text-destructive uppercase tracking-wider">Needs Focus</span>
-                    </div>
-                    <div className="text-lg font-bold text-foreground">{worstMonth.month}</div>
-                    <div className="text-sm text-foreground font-semibold">£{worstMonth.revenue.toLocaleString()}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">{worstMonth.bookings} bookings</div>
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          )}
-
-          {/* Monthly breakdown table */}
-          <Card className="border-primary/10">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-semibold">Month-by-Month Breakdown</CardTitle>
-            </CardHeader>
-            <CardContent className="pt-0">
-              <div className="space-y-1">
-                {monthlyData.map(m => {
-                  const pct = totalRevenue > 0 ? (m.revenue / totalRevenue * 100) : 0;
-                  const isBest = m.month === bestMonth?.month;
-                  return (
-                    <div key={m.month} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ${isBest ? "bg-primary/8 border border-primary/20" : ""}`}>
-                      <span className="text-xs font-semibold text-muted-foreground w-7">{m.month}</span>
-                      <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                        <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
-                      </div>
-                      <span className="text-xs font-bold text-foreground w-20 text-right">
-                        {m.revenue > 0 ? `£${m.revenue.toLocaleString()}` : "—"}
-                      </span>
-                      <Badge variant="outline" className="text-[10px] w-16 justify-center">
-                        {m.bookings} job{m.bookings !== 1 ? "s" : ""}
-                      </Badge>
-                    </div>
-                  );
-                })}
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Top Clients */}
+          {/* ── 2. Top Clients ──────────────────────────────────────────────── */}
           {topClients.length > 0 && (
             <Card className="border-primary/10">
               <CardHeader className="pb-2">
@@ -529,7 +297,7 @@ export default function Analytics() {
             </Card>
           )}
 
-          {/* Insights */}
+          {/* ── 3. Intel Summary ────────────────────────────────────────────── */}
           <Card className="border-primary/20 bg-primary/3">
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-semibold">Intel Summary — {selectedYear}</CardTitle>
@@ -557,7 +325,7 @@ export default function Analytics() {
                   )}
                   {serviceSummaries[0] && (
                     <p>
-                      • <span className="text-foreground font-semibold">{serviceSummaries[0].service}</span> is your top revenue department ({Math.round(serviceSummaries[0].revenue / totalRevenue * 100)}% of total). 
+                      • <span className="text-foreground font-semibold">{serviceSummaries[0].service}</span> is your top revenue department ({Math.round(serviceSummaries[0].revenue / totalRevenue * 100)}% of total).
                       {serviceSummaries[1] ? ` Second is ${serviceSummaries[1].service}.` : ""}
                     </p>
                   )}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { useGetFinanceSummary, getGetFinanceSummaryQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -11,12 +12,16 @@ import { ActiveFilterChips } from "@/components/ui/active-filter-chips";
 import {
   PoundSterling, TrendingUp, CreditCard, AlertCircle, ArrowUpDown,
   Car, LayoutDashboard, ChevronRight, CheckCircle2, Clock, CalendarRange,
-  Plane, Map, Home, Wallet, TrendingDown
+  Plane, Map, Home, Wallet, TrendingDown, Award, BarChart2
 } from "lucide-react";
 import { Link } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
-import { BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip as RTooltip, Cell } from "recharts";
+import { format } from "date-fns";
+import {
+  BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip as RTooltip, Cell,
+  LineChart, Line, CartesianGrid, PieChart, Pie,
+} from "recharts";
 
 type Period = "today" | "week" | "month" | "year" | "all" | "custom";
 
@@ -60,6 +65,27 @@ const SERVICE_ICONS: Record<string, string> = {
   "Apartment / Accommodation": "🏠",
 };
 
+// ── Analytics section constants ──────────────────────────────────────────────
+const ANALYTICS_SERVICE_COLORS: Record<string, string> = {
+  "Airport Transfer": "#C9A84C",
+  "Tour":             "#8B5CF6",
+  "As Directed":      "#3B82F6",
+  "Apartment":        "#F59E0B",
+  "Hotel":            "#10B981",
+  "Other":            "#6B7280",
+};
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const STATS_CUTOFF_ISO = "2026-04-20T00:00:00";
+
+interface AnalyticsBooking {
+  id: string;
+  service_type: string;
+  price: number;
+  date_time: string | null;
+  status: string;
+  client_id: string | null;
+}
+
 export default function Finance() {
   const { user } = useAuth();
   // Admin and Super Admin see all amounts. Profit tab still super_admin-only further down.
@@ -74,6 +100,7 @@ export default function Finance() {
   const [period, setPeriod] = useFilterState<Period>("period", "month");
   const [customFrom, setCustomFrom] = useFilterState("from", "");
   const [customTo, setCustomTo] = useFilterState("to", "");
+  const [analyticsYear, setAnalyticsYear] = useState(new Date().getFullYear());
 
   const range = useMemo(() => periodRange(period, customFrom, customTo), [period, customFrom, customTo]);
   const params = useMemo(() => {
@@ -87,6 +114,68 @@ export default function Finance() {
     params,
     { query: { queryKey: getGetFinanceSummaryQueryKey(params) } }
   );
+
+  // ── Analytics tab: year-scoped booking data ──────────────────────────────
+  const analyticsQuery = useQuery<AnalyticsBooking[]>({
+    queryKey: ["finance-analytics-bookings", analyticsYear],
+    queryFn: async () => {
+      const yearStart = `${analyticsYear}-01-01T00:00:00`;
+      const yearEnd   = `${analyticsYear}-12-31T23:59:59`;
+      const effectiveStart = yearStart < STATS_CUTOFF_ISO ? STATS_CUTOFF_ISO : yearStart;
+      const { data } = await supabase
+        .from("bookings")
+        .select("id, service_type, price, date_time, status, client_id")
+        .gte("date_time", effectiveStart)
+        .lte("date_time", yearEnd)
+        .not("status", "eq", "Cancelled")
+        .order("date_time", { ascending: true });
+      return (data ?? []) as unknown as AnalyticsBooking[];
+    },
+    enabled: tab === "analytics",
+  });
+  const analyticsBks  = analyticsQuery.data ?? [];
+  const analyticsLoad = analyticsQuery.isLoading;
+
+  const analyticsMonthly = MONTHS.map((month, idx) => {
+    const mb = analyticsBks.filter(b => b.date_time && new Date(b.date_time).getMonth() === idx);
+    return {
+      month,
+      revenue:  mb.reduce((s, b) => s + (b.price || 0), 0),
+      bookings: mb.length,
+    };
+  });
+
+  const analyticsSvcMap: Record<string, { service: string; revenue: number; bookings: number }> = {};
+  analyticsBks.forEach(b => {
+    const svc = b.service_type || "Other";
+    if (!analyticsSvcMap[svc]) analyticsSvcMap[svc] = { service: svc, revenue: 0, bookings: 0 };
+    analyticsSvcMap[svc].revenue  += b.price || 0;
+    analyticsSvcMap[svc].bookings += 1;
+  });
+  const analyticsSvcs = Object.values(analyticsSvcMap).sort((a, b) => b.revenue - a.revenue);
+  const analyticsTotalRevenue = analyticsBks.reduce((s, b) => s + (b.price || 0), 0);
+  const analyticsFilledMonths = analyticsMonthly.filter(m => m.bookings > 0);
+  const analyticsBestMonth = analyticsFilledMonths.length > 0
+    ? analyticsFilledMonths.reduce((a, b) => b.revenue > a.revenue ? b : a)
+    : null;
+
+  const AnalyticsTooltip = ({ active, payload, label }: any) => {
+    if (!active || !payload?.length) return null;
+    return (
+      <div className="bg-card border border-border rounded-xl p-3 shadow-xl text-xs">
+        <p className="font-semibold text-foreground mb-2">{label}</p>
+        {payload.map((p: any) => (
+          <div key={p.dataKey} className="flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full" style={{ background: p.fill || p.color }} />
+            <span className="text-muted-foreground">{p.name ?? p.dataKey}:</span>
+            <span className="font-semibold">
+              {p.dataKey === "revenue" ? `£${(p.value as number).toLocaleString()}` : p.value}
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  };
 
   if (isLoading) {
     return (
@@ -240,14 +329,15 @@ export default function Finance() {
 
       {/* Tabs */}
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className={`w-full grid ${isSuperAdminOnly ? "grid-cols-6" : "grid-cols-5"} bg-card border border-border`}>
-          <TabsTrigger value="overview" className="text-[11px] sm:text-sm">Overview</TabsTrigger>
-          <TabsTrigger value="services" className="text-[11px] sm:text-sm">Services</TabsTrigger>
-          <TabsTrigger value="drivers" className="text-[11px] sm:text-sm">Drivers</TabsTrigger>
-          <TabsTrigger value="suppliers" className="text-[11px] sm:text-sm" data-testid="tab-finance-suppliers">Suppliers</TabsTrigger>
-          <TabsTrigger value="clients" className="text-[11px] sm:text-sm">Clients</TabsTrigger>
+        <TabsList className={`w-full grid ${isSuperAdminOnly ? "grid-cols-7" : "grid-cols-6"} bg-card border border-border`}>
+          <TabsTrigger value="overview"   className="text-[10px] sm:text-xs">Overview</TabsTrigger>
+          <TabsTrigger value="services"   className="text-[10px] sm:text-xs">Services</TabsTrigger>
+          <TabsTrigger value="drivers"    className="text-[10px] sm:text-xs">Drivers</TabsTrigger>
+          <TabsTrigger value="suppliers"  className="text-[10px] sm:text-xs" data-testid="tab-finance-suppliers">Suppliers</TabsTrigger>
+          <TabsTrigger value="clients"    className="text-[10px] sm:text-xs">Clients</TabsTrigger>
+          <TabsTrigger value="analytics"  className="text-[10px] sm:text-xs">Analytics</TabsTrigger>
           {isSuperAdminOnly && (
-            <TabsTrigger value="profit" className="text-[11px] sm:text-sm bg-primary/5 text-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+            <TabsTrigger value="profit" className="text-[10px] sm:text-xs bg-primary/5 text-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               Profit
             </TabsTrigger>
           )}
@@ -493,6 +583,170 @@ export default function Finance() {
             </div>
           )}
         </TabsContent>
+        {/* ANALYTICS ── moved from Intel module ─────────────────────────── */}
+        <TabsContent value="analytics" className="space-y-5 mt-4">
+          {/* Year picker */}
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-muted-foreground">Historical revenue trends and department breakdown.</p>
+            <div className="flex gap-1">
+              {[analyticsYear - 1, analyticsYear, analyticsYear + 1].map(y => (
+                <button
+                  key={y}
+                  onClick={() => setAnalyticsYear(y)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-semibold transition-all ${
+                    y === analyticsYear
+                      ? "bg-primary text-primary-foreground"
+                      : "bg-secondary text-muted-foreground hover:text-foreground"
+                  }`}
+                >
+                  {y}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {analyticsLoad ? (
+            <div className="space-y-4">
+              {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-40 w-full" />)}
+            </div>
+          ) : (
+            <>
+              {/* 1. Revenue by Month — bar chart */}
+              <Card className="border-primary/10">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold">Revenue by Month {analyticsYear}</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0 px-2">
+                  <ResponsiveContainer width="100%" height={200}>
+                    <BarChart data={analyticsMonthly} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                      <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#6b7280" }} />
+                      <YAxis tick={{ fontSize: 9, fill: "#6b7280" }} tickFormatter={v => `£${v >= 1000 ? `${(v/1000).toFixed(0)}k` : v}`} />
+                      <RTooltip content={<AnalyticsTooltip />} />
+                      <Bar dataKey="revenue" fill="#C9A84C" radius={[4,4,0,0]} name="Revenue" />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              {/* 2. Booking Volume Trend — line chart */}
+              <Card className="border-primary/10">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold">Booking Volume Trend</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0 px-2">
+                  <ResponsiveContainer width="100%" height={150}>
+                    <LineChart data={analyticsMonthly} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+                      <XAxis dataKey="month" tick={{ fontSize: 10, fill: "#6b7280" }} />
+                      <YAxis tick={{ fontSize: 9, fill: "#6b7280" }} allowDecimals={false} />
+                      <RTooltip content={<AnalyticsTooltip />} />
+                      <Line type="monotone" dataKey="bookings" stroke="#C9A84C" strokeWidth={2} dot={{ r: 3, fill: "#C9A84C" }} name="Bookings" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              {/* 3. Revenue by Department — donut chart */}
+              {analyticsSvcs.length > 0 && (
+                <Card className="border-primary/10">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-semibold">Revenue by Department</CardTitle>
+                  </CardHeader>
+                  <CardContent className="pt-0">
+                    <div className="flex items-start gap-4">
+                      <div className="w-36 h-36 flex-shrink-0">
+                        <ResponsiveContainer width="100%" height={144}>
+                          <PieChart>
+                            <Pie
+                              data={analyticsSvcs}
+                              dataKey="revenue"
+                              nameKey="service"
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={38}
+                              outerRadius={60}
+                              paddingAngle={3}
+                            >
+                              {analyticsSvcs.map(s => (
+                                <Cell key={s.service} fill={ANALYTICS_SERVICE_COLORS[s.service] || "#6B7280"} />
+                              ))}
+                            </Pie>
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="flex-1 space-y-2 py-1">
+                        {analyticsSvcs.map(s => {
+                          const pct = analyticsTotalRevenue > 0 ? (s.revenue / analyticsTotalRevenue * 100) : 0;
+                          return (
+                            <div key={s.service}>
+                              <div className="flex items-center justify-between text-xs mb-1">
+                                <div className="flex items-center gap-1.5">
+                                  <div className="w-2.5 h-2.5 rounded-sm" style={{ background: ANALYTICS_SERVICE_COLORS[s.service] || "#6B7280" }} />
+                                  <span className="text-foreground font-medium truncate max-w-[120px]">{s.service}</span>
+                                </div>
+                                <span className="font-semibold text-foreground ml-1">£{s.revenue.toLocaleString()}</span>
+                              </div>
+                              <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+                                <div className="h-full rounded-full" style={{ width: `${pct}%`, background: ANALYTICS_SERVICE_COLORS[s.service] || "#6B7280" }} />
+                              </div>
+                              <div className="text-[10px] text-muted-foreground mt-0.5">{s.bookings} bookings · {pct.toFixed(0)}%</div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* 4. Best Month card */}
+              {analyticsBestMonth && (
+                <Card className="border-green-500/20 bg-green-500/5">
+                  <CardContent className="p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Award className="w-4 h-4 text-green-400" />
+                      <span className="text-xs font-semibold text-green-400 uppercase tracking-wider">Best Month</span>
+                    </div>
+                    <div className="text-lg font-bold text-foreground">{analyticsBestMonth.month} {analyticsYear}</div>
+                    <div className="text-sm text-primary font-semibold">£{analyticsBestMonth.revenue.toLocaleString()}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">{analyticsBestMonth.bookings} bookings</div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* 5. Month-by-Month Breakdown table */}
+              <Card className="border-primary/10">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm font-semibold">Month-by-Month Breakdown</CardTitle>
+                </CardHeader>
+                <CardContent className="pt-0">
+                  <div className="space-y-1">
+                    {analyticsMonthly.map(m => {
+                      const pct    = analyticsTotalRevenue > 0 ? (m.revenue / analyticsTotalRevenue * 100) : 0;
+                      const isBest = m.month === analyticsBestMonth?.month;
+                      return (
+                        <div key={m.month} className={`flex items-center gap-3 px-3 py-2.5 rounded-xl ${isBest ? "bg-primary/8 border border-primary/20" : ""}`}>
+                          <span className="text-xs font-semibold text-muted-foreground w-7">{m.month}</span>
+                          <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                            <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="text-xs font-bold text-foreground w-20 text-right">
+                            {m.revenue > 0 ? `£${m.revenue.toLocaleString()}` : "—"}
+                          </span>
+                          <Badge variant="outline" className="text-[10px] w-16 justify-center">
+                            {m.bookings} job{m.bookings !== 1 ? "s" : ""}
+                          </Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            </>
+          )}
+        </TabsContent>
+
         {/* PROFIT — Super Admin only */}
         {isSuperAdminOnly && (
           <TabsContent value="profit" className="space-y-4 mt-4">
