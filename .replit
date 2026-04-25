@@ -79,10 +79,10 @@ SMTP_PORT = "465"
 SMTP_USER = "notifications@traveluxelondon.com"
 SMTP_FROM = "Traveluxe London <notifications@traveluxelondon.com>"
 SMTP_REPLY_TO = "info@traveluxelondon.com"
-VAPID_PUBLIC_KEY = "BLqMrPPK6rqxI8NkUW_ocrInVSj4r-QwVrwpQMvsrh7ROt7lPa15QZEMduwikY9jpzg2p2QzbWiAefuT3rRFAmg"
-VAPID_PRIVATE_KEY = "GSKPu0dDbEn1NzhziLmLixtFCdC8WpEYiY0vUcpUW1Q"
+VAPID_PUBLIC_KEY = "BCxUyndtTYH0pDPqmHR080flSL9zlIVnvtNJ8sWRd3XAQd8bA3KSi47Vc4djivmq85khZFo-PWg6g0YHEXDQTrM"
+VAPID_PRIVATE_KEY = "NAN8GResvWUiAmwefUtfOx_dPFTg4yYoZpzNHKBecQE"
 VAPID_SUBJECT = "mailto:info@traveluxelondon.com"
-VITE_VAPID_PUBLIC_KEY = "BLqMrPPK6rqxI8NkUW_ocrInVSj4r-QwVrwpQMvsrh7ROt7lPa15QZEMduwikY9jpzg2p2QzbWiAefuT3rRFAmg"
+VITE_VAPID_PUBLIC_KEY = "BCxUyndtTYH0pDPqmHR080flSL9zlIVnvtNJ8sWRd3XAQd8bA3KSi47Vc4djivmq85khZFo-PWg6g0YHEXDQTrM"
 
 [nix]
 channel = "stable-25_05"

@@ -148,20 +148,26 @@ export function getPushPermission(): NotificationPermission | "unsupported" {
 function browserNotify(title: string, body: string, link?: string) {
   if (typeof Notification === "undefined") return;
   if (Notification.permission !== "granted") return;
-  try {
-    if (swReg && swReg.showNotification) {
-      swReg.showNotification(title, {
+  // Android Chrome does NOT support new Notification() from the page context —
+  // it silently fails. We must always go through a ServiceWorkerRegistration.
+  // Use navigator.serviceWorker.ready (a persistent Promise) so we never
+  // race against the async registration completing.
+  if ("serviceWorker" in navigator) {
+    navigator.serviceWorker.ready.then(reg => {
+      reg.showNotification(title, {
         body,
-        icon: "/favicon.ico",
-        badge: "/favicon.ico",
-        data: { link },
+        icon: "/TVL_logo_192x192.png",
+        badge: "/TVL_logo_32x32.png",
+        data: { link: link || "/" },
         tag: title,
         renotify: true,
-      } as any);
-      return;
-    }
-    new Notification(title, { body, icon: "/favicon.ico" });
-  } catch {}
+        vibrate: [200, 100, 200],
+      } as NotificationOptions);
+    }).catch(() => {});
+    return;
+  }
+  // Desktop fallback (no service worker support)
+  try { new Notification(title, { body, icon: "/TVL_logo_192x192.png" }); } catch {}
 }
 
 // Sonner toast styling per severity

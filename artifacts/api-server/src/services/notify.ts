@@ -1,4 +1,5 @@
 import { supabase, getServiceRoleClient } from "../lib/supabase";
+import { sendWebPushToUser } from "./webpush";
 
 // Notifications are server-generated side effects (booking saved, driver
 // assigned, etc.) that need to be inserted into OTHER users' inboxes.
@@ -158,6 +159,20 @@ async function insertRows(userIds: string[], opts: NotifyOpts): Promise<void> {
       return;
     }
     console.error("[notify] insert error:", error.message);
+    return;
+  }
+
+  // Fire-and-forget Web Push for background delivery (when app is closed/backgrounded).
+  // sendWebPushToUser is a no-op if VAPID keys aren't configured or the user
+  // has no saved subscription.
+  for (const uid of userIds) {
+    sendWebPushToUser(uid, {
+      title: opts.title,
+      body:  opts.message,
+      link:  opts.link,
+      tag:   `${opts.type}-${opts.entityId ?? uid}`,
+      requireInteraction: opts.severity === "urgent",
+    }).catch(() => {});
   }
 }
 

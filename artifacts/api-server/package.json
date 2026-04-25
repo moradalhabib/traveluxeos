@@ -13,6 +13,7 @@
     "@google-cloud/storage": "^7.19.0",
     "@supabase/supabase-js": "^2.103.3",
     "@swc/helpers": "^0.5.21",
+    "@types/pg": "^8.18.0",
     "@types/web-push": "^3.6.4",
     "@workspace/api-zod": "workspace:*",
     "@workspace/db": "workspace:*",
@@ -25,6 +26,7 @@
     "node-fetch": "^3.3.2",
     "nodemailer": "^8.0.5",
     "pdfkit": "^0.18.0",
+    "pg": "^8.20.0",
     "pino": "^9",
     "pino-http": "^10",
     "web-push": "^3.6.7"
