@@ -50,7 +50,7 @@ export async function fetchFlightStatus(
   if (!RAPIDAPI_KEY) return { ok: false, reason: "no_key" };
 
   try {
-    const url = `${AERO_BASE}/flights/iata/${encodeURIComponent(flightNumber)}/${date}?withAircraftImage=false&withLocation=false`;
+    const url = `${AERO_BASE}/flights/number/${encodeURIComponent(flightNumber)}/${date}?withAircraftImage=false&withLocation=false`;
     const resp = await fetch(url, {
       headers: {
         "x-rapidapi-host": AERO_HOST,
