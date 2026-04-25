@@ -16,29 +16,18 @@ import { BulkActionBar } from "@/components/bulk-action-bar";
 import { supabase } from "@/lib/supabase";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Link, useSearch, useLocation } from "wouter";
-import { format, startOfDay, isBefore } from "date-fns";
+import { format, startOfDay, endOfDay, addDays, isBefore, isAfter, isToday, isTomorrow } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { useAuth } from "@/hooks/use-auth";
 
-// Sort + Group controls (Fix 3). Default sort is Most Recent (created_at desc)
-// across all list pages in the app; bookings additionally exposes Group By
-// Service Type so operators can scan bookings clustered by service.
-type SortKey = "date_asc" | "date_desc" | "recent" | "oldest" | "service" | "status" | "price";
-type GroupKey = "none" | "service";
-const SORT_OPTIONS: { value: SortKey; label: string }[] = [
-  { value: "date_asc",  label: "By Date (Soonest)" },
-  { value: "date_desc", label: "By Date (Latest)" },
-  { value: "recent",    label: "Most Recent (created)" },
-  { value: "oldest",    label: "Oldest (created)" },
-  { value: "service",   label: "By Service Type" },
-  { value: "status",    label: "By Status" },
-  { value: "price",     label: "By Price" },
-];
-const STATUS_ORDER: Record<string, number> = {
-  Pending: 0, Confirmed: 1, Active: 2, Completed: 3, Cancelled: 4,
-};
+// Bookings now mirrors the Jobs Board: a single Time filter
+// (Today / Tomorrow / This Week / All Upcoming), sticky date-section headers
+// and within each date pickup time ascending. Past bookings auto-hidden in
+// "All Upcoming" view (recently-completed within 14 days kept visible so a
+// finished morning run doesn't vanish at midnight).
+type TimeFilter = "today" | "tomorrow" | "this_week" | "all";
 
 const STATUS_COLORS: Record<string, string> = {
   Pending:   "bg-amber-500/20 text-amber-400 border-amber-500/50",
@@ -151,8 +140,7 @@ export default function Bookings() {
   const [status, setStatus] = useFilterState<string>("status", "");
   const [search, setSearch] = useFilterState<string>("q", "");
   const [source, setSource] = useFilterState<"active" | "imported">("source", "active");
-  const [sortKey, setSortKey] = useFilterState<SortKey>("sort", "date_asc");
-  const [groupKey, setGroupKey] = useFilterState<GroupKey>("group", "none");
+  const [timeFilter, setTimeFilter] = useFilterState<TimeFilter>("time", "all");
   const urlSearch = useSearch();
   const upcomingOnly = new URLSearchParams(urlSearch).get("upcoming") === "1";
 
@@ -196,67 +184,64 @@ export default function Bookings() {
     return list;
   }, [rawBookings, isResidenceManager, search, upcomingOnly]);
 
-  // Sort the filtered list by the selected key. Defaults to By Date Ascending
-  // (date_time asc) so the soonest upcoming booking always appears first.
-  const sortedBookings = useMemo(() => {
-    const arr = [...bookings];
-    const ts = (v: any) => (v ? new Date(v).getTime() : 0);
-    // For date sorts, items with no date_time are pushed to the end.
-    const NO_DATE = 9_999_999_999_999;
-    switch (sortKey) {
-      case "date_asc":
-        arr.sort((a, b) => {
-          const da = a.date_time ? ts(a.date_time) : NO_DATE;
-          const db = b.date_time ? ts(b.date_time) : NO_DATE;
-          return da - db;
-        });
-        break;
-      case "date_desc":
-        arr.sort((a, b) => {
-          const da = a.date_time ? ts(a.date_time) : -1;
-          const db = b.date_time ? ts(b.date_time) : -1;
-          return db - da;
-        });
-        break;
-      case "oldest":
-        arr.sort((a, b) => ts(a.created_at) - ts(b.created_at));
-        break;
-      case "service":
-        arr.sort((a, b) =>
-          String(a.service_type ?? "").localeCompare(String(b.service_type ?? "")) ||
-          ts(b.created_at) - ts(a.created_at)
-        );
-        break;
-      case "status":
-        arr.sort((a, b) =>
-          (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99) ||
-          ts(b.created_at) - ts(a.created_at)
-        );
-        break;
-      case "price":
-        arr.sort((a, b) => Number(b.price ?? 0) - Number(a.price ?? 0));
-        break;
-      case "recent":
-      default:
-        arr.sort((a, b) => ts(b.created_at) - ts(a.created_at));
-    }
-    return arr;
-  }, [bookings, sortKey]);
+  // Time filter: hides past bookings in "All Upcoming" (the default) so the
+  // operator's view starts at Today. When a Status filter is active the time
+  // filter is bypassed so e.g. "show me all Cancelled bookings ever" works.
+  const timeFilteredBookings = useMemo(() => {
+    if (!bookings) return [];
+    if (status) return bookings;            // status filter active → show all matching
+    const now = new Date();
+    return bookings.filter((b: any) => {
+      if (!b.date_time) return timeFilter === "all";
+      const d = new Date(b.date_time);
+      switch (timeFilter) {
+        case "today": return isToday(d);
+        case "tomorrow": return isTomorrow(d);
+        case "this_week": {
+          const weekEnd = endOfDay(addDays(now, 7));
+          return !isBefore(d, startOfDay(now)) && !isAfter(d, weekEnd);
+        }
+        case "all":
+        default:
+          // Keep recently-completed bookings visible for 14 days so a finished
+          // job doesn't vanish at midnight.
+          if (b.status === "Completed" && !isBefore(d, startOfDay(addDays(now, -14)))) return true;
+          return !isBefore(d, startOfDay(now));
+      }
+    });
+  }, [bookings, timeFilter, status]);
 
-  // Group the sorted list. "none" returns a single anonymous bucket so the
-  // render path stays uniform.
-  const grouped = useMemo<{ key: string; items: any[] }[]>(() => {
-    if (groupKey !== "service") return [{ key: "", items: sortedBookings }];
-    const map = new Map<string, any[]>();
-    for (const b of sortedBookings) {
-      const k = b.service_type || "Other";
-      if (!map.has(k)) map.set(k, []);
-      map.get(k)!.push(b);
+  // Group bookings by date for date-section headings. Within each day,
+  // finished-past jobs sink to the bottom so the next upcoming booking is
+  // always at the top of its day.
+  const groupedByDate = useMemo(() => {
+    const groups = new Map<string, { label: string; sortKey: string; items: any[] }>();
+    const undated: any[] = [];
+    for (const b of timeFilteredBookings) {
+      if (!b.date_time) { undated.push(b); continue; }
+      const d = new Date(b.date_time);
+      const sortKey = format(d, "yyyy-MM-dd");
+      const label = isToday(d) ? `Today · ${format(d, "EEE d MMMM yyyy")}`
+        : isTomorrow(d) ? `Tomorrow · ${format(d, "EEE d MMMM yyyy")}`
+        : format(d, "EEEE d MMMM yyyy");
+      if (!groups.has(sortKey)) groups.set(sortKey, { label, sortKey, items: [] });
+      groups.get(sortKey)!.items.push(b);
     }
-    return Array.from(map.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([key, items]) => ({ key, items }));
-  }, [sortedBookings, groupKey]);
+    const sorted = [...groups.values()].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+    const nowMs = Date.now();
+    const isFinishedPast = (b: any) =>
+      b.status === "Completed" && b.date_time && new Date(b.date_time).getTime() < nowMs;
+    for (const g of sorted) {
+      g.items.sort((a, b) => {
+        const aDone = isFinishedPast(a);
+        const bDone = isFinishedPast(b);
+        if (aDone !== bDone) return aDone ? 1 : -1;
+        return new Date(a.date_time!).getTime() - new Date(b.date_time!).getTime();
+      });
+    }
+    if (undated.length > 0) sorted.push({ label: "Date TBC", sortKey: "zzz", items: undated });
+    return sorted;
+  }, [timeFilteredBookings]);
 
   return (
     <div className="space-y-6">
@@ -338,6 +323,24 @@ export default function Bookings() {
               testId="filter-bookings-source"
             />
           )}
+          {/* Time filter is bypassed when a Status is explicitly chosen
+              (so the user sees ALL matching bookings regardless of date),
+              so we hide the dropdown to avoid implying it's still active. */}
+          {!status && (
+            <FilterDropdown
+              label="Time:"
+              value={timeFilter}
+              onChange={(v) => setTimeFilter(v as TimeFilter)}
+              options={[
+                { value: "today",     label: "Today" },
+                { value: "tomorrow",  label: "Tomorrow" },
+                { value: "this_week", label: "This Week" },
+                { value: "all",       label: "All Upcoming" },
+              ]}
+              widthClass="w-40"
+              testId="filter-bookings-time"
+            />
+          )}
           <FilterDropdown
             label="Status:"
             value={status === "" ? "all" : status}
@@ -352,37 +355,27 @@ export default function Bookings() {
             ]}
             testId="filter-bookings-status"
           />
-          <FilterDropdown
-            label="Sort:"
-            value={sortKey}
-            onChange={(v) => setSortKey(v as SortKey)}
-            options={SORT_OPTIONS.map((o) => ({ value: o.value, label: o.label }))}
-            widthClass="w-44"
-            testId="filter-bookings-sort"
-          />
-          <FilterDropdown
-            label="Group by:"
-            value={groupKey}
-            onChange={(v) => {
-              if (v === "none" || v === "service") setGroupKey(v);
-            }}
-            options={[
-              { value: "none",    label: "None" },
-              { value: "service", label: "Service Type" },
-            ]}
-            widthClass="w-44"
-            testId="filter-bookings-group"
-          />
         </div>
       </div>
 
       {(() => {
+        const TIME_LABELS: Record<string, string> = { today: "Today", tomorrow: "Tomorrow", this_week: "This Week", all: "All Upcoming" };
         const chips: ActiveFilter[] = [];
         if (isSuperAdmin && !isResidenceManager && source !== "active") {
           chips.push({ key: "source", label: "Source", value: "Imported (Odoo)", onClear: () => setSource("active") });
         }
+        // Show the Time chip whenever it's narrower than the default — but
+        // also when status is active (the time filter is bypassed in that
+        // case so the chip would be misleading; we hide it).
+        if (!status && timeFilter !== "all") {
+          chips.push({ key: "time", label: "Time", value: TIME_LABELS[timeFilter] ?? timeFilter, onClear: () => setTimeFilter("all") });
+        }
         if (status !== "") chips.push({ key: "status", label: "Status", value: status, onClear: () => setStatus("") });
-        return <ActiveFilterChips filters={chips} onClearAll={() => { if (isSuperAdmin && !isResidenceManager) setSource("active"); setStatus(""); }} />;
+        return <ActiveFilterChips filters={chips} onClearAll={() => {
+          if (isSuperAdmin && !isResidenceManager) setSource("active");
+          setStatus("");
+          setTimeFilter("all");
+        }} />;
       })()}
 
       {/* Grid (grouped) */}
@@ -392,16 +385,15 @@ export default function Bookings() {
         </div>
       ) : (
         <div className="space-y-6">
-          {grouped.map(group => (
-            <div key={group.key || "_all"} className="space-y-3">
-              {groupKey === "service" && (
-                <div className="flex items-center gap-2 pt-1">
-                  <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                    {group.key}
-                  </h2>
-                  <span className="text-xs text-muted-foreground">({group.items.length})</span>
-                </div>
-              )}
+          {groupedByDate.map(group => (
+            <div key={group.sortKey} className="space-y-3">
+              <div className="flex items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-sm py-1.5 z-10">
+                <h2 className="text-sm font-bold text-primary uppercase tracking-wide">{group.label}</h2>
+                <div className="flex-1 h-px bg-border" />
+                <Badge variant="outline" className="text-[10px] text-muted-foreground border-border">
+                  {group.items.length} booking{group.items.length !== 1 ? "s" : ""}
+                </Badge>
+              </div>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {group.items.map((booking: any) => {
           const selected = bulk.isSelected(booking.id);
@@ -622,11 +614,14 @@ export default function Bookings() {
               </div>
             </div>
           ))}
-          {bookings.length === 0 && (
+          {timeFilteredBookings.length === 0 && (
             <div className="py-12 text-center text-muted-foreground border border-dashed rounded-lg">
               {isResidenceManager
-                ? "No apartment bookings found."
-                : "No bookings found."}
+                ? "No apartment bookings in this view."
+                : timeFilter === "today" ? "No bookings scheduled for today."
+                : timeFilter === "tomorrow" ? "No bookings scheduled for tomorrow."
+                : timeFilter === "this_week" ? "No upcoming bookings this week."
+                : "No upcoming bookings."}
             </div>
           )}
         </div>

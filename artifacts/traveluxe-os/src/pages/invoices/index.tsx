@@ -23,7 +23,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { Link } from "wouter";
-import { format } from "date-fns";
+import { format, isToday, isTomorrow } from "date-fns";
 import { AlertTriangle, FileText, Plus, Receipt, Search, X, Trash2, CheckSquare } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
@@ -218,6 +218,30 @@ export default function Invoices() {
 
   const statuses = ["Generated", "Sent", "Paid", "Overdue"];
 
+  // Group invoices by their linked booking's date for date-section headings.
+  // Sorted ascending so the oldest unpaid invoices float to the top — perfect
+  // for spotting overdue items at a glance. Invoices whose booking has no
+  // date_time fall into a "Date TBC" group at the very end.
+  const groupedByDate = useMemo(() => {
+    const groups = new Map<string, { label: string; sortKey: string; items: typeof filteredInvoices }>();
+    const undated: typeof filteredInvoices = [];
+    for (const inv of filteredInvoices) {
+      const bk = bookingMap[(inv as any).booking_id];
+      const dateValue = bk?.date_time ?? (inv as any).generated_at ?? (inv as any).created_at;
+      if (!dateValue) { undated.push(inv); continue; }
+      const d = new Date(dateValue);
+      const sortKey = format(d, "yyyy-MM-dd");
+      const label = isToday(d) ? `Today · ${format(d, "EEE d MMMM yyyy")}`
+        : isTomorrow(d) ? `Tomorrow · ${format(d, "EEE d MMMM yyyy")}`
+        : format(d, "EEEE d MMMM yyyy");
+      if (!groups.has(sortKey)) groups.set(sortKey, { label, sortKey, items: [] });
+      groups.get(sortKey)!.items.push(inv);
+    }
+    const sorted = [...groups.values()].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
+    if (undated.length > 0) sorted.push({ label: "Date TBC", sortKey: "zzz", items: undated });
+    return sorted;
+  }, [filteredInvoices, bookingMap]);
+
   return (
     <div className="space-y-5">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -340,12 +364,21 @@ export default function Invoices() {
         return <ActiveFilterChips filters={chips} onClearAll={() => { setSourceFilter("new"); setStatusFilter("all"); setOverdueOnly(false); }} />;
       })()}
 
-      {/* Invoice list */}
-      <div className="space-y-3">
+      {/* Invoice list — grouped by linked booking's date, sticky day headers */}
+      <div className="space-y-6">
         {isLoading ? (
           [...Array(5)].map((_, i) => <Skeleton key={i} className="h-24" />)
         ) : filteredInvoices.length > 0 ? (
-          filteredInvoices.map((invoice) => {
+          groupedByDate.map(group => (
+            <div key={group.sortKey} className="space-y-3">
+              <div className="flex items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-sm py-1.5 z-10">
+                <h2 className="text-sm font-bold text-primary uppercase tracking-wide">{group.label}</h2>
+                <div className="flex-1 h-px bg-border" />
+                <Badge variant="outline" className="text-[10px] text-muted-foreground border-border">
+                  {group.items.length} invoice{group.items.length !== 1 ? "s" : ""}
+                </Badge>
+              </div>
+              {group.items.map((invoice) => {
             const bk = bookingMap[invoice.booking_id];
             const selected = bulk.isSelected(invoice.id);
             const cardBody = (
@@ -439,7 +472,9 @@ export default function Invoices() {
                 )}
               </div>
             );
-          })
+          })}
+            </div>
+          ))
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-center border border-dashed rounded-xl">
             <FileText className="w-12 h-12 text-muted-foreground/30 mb-4" />
