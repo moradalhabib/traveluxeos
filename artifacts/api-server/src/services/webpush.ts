@@ -3,6 +3,7 @@ import { getServiceRoleClient } from "../lib/supabase";
 import { logger } from "../lib/logger";
 
 let _configured = false;
+let _missingLogged = false;
 
 function ensureConfigured() {
   if (_configured) return;
@@ -12,6 +13,16 @@ function ensureConfigured() {
   if (pub && priv) {
     webpush.setVapidDetails(subj, pub, priv);
     _configured = true;
+    logger.info(
+      { pubLen: pub.length, hasPriv: true, subject: subj },
+      "[push] VAPID configured — OS push notifications enabled",
+    );
+  } else if (!_missingLogged) {
+    _missingLogged = true;
+    logger.warn(
+      { hasPublic: !!pub, hasPrivate: !!priv, subject: subj },
+      "[push] VAPID keys missing in env — OS push notifications DISABLED. Set VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY in Deployment Secrets and redeploy.",
+    );
   }
 }
 
@@ -79,6 +90,15 @@ async function sendToSubscriptions(
       }
     }
   }
+}
+
+/**
+ * Eagerly check VAPID config at startup so the deployment logs immediately
+ * show whether OS push is wired up — without having to wait for the first
+ * booking event to fire a (silent) push attempt.
+ */
+export function reportPushStatus(): void {
+  ensureConfigured();
 }
 
 /**
