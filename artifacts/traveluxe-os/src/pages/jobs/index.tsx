@@ -295,16 +295,21 @@ export default function Jobs() {
         </Button>
       </div>
 
-      {/* Urgent alert — read-only banner so the warning is always visible.
-          The actual filter toggle moved into the compact dropdown below to
-          stay consistent with the rest of the app's filter chrome. */}
+      {/* Urgent alert — tap to instantly filter to unassigned jobs only. */}
       {urgentJobs.length > 0 && (
-        <div className="w-full border rounded-xl p-4 bg-destructive/10 border-destructive/30">
+        <button
+          type="button"
+          className="w-full border rounded-xl p-4 bg-destructive/10 border-destructive/30 text-left hover:bg-destructive/15 active:bg-destructive/20 transition-colors cursor-pointer"
+          onClick={() => setUnassignedOnly(!unassignedOnly)}
+        >
           <div className="flex items-center gap-2 text-destructive font-semibold text-sm">
             <AlertTriangle className="w-4 h-4 flex-shrink-0" />
-            <span>{urgentJobs.length} job{urgentJobs.length > 1 ? 's' : ''} need a driver assigned urgently</span>
+            <span>{urgentJobs.length} job{urgentJobs.length > 1 ? 's' : ''} need{urgentJobs.length === 1 ? 's' : ''} a driver assigned urgently</span>
+            <span className="ml-auto text-[11px] font-normal opacity-70 underline underline-offset-2">
+              {unassignedOnly ? "Show all" : "Show only →"}
+            </span>
           </div>
-        </div>
+        </button>
       )}
 
       {upcomingJobs.length > 0 && (

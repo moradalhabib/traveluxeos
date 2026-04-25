@@ -4,7 +4,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Briefcase, CalendarRange, Home, X, StickyNote, Trash2, CheckSquare } from "lucide-react";
+import { Plus, Briefcase, Home, X, StickyNote, Trash2, CheckSquare, MapPin, Car, MessageCircle, Clock, AlertTriangle, Plane } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -15,7 +15,7 @@ import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { supabase } from "@/lib/supabase";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Link, useSearch } from "wouter";
+import { Link, useSearch, useLocation } from "wouter";
 import { format, startOfDay, isBefore } from "date-fns";
 import { Input } from "@/components/ui/input";
 import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
@@ -38,9 +38,44 @@ const STATUS_ORDER: Record<string, number> = {
   Pending: 0, Confirmed: 1, Active: 2, Completed: 3, Cancelled: 4,
 };
 
+const STATUS_COLORS: Record<string, string> = {
+  Pending:   "bg-amber-500/20 text-amber-400 border-amber-500/50",
+  Confirmed: "bg-blue-500/20 text-blue-400 border-blue-500/50",
+  Active:    "bg-green-500/20 text-green-400 border-green-500/50",
+  Completed: "bg-gray-500/20 text-gray-400 border-gray-500/50",
+  Cancelled: "bg-destructive/20 text-destructive border-destructive/50",
+};
+
+const PAYMENT_COLORS: Record<string, string> = {
+  Paid:    "bg-green-500/20 text-green-400 border-green-500/40",
+  Partial: "bg-amber-500/20 text-amber-400 border-amber-500/40",
+  Unpaid:  "bg-orange-500/15 text-orange-400 border-orange-500/40",
+};
+
+function getVipBadgeColor(tier?: string) {
+  switch (tier) {
+    case "VVIP":    return "border-yellow-500/50 text-yellow-400 bg-yellow-500/10";
+    case "VIP":     return "border-purple-500/50 text-purple-400 bg-purple-500/10";
+    case "Regular": return "border-blue-500/40 text-blue-400 bg-blue-500/10";
+    default:        return "border-border text-muted-foreground";
+  }
+}
+
+function getFlightBadgeClass(status?: string) {
+  switch (status) {
+    case "Delayed":   return "bg-amber-500/15 text-amber-400 border-amber-500/40";
+    case "Early":     return "bg-emerald-500/15 text-emerald-400 border-emerald-500/40";
+    case "Cancelled": return "bg-destructive/15 text-destructive border-destructive/40";
+    case "Landed":    return "bg-blue-500/15 text-blue-400 border-blue-500/30";
+    case "On Time":   return "bg-green-500/15 text-green-400 border-green-500/30";
+    default:          return "bg-blue-500/10 text-blue-400 border-blue-500/30";
+  }
+}
+
 export default function Bookings() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const isResidenceManager = user?.role === "residence_manager";
   const isSuperAdmin = user?.role === "super_admin";
@@ -205,17 +240,6 @@ export default function Bookings() {
       .map(([key, items]) => ({ key, items }));
   }, [sortedBookings, groupKey]);
 
-  const getStatusColor = (s: string) => {
-    switch (s) {
-      case "Pending":   return "bg-amber-500/20 text-amber-500 border-amber-500/50";
-      case "Confirmed": return "bg-blue-500/20 text-blue-500 border-blue-500/50";
-      case "Active":    return "bg-green-500/20 text-green-500 border-green-500/50";
-      case "Completed": return "bg-gray-500/20 text-gray-500 border-gray-500/50";
-      case "Cancelled": return "bg-destructive/20 text-destructive border-destructive/50";
-      default:          return "bg-secondary text-secondary-foreground border-border";
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -366,96 +390,175 @@ export default function Bookings() {
           return (
           <Card
             key={booking.id}
-            className={`border-primary/10 transition-colors bg-card overflow-hidden flex flex-col ${
+            className={`border-border hover:border-primary/40 hover:bg-secondary/10 transition-all bg-card overflow-hidden ${
               bulk.selectMode
-                ? (selected ? "ring-2 ring-primary border-primary cursor-pointer" : "hover:border-primary/30 cursor-pointer")
-                : "hover:border-primary/30"
+                ? (selected ? "ring-2 ring-primary border-primary cursor-pointer" : "cursor-pointer")
+                : "cursor-pointer"
             }`}
-            onClick={bulk.selectMode ? () => bulk.toggle(booking.id) : undefined}
+            onClick={bulk.selectMode ? () => bulk.toggle(booking.id) : () => setLocation(`/bookings/${booking.id}`)}
             data-testid={bulk.selectMode ? `select-booking-${booking.id}` : undefined}
           >
-            <CardContent className="p-5 flex-1 flex flex-col">
-              <div className="flex justify-between items-start mb-4">
-                <div className="min-w-0 flex items-start gap-3">
-                  {bulk.selectMode && (
-                    <div className={`mt-1 flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center ${selected ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
-                      {selected && <CheckSquare className="w-3 h-3 text-primary-foreground" />}
-                    </div>
-                  )}
-                  <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <div className="text-xs text-muted-foreground font-mono">{booking.tvl_ref}</div>
+            <CardContent className="p-4">
+              {/* Top row: ref + badges | status badge + time */}
+              <div className="flex items-start justify-between mb-2">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {bulk.selectMode && (
+                      <div className={`flex-shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center ${selected ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                        {selected && <CheckSquare className="w-2.5 h-2.5 text-primary-foreground" />}
+                      </div>
+                    )}
+                    <span className="text-xs text-muted-foreground font-mono">{booking.tvl_ref}</span>
                     {booking.service_type && (
                       <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-secondary/40 text-foreground border-border">
-                        {booking.service_type}{booking.direction ? ` · ${booking.direction}` : ""}
+                        {booking.service_type}{(booking as any).direction ? ` · ${(booking as any).direction}` : ""}
                       </Badge>
                     )}
-                    {/* Notes / special-requests indicator — gives operators
-                        a heads-up that the booking has free-text instructions
-                        worth opening the job sheet for. */}
-                    {(booking.notes || booking.special_requests) && (
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] py-0 px-1.5 bg-amber-500/10 text-amber-300 border-amber-500/40 gap-1"
-                        title={booking.special_requests || booking.notes}
-                        data-testid={`badge-notes-${booking.id}`}
+                    {/* Flight badge with live status colour */}
+                    {(booking as any).flight_number && (() => {
+                      const fs = (booking as any).flight_status;
+                      const st = fs?.status as string | undefined;
+                      const delayMins = fs?.delay_minutes ?? 0;
+                      const note = st === "Delayed" && delayMins > 0 ? ` +${delayMins}m`
+                                 : st === "Early"   && delayMins < 0 ? ` ${Math.abs(delayMins)}m early` : "";
+                      return (
+                        <Badge variant="outline" className={`text-[10px] py-0 px-1.5 flex items-center gap-0.5 ${getFlightBadgeClass(st)}`}>
+                          <Plane className="w-2.5 h-2.5" />
+                          {(booking as any).flight_number}
+                          {st && st !== "Unknown" && <span className="ml-0.5 font-normal opacity-80">{st}{note}</span>}
+                        </Badge>
+                      );
+                    })()}
+                    {/* Email status */}
+                    {(booking as any).last_email_status === "sent" && (
+                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                        title={`Email sent${(booking as any).last_email_kind ? ` · ${(booking as any).last_email_kind.replace(/_/g, " ")}` : ""}`}>
+                        ✓ Email
+                      </Badge>
+                    )}
+                    {(booking as any).last_email_status === "failed" && (
+                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-destructive/10 text-destructive border-destructive/40"
+                        title="Last email failed — open booking to retry">
+                        ⚠ Email failed
+                      </Badge>
+                    )}
+                    {/* Notes */}
+                    {((booking as any).notes || (booking as any).special_requests) && (
+                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-amber-500/10 text-amber-300 border-amber-500/40 gap-1"
+                        title={(booking as any).special_requests || (booking as any).notes}
+                        data-testid={`badge-notes-${booking.id}`}>
+                        <StickyNote className="w-2.5 h-2.5" /> Notes
+                      </Badge>
+                    )}
+                  </div>
+
+                  {/* Client name + VIP */}
+                  <div className="flex items-center gap-2 mt-1">
+                    {booking.client_id ? (
+                      <span
+                        className="font-bold text-base text-primary hover:underline"
+                        onClick={(e) => { e.stopPropagation(); setLocation(`/clients/${booking.client_id}`); }}
                       >
-                        <StickyNote className="w-2.5 h-2.5" />
-                        Notes
+                        {booking.client_name || "Unknown Client"}
+                      </span>
+                    ) : (
+                      <span className="font-bold text-base text-foreground">{booking.client_name || "Unknown Client"}</span>
+                    )}
+                    {(booking as any).client_vip_tier && (booking as any).client_vip_tier !== "Standard" && (
+                      <Badge variant="outline" className={`text-[10px] py-0 px-1.5 ${getVipBadgeColor((booking as any).client_vip_tier)}`}>
+                        {(booking as any).client_vip_tier}
                       </Badge>
                     )}
-                  </div>
-                  <h3 className="font-bold text-lg text-foreground truncate">{booking.client_name || "Unknown Client"}</h3>
-                  <div className="text-sm text-muted-foreground mt-1 flex items-center">
-                    <CalendarRange className="w-3 h-3 mr-1" />
-                    {booking.date_time ? format(new Date(booking.date_time), "PPp") : "TBD"}
-                  </div>
                   </div>
                 </div>
-                <Badge variant="outline" className={getStatusColor(booking.status)}>
-                  {booking.status}
-                </Badge>
-              </div>
 
-              <div className="mt-auto grid grid-cols-2 gap-2 text-sm text-muted-foreground mb-4">
-                {/* Residence Manager: no driver info, no price */}
-                {isResidenceManager ? (
-                  <>
-                    <div>
-                      <span className="block text-xs uppercase opacity-70">Pickup</span>
-                      <span className="font-medium text-foreground text-sm">{booking.pickup || "—"}</span>
-                    </div>
-                    <div>
-                      <span className="block text-xs uppercase opacity-70">Check-in</span>
-                      <span className="font-medium text-foreground text-sm">
-                        {booking.date_time ? format(new Date(booking.date_time), "d MMM") : "—"}
+                {/* Right: status + time */}
+                <div className="flex flex-col items-end gap-1 ml-3 flex-shrink-0">
+                  <Badge variant="outline" className={`text-[11px] font-semibold ${STATUS_COLORS[booking.status] ?? "bg-secondary text-secondary-foreground border-border"}`}>
+                    {booking.status}
+                  </Badge>
+                  {booking.date_time && (
+                    <div className="flex flex-col items-end gap-0">
+                      <div className="flex items-center gap-1 text-sm font-semibold text-foreground">
+                        <Clock className="w-3 h-3 text-primary" />
+                        {format(new Date(booking.date_time), "HH:mm")}
+                      </div>
+                      <span className="text-[10px] text-muted-foreground">
+                        {format(new Date(booking.date_time), "EEE d MMM yyyy")}
                       </span>
                     </div>
-                  </>
-                ) : (
-                  <>
-                    <div>
-                      <span className="block text-xs uppercase opacity-70">Driver</span>
-                      <span className="font-medium text-foreground">
+                  )}
+                </div>
+              </div>
+
+              {/* Route */}
+              {(booking.pickup || (booking as any).dropoff || (booking as any).destination) && (
+                <div className="flex items-start gap-2 text-sm mb-2">
+                  <MapPin className="w-3.5 h-3.5 mt-0.5 text-primary flex-shrink-0" />
+                  <span className="text-muted-foreground line-clamp-1">
+                    <span className="text-foreground">{booking.pickup || "—"}</span>
+                    <span className="mx-1.5 text-muted-foreground">→</span>
+                    <span className="text-foreground">{(booking as any).dropoff || (booking as any).destination || "—"}</span>
+                  </span>
+                </div>
+              )}
+
+              {/* Driver + price row */}
+              {!isResidenceManager && (
+                <div className="flex items-center justify-between pt-2.5 border-t border-border/60">
+                  <div className="flex items-center gap-2 text-sm">
+                    <Car className="w-3.5 h-3.5 text-muted-foreground" />
+                    {booking.driver_name ? (
+                      <span className="font-medium text-primary flex items-center gap-1.5">
                         {(booking as any).driver_staff_no && (
-                          <span className="font-mono text-[11px] mr-1.5 px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">
+                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">
                             {(booking as any).driver_staff_no}
                           </span>
                         )}
-                        {booking.driver_name || "Unassigned"}
+                        {booking.driver_name}
                       </span>
-                    </div>
-                    <div>
-                      <span className="block text-xs uppercase opacity-70">Price</span>
-                      <span className="font-medium text-primary">£{booking.price?.toLocaleString()}</span>
-                    </div>
-                  </>
-                )}
-              </div>
+                    ) : (
+                      <span className="text-destructive font-medium flex items-center gap-1 text-xs">
+                        <AlertTriangle className="w-3 h-3" /> No Driver
+                      </span>
+                    )}
+                    {(booking as any).driver_whatsapp && booking.driver_name && (() => {
+                      const phone = ((booking as any).driver_whatsapp || "").replace(/[^0-9+]/g, "");
+                      if (!phone) return null;
+                      const msg = `Hi ${booking.driver_name}, I've just sent you booking ${booking.tvl_ref}. Please confirm receipt. Thanks.`;
+                      return (
+                        <a href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`}
+                          target="_blank" rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-green-500 hover:text-green-400" title="WhatsApp Driver">
+                          <MessageCircle className="w-3.5 h-3.5" />
+                        </a>
+                      );
+                    })()}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-semibold text-foreground text-sm">£{Number(booking.price ?? 0).toLocaleString()}</span>
+                    <Badge variant="outline" className={`text-[10px] py-0 px-1.5 ${PAYMENT_COLORS[booking.payment_status ?? "Unpaid"] ?? PAYMENT_COLORS.Unpaid}`}>
+                      {booking.payment_status || "Unpaid"}
+                    </Badge>
+                  </div>
+                </div>
+              )}
 
-              <div className="flex gap-2 mt-auto pt-4 border-t border-border/50">
+              {/* Residence manager: simplified pickup */}
+              {isResidenceManager && (
+                <div className="flex items-center gap-2 pt-2.5 border-t border-border/60 text-sm">
+                  <span className="text-xs uppercase text-muted-foreground opacity-70">Check-in</span>
+                  <span className="font-medium text-foreground">
+                    {booking.date_time ? format(new Date(booking.date_time), "d MMM") : "—"}
+                  </span>
+                </div>
+              )}
+
+              {/* Action row — stop propagation so card click (navigate) doesn't fire */}
+              <div className="flex gap-2 mt-3 pt-3 border-t border-border/50" onClick={(e) => e.stopPropagation()}>
                 <Link href={`/bookings/${booking.id}`} className="flex-1">
-                  <Button variant="outline" className="w-full h-10">
+                  <Button variant="outline" className="w-full h-9 text-sm">
                     <Briefcase className="w-4 h-4 mr-2" />
                     {isResidenceManager ? "View Details" : "Job Sheet"}
                   </Button>
