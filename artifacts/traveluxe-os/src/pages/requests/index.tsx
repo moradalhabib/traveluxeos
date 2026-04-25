@@ -4,7 +4,7 @@ import { format, parseISO, differenceInCalendarDays } from "date-fns";
 import {
   Plus, ClipboardList, CalendarRange, AlertTriangle, Search,
   Plane, MapPin, Car as CarIcon, Building2, Hotel, Package,
-  CheckSquare, X as XIcon,
+  CheckSquare, X as XIcon, MessageCircle,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
@@ -210,6 +210,29 @@ export default function Requests() {
   );
 }
 
+/**
+ * Build a wa.me deep-link with a context-rich pre-filled message so the
+ * operator doesn't have to retype anything when reaching out about a
+ * specific apartment / hotel / transfer request. Strips non-digits from
+ * the WhatsApp number — wa.me requires a digits-only international format.
+ * Returns null when the sanitized number is too short to be a valid
+ * international phone number, so callers can hide the action gracefully.
+ */
+function buildWhatsAppLink(r: ClientRequest): string | null {
+  const phone = (r.client_whatsapp ?? "").replace(/[^0-9]/g, "");
+  // Minimum 7 digits — shortest plausible international format. Anything
+  // less (e.g. dummy data, accidental letters-only entry) would produce
+  // an invalid wa.me/ link.
+  if (phone.length < 7) return null;
+  const firstName = (r.client_name ?? "").trim().split(/\s+/)[0] || "there";
+  const dateBit = r.requested_date_time
+    ? ` for ${format(parseISO(r.requested_date_time), "EEE d MMM")}`
+    : "";
+  // Keep the message short — operator can extend it before sending.
+  const msg = `Hello ${firstName}, this is Traveluxe regarding your ${r.service_type} request${dateBit}.`;
+  return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+}
+
 function RequestCard({ r, today, selectMode, selected, onToggle }: {
   r: ClientRequest; today: Date;
   selectMode: boolean; selected: boolean; onToggle: () => void;
@@ -220,6 +243,9 @@ function RequestCard({ r, today, selectMode, selected, onToggle }: {
   const daysUntil = differenceInCalendarDays(followUp, today);
   const isOverdue = daysUntil < 0 && !["Converted","Declined","Expired"].includes(r.status);
   const isToday = daysUntil === 0;
+  // null when number is missing/too-short — let the JSX fall through to the
+  // "Add WhatsApp" hint so operators see why the action is unavailable.
+  const whatsAppHref = buildWhatsAppLink(r);
 
   const inner = (
       <Card className={`border-primary/10 transition-colors bg-card overflow-hidden cursor-pointer ${isOverdue ? "border-red-500/40" : ""} ${
@@ -291,11 +317,54 @@ function RequestCard({ r, today, selectMode, selected, onToggle }: {
             <Badge variant="outline" className={STATUS_STYLES[r.status]}>
               {r.status}
             </Badge>
-            {r.estimated_price != null && r.estimated_price > 0 && (
-              <span className="text-sm font-semibold text-primary">
-                £{Number(r.estimated_price).toLocaleString()}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {r.estimated_price != null && r.estimated_price > 0 && (
+                <span className="text-sm font-semibold text-primary">
+                  £{Number(r.estimated_price).toLocaleString()}
+                </span>
+              )}
+              {/*
+                Render as <button>, not <a>: the surrounding card is wrapped
+                in a <Link> anchor (see end of this component), and nesting
+                anchors is invalid HTML and produces inconsistent click
+                behaviour on some browsers. window.open opens WhatsApp in a
+                new tab, and stopPropagation prevents the card-level
+                navigation to the request detail page.
+              */}
+              {whatsAppHref ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    window.open(whatsAppHref, "_blank", "noopener,noreferrer");
+                  }}
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/25 active:bg-emerald-500/30 transition-colors"
+                  aria-label={`Message ${r.client_name ?? "client"} on WhatsApp`}
+                  title={`Message ${r.client_name ?? "client"} on WhatsApp`}
+                  data-testid={`button-whatsapp-${r.id}`}
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  WhatsApp
+                </button>
+              ) : (r as any).client_id ? (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setLocation(`/clients/${(r as any).client_id}`);
+                  }}
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md text-xs font-medium bg-muted/40 text-muted-foreground border border-border/40 hover:bg-muted/60 active:bg-muted/80 transition-colors"
+                  aria-label="No WhatsApp on file — open client profile to add one"
+                  title="No WhatsApp on file — tap to add it on the client profile"
+                  data-testid={`button-add-whatsapp-${r.id}`}
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  Add WhatsApp
+                </button>
+              ) : null}
+            </div>
           </div>
         </CardContent>
       </Card>

@@ -50,7 +50,12 @@ router.get("/", async (req, res) => {
   const requests = (data ?? []).map((r: any) => ({
     ...r,
     client_name: r.clients?.name ?? r.client_name,
-    client_whatsapp: r.clients?.whatsapp ?? null,
+    // Prefer the linked client profile's whatsapp; fall back to the value
+    // captured at request creation (stored in details.client_whatsapp for
+    // typed-lead requests that have no client_id yet). Mirrors the detail
+    // endpoint so the requests list can render a WhatsApp action button.
+    client_whatsapp:
+      r.clients?.whatsapp ?? (r.details as any)?.client_whatsapp ?? null,
     clients: undefined,
     status: expiredIds.includes(r.id) ? "Expired" : r.status,
   }));
