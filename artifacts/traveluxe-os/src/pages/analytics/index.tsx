@@ -66,7 +66,6 @@ interface ClientRecord {
   id: string;
   name: string;
   nationality: string | null;
-  phone: string | null;
   whatsapp: string | null;
 }
 interface DemandWeek { weekOf: string; score: number; }
@@ -344,7 +343,7 @@ export default function Analytics() {
     queryFn: async () => {
       const { data, error } = await supabase
         .from("clients")
-        .select("id, name, nationality, phone, whatsapp")
+        .select("id, name, nationality, whatsapp")
         .neq("inactive", true);
       if (error) throw error;
       return (data ?? []) as ClientRecord[];
@@ -392,7 +391,7 @@ export default function Analytics() {
   // ── Nationality stats ───────────────────────────────────────────────────────
   const natMap: Record<string, { flag: string; country: string; ids: Set<string>; revenue: number }> = {};
   (clientsQuery.data ?? []).forEach(cl => {
-    const { flag, country } = detectNat(cl.phone, cl.whatsapp, cl.nationality);
+    const { flag, country } = detectNat(null, cl.whatsapp, cl.nationality);
     if (!natMap[country]) natMap[country] = { flag, country, ids: new Set(), revenue: 0 };
     natMap[country].ids.add(cl.id);
     if (clientRevMap[cl.id]) natMap[country].revenue += clientRevMap[cl.id].total;
