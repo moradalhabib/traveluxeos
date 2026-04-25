@@ -116,7 +116,7 @@ export default function Flights() {
                   {/* Scheduled */}
                   <div>
                     <span className="block text-xs uppercase text-muted-foreground opacity-70 mb-0.5">Scheduled</span>
-                    <span className={`font-medium ${isDelayed ? "line-through text-muted-foreground" : "text-foreground"}`}>
+                    <span className={`font-medium ${(isDelayed || isEarly) ? "line-through text-muted-foreground" : "text-foreground"}`}>
                       {fmtTime(schedIso)}
                     </span>
                   </div>

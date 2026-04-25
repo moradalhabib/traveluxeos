@@ -196,7 +196,7 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
           <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
             <span className="flex items-center gap-1">
               🕐 Scheduled:{" "}
-              <span className={`font-medium ${isDelayed ? "line-through text-muted-foreground" : "text-foreground"}`}>
+              <span className={`font-medium ${(isDelayed || isEarly) ? "line-through text-muted-foreground" : "text-foreground"}`}>
                 {fmtHm(data.scheduled_time)}
               </span>
             </span>
