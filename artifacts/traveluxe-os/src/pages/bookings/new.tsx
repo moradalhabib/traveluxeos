@@ -2040,19 +2040,6 @@ export default function NewBooking() {
                         </div>
                       )}
 
-                      <FormField control={bookingForm.control} name="nameboard" render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>
-                            Meet &amp; Greet Name Board
-                            <span className="text-xs text-muted-foreground font-normal ml-1">(auto-filled from client name)</span>
-                          </FormLabel>
-                          <FormControl>
-                            <Input placeholder={confirmedClient?.name || "Name for board"} {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )} />
-
                       {/* Airport × Vehicle pricing matrix + Additional Services.
                           Renders only for Airport Transfer once an airport is
                           selected. Picking a vehicle and toggling extras
@@ -2068,16 +2055,24 @@ export default function NewBooking() {
                           if (vehicleName) bookingForm.setValue("vehicle_type", vehicleName, { shouldDirty: true });
                           bookingForm.setValue("transfer_extras" as any, transferExtras, { shouldDirty: true });
                           setVehicleIncluded(nextIncluded);
-                          // Don't clobber a manually-entered Client Price with
-                          // £0 when the operator has flagged the car as
-                          // included — they'll set the actual figure via
-                          // Quoted Price / Client Price. Only push the auto-
-                          // calc when there's a real positive total.
                           if (totalPrice > 0) {
                             bookingForm.setValue("price", totalPrice, { shouldDirty: true });
                           }
                         }}
                       />
+
+                      <FormField control={bookingForm.control} name="nameboard" render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>
+                            Meet &amp; Greet Name Board
+                            <span className="text-xs text-muted-foreground font-normal ml-1">(auto-filled from client name)</span>
+                          </FormLabel>
+                          <FormControl>
+                            <Input placeholder={confirmedClient?.name || "Name for board"} {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )} />
                     </>
                   )}
 
