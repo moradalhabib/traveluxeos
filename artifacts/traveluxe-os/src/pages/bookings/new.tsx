@@ -216,6 +216,11 @@ export default function NewBooking() {
   // — all three persist normally. The toggle only governs the AUTO-CALC
   // display so the in-form numbers match the saved totals.
   const [vehicleIncluded, setVehicleIncluded] = useState<boolean>(false);
+  // Vehicle + Additional Services subtotal (emitted by the picker). Combined
+  // with supplier_cost + supplier_commission below to drive the unified
+  // Airport-Transfer auto-quote so the Client Price always equals the sum
+  // of every line shown to the operator. Reset when service type changes.
+  const [vehicleQuoteTotal, setVehicleQuoteTotal] = useState<number>(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const createBooking = useCreateBooking();
@@ -754,6 +759,33 @@ export default function NewBooking() {
     bookingForm.setValue("driver_cost"   as any, r2(adDriverPerDay   * adRentalDays), { shouldDirty: true });
     bookingForm.setValue("fuel_cost"     as any, r2(adFuelPerDay     * adRentalDays), { shouldDirty: true });
   }, [serviceType, adRentalDays, adPricePerDay, adSupplierPerDay, adDriverPerDay, adFuelPerDay]);
+
+  // ─── Airport Transfer: unified auto-quote ───────────────────────────────
+  // The Client Price for an Airport Transfer = vehicle + Additional Services
+  // (vehicleQuoteTotal, emitted by the picker) + supplier_cost (auto-summed
+  // from the supplier products picker) + supplier_commission (TVL markup on
+  // the supplier). Whenever any of those moves, recompute and push the total
+  // into the `price` field so the balance check in the financials section
+  // always matches what the operator sees in the auto-quote box. The
+  // operator can still type a different number into Client Price afterwards
+  // — the next form change will overwrite it, which is the same behaviour
+  // the picker always had on its own.
+  const atSupplierCostWatch       = Number(bookingForm.watch("supplier_cost" as any)) || 0;
+  const atSupplierCommissionWatch = Number(bookingForm.watch("supplier_commission" as any)) || 0;
+  useEffect(() => {
+    if (!isAirportTransfer) return;
+    const total = vehicleQuoteTotal + atSupplierCostWatch + atSupplierCommissionWatch;
+    if (total <= 0) return;
+    const current = Number(bookingForm.getValues("price")) || 0;
+    if (Math.abs(current - total) < 0.005) return;
+    bookingForm.setValue("price", total, { shouldDirty: true });
+  }, [isAirportTransfer, vehicleQuoteTotal, atSupplierCostWatch, atSupplierCommissionWatch]);
+
+  // Reset the local vehicle subtotal whenever the operator switches away
+  // from Airport Transfer so a stale value can't leak into another flow.
+  useEffect(() => {
+    if (!isAirportTransfer) setVehicleQuoteTotal(0);
+  }, [isAirportTransfer]);
 
   const loadClientById = async (clientId: string, opts: { autoConfirm?: boolean } = {}) => {
     const { data } = await supabase
@@ -2055,16 +2087,135 @@ export default function NewBooking() {
                         vehicleProductId={(bookingForm.watch("vehicle_product_id" as any) as string) ?? ""}
                         transferExtras={(bookingForm.watch("transfer_extras" as any) as TransferExtra[]) ?? []}
                         vehicleIncluded={vehicleIncluded}
+                        hideAutoPrice
                         onChange={({ vehicleProductId, vehicleName, transferExtras, totalPrice, vehicleIncluded: nextIncluded }) => {
                           bookingForm.setValue("vehicle_product_id" as any, vehicleProductId, { shouldDirty: true });
                           if (vehicleName) bookingForm.setValue("vehicle_type", vehicleName, { shouldDirty: true });
                           bookingForm.setValue("transfer_extras" as any, transferExtras, { shouldDirty: true });
                           setVehicleIncluded(nextIncluded);
-                          if (totalPrice > 0) {
-                            bookingForm.setValue("price", totalPrice, { shouldDirty: true });
-                          }
+                          // Track vehicle+extras subtotal locally; combined
+                          // Client Price (incl. supplier cost + markup) is set
+                          // by the unified auto-quote effect below.
+                          setVehicleQuoteTotal(totalPrice);
                         }}
                       />
+
+                      {/* Third-party Supplier — sits next to the vehicle so
+                          the operator builds the FULL quote in one place,
+                          rather than seeing the supplier-side numbers buried
+                          in the financials section below. Picking a supplier
+                          + product auto-fills supplier_cost, and the combined
+                          auto-quote box right below recomputes the Client
+                          Price from every line. */}
+                      {(() => {
+                        const supplierIdAt = String(bookingForm.watch("supplier_id" as any) ?? "");
+                        const scAt = Number(bookingForm.watch("supplier_cost" as any)) || 0;
+                        const scmAt = Number(bookingForm.watch("supplier_commission" as any)) || 0;
+                        return (
+                          <div className="rounded-md border border-border bg-secondary/20 p-3 space-y-3" data-testid="at-supplier-section">
+                            <div>
+                              <Label className="text-xs uppercase tracking-wider text-muted-foreground">
+                                Third-party Supplier <span className="normal-case text-[10px] text-muted-foreground/80">(optional — e.g. Heathrow Meet &amp; Greet agents)</span>
+                              </Label>
+                              <p className="text-[10px] text-muted-foreground mt-0.5">
+                                Pick the supplier + their products. Subtotal &amp; your markup are added to the auto-quote.
+                              </p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-[11px] text-muted-foreground">Supplier</Label>
+                                <Select
+                                  value={supplierIdAt || "none"}
+                                  onValueChange={(v) => bookingForm.setValue("supplier_id" as any, v === "none" ? "" : v, { shouldDirty: true })}
+                                >
+                                  <SelectTrigger data-testid="select-at-supplier"><SelectValue placeholder="Select supplier…" /></SelectTrigger>
+                                  <SelectContent className="max-h-[55vh] overflow-y-auto">
+                                    <SelectItem value="none">— None —</SelectItem>
+                                    {supplierList.map((s: any) => (
+                                      <SelectItem key={s.id} value={s.id}>
+                                        {s.name}{s.city ? ` · ${s.city}` : ""}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-[11px] text-muted-foreground">Supplier Markup (£) <span className="normal-case text-[10px] text-muted-foreground/80">— TVL profit on supplier</span></Label>
+                                <Input
+                                  type="number" step="0.01" min="0"
+                                  placeholder="e.g. 50"
+                                  value={(bookingForm.watch("supplier_commission" as any) as any) ?? ""}
+                                  onChange={e => bookingForm.setValue("supplier_commission" as any, e.target.value === "" ? undefined : Number(e.target.value), { shouldDirty: true })}
+                                  data-testid="input-supplier-commission-manual"
+                                />
+                              </div>
+                            </div>
+                            {supplierIdAt && (
+                              <SupplierProductPicker
+                                supplierId={supplierIdAt}
+                                value={(bookingForm.watch("supplier_items" as any) as any[]) || []}
+                                onChange={(items) => {
+                                  bookingForm.setValue("supplier_items" as any, items, { shouldDirty: true });
+                                  // Auto-sum supplier_cost from picked items
+                                  // (qty × daily_rate, falling back to hourly_rate).
+                                  const total = items.reduce((s, it) => {
+                                    const rate = it.daily_rate != null ? Number(it.daily_rate)
+                                      : it.hourly_rate != null ? Number(it.hourly_rate)
+                                      : 0;
+                                    return s + rate * Number(it.qty || 0);
+                                  }, 0);
+                                  bookingForm.setValue("supplier_cost" as any, total, { shouldDirty: true });
+                                }}
+                              />
+                            )}
+                            {(scAt > 0 || scmAt > 0) && (
+                              <div className="flex items-center justify-between text-[11px] pt-1.5 border-t border-border/40">
+                                <span className="text-muted-foreground">Supplier subtotal (cost + markup)</span>
+                                <span className="font-semibold">£{(scAt + scmAt).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
+
+                      {/* Unified AUTO-QUOTE box — single source of truth for
+                          Client Price. Sums every line the operator entered
+                          above (vehicle + extras + supplier cost + supplier
+                          markup). The effect below pushes this total into the
+                          Client Price field so the balance check in the
+                          financials section always matches. */}
+                      {(() => {
+                        const scAt = Number(bookingForm.watch("supplier_cost" as any)) || 0;
+                        const scmAt = Number(bookingForm.watch("supplier_commission" as any)) || 0;
+                        const grandTotal = vehicleQuoteTotal + scAt + scmAt;
+                        if (grandTotal <= 0) return null;
+                        const extrasArr = (bookingForm.watch("transfer_extras" as any) as TransferExtra[]) ?? [];
+                        const extrasTotal = extrasArr.reduce((s, e) => s + Number(e.price || 0), 0);
+                        const vehiclePart = Math.max(0, vehicleQuoteTotal - extrasTotal);
+                        return (
+                          <div className="rounded-md border border-primary/40 bg-primary/5 p-3 space-y-1" data-testid="at-auto-quote">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">Auto-calculated price</span>
+                              <span className="text-xl font-bold text-primary">£{grandTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                            </div>
+                            <div className="text-[11px] text-muted-foreground space-y-0.5 pt-1 border-t border-primary/20">
+                              {vehiclePart > 0 && (
+                                <div className="flex justify-between"><span>Vehicle</span><span>£{vehiclePart.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
+                              )}
+                              {extrasArr.map(e => (
+                                <div key={e.id} className="flex justify-between"><span>+ {e.name}</span><span>£{Number(e.price).toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
+                              ))}
+                              {scAt > 0 && (
+                                <div className="flex justify-between"><span>+ Supplier cost</span><span>£{scAt.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
+                              )}
+                              {scmAt > 0 && (
+                                <div className="flex justify-between"><span>+ Supplier markup</span><span>£{scmAt.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></div>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-muted-foreground pt-1">Pushed into Client Price below — override manually if needed.</p>
+                          </div>
+                        );
+                      })()}
 
                       <FormField control={bookingForm.control} name="nameboard" render={({ field }) => (
                         <FormItem>
@@ -2905,7 +3056,6 @@ export default function NewBooking() {
                           const sc = Number(bookingForm.watch("supplier_commission" as any)) || 0;
                           const totalProfit = dc + sc;
                           const positive = totalProfit >= 0;
-                          const supplierIdAt = String(bookingForm.watch("supplier_id" as any) ?? "");
                           const atPrice = Number(bookingForm.watch("price")) || 0;
                           const atDriverPay = Number(bookingForm.watch("driver_cost" as any)) || 0;
                           const atSupplierCost = Number(bookingForm.watch("supplier_cost" as any)) || 0;
@@ -2957,68 +3107,13 @@ export default function NewBooking() {
                                 </div>
                               </div>
 
-                              {/* Third-party supplier (e.g. Heathrow Meet & Greet) */}
-                              <div className="p-3 rounded-md border border-border bg-muted/30 space-y-3">
-                                <div>
-                                  <Label className="text-xs uppercase tracking-wider text-muted-foreground">Third-party Supplier <span className="normal-case text-[10px] text-muted-foreground/80">(optional — e.g. Heathrow Meet &amp; Greet agents)</span></Label>
-                                  <p className="text-[10px] text-muted-foreground mt-0.5">
-                                    Track the supplier you used + your markup commission. Feeds finance reports per supplier.
-                                  </p>
-                                </div>
-                                <div className="grid grid-cols-2 gap-3">
-                                  <div className="space-y-1">
-                                    <Label className="text-[11px] text-muted-foreground">Supplier</Label>
-                                    <Select
-                                      value={supplierIdAt || "none"}
-                                      onValueChange={(v) => bookingForm.setValue("supplier_id" as any, v === "none" ? "" : v, { shouldDirty: true })}
-                                    >
-                                      <SelectTrigger data-testid="select-at-supplier"><SelectValue placeholder="Select supplier…" /></SelectTrigger>
-                                      <SelectContent className="max-h-[55vh] overflow-y-auto">
-                                        <SelectItem value="none">— None —</SelectItem>
-                                        {supplierList.map((s: any) => (
-                                          <SelectItem key={s.id} value={s.id}>
-                                            {s.name}{s.city ? ` · ${s.city}` : ""}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                  <div className="space-y-1">
-                                    <Label className="text-[11px] text-muted-foreground">Supplier Commission (£)</Label>
-                                    <Input
-                                      type="number" step="0.01" min="0"
-                                      placeholder="TVL markup, e.g. 50"
-                                      value={(bookingForm.watch("supplier_commission" as any) as any) ?? ""}
-                                      onChange={e => bookingForm.setValue("supplier_commission" as any, e.target.value === "" ? undefined : Number(e.target.value), { shouldDirty: true })}
-                                      data-testid="input-supplier-commission-manual"
-                                    />
-                                  </div>
-                                </div>
-
-                                {/* Service / product picker — appears once a
-                                    supplier is chosen. Picking a product (Meet
-                                    & Greet, Fast-Track, Lounge, Porter, …)
-                                    auto-fills Supplier Cost above so the
-                                    operator doesn't have to retype the rate. */}
-                                {supplierIdAt && (
-                                  <SupplierProductPicker
-                                    supplierId={supplierIdAt}
-                                    value={(bookingForm.watch("supplier_items" as any) as any[]) || []}
-                                    onChange={(items) => {
-                                      bookingForm.setValue("supplier_items" as any, items, { shouldDirty: true });
-                                      // Auto-sum supplier_cost from picked items
-                                      // (qty × daily_rate, falling back to hourly_rate).
-                                      const total = items.reduce((s, it) => {
-                                        const rate = it.daily_rate != null ? Number(it.daily_rate)
-                                          : it.hourly_rate != null ? Number(it.hourly_rate)
-                                          : 0;
-                                        return s + rate * Number(it.qty || 0);
-                                      }, 0);
-                                      bookingForm.setValue("supplier_cost" as any, total, { shouldDirty: true });
-                                    }}
-                                  />
-                                )}
-                              </div>
+                              {/* Third-party supplier section moved UP next to
+                                  the vehicle picker so the operator builds the
+                                  full quote in one place. The supplier_id /
+                                  supplier_cost / supplier_commission /
+                                  supplier_items form fields are written from
+                                  there and read here for the totals & balance
+                                  check below. */}
 
                               {/* Total TVL profit (driver + supplier commission) */}
                               <div className="flex items-center justify-between p-3 rounded-md border border-primary/30 bg-primary/5">
@@ -3046,7 +3141,7 @@ export default function NewBooking() {
                                     <span className="text-right">− £{atSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                                     <span>Driver commission</span>
                                     <span className="text-right">− £{dc.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                                    <span>Supplier commission</span>
+                                    <span>Supplier markup</span>
                                     <span className="text-right">− £{sc.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                                   </div>
                                   <div className={`flex justify-between border-t pt-1.5 font-semibold ${atBalanced ? "text-green-400 border-green-500/30" : "text-amber-400 border-amber-500/30"}`}>

@@ -45,6 +45,10 @@ type Props = {
    *  reason itself is captured separately in the Discount Reason field on
    *  the parent form (which already prints on the invoice). */
   vehicleIncluded?: boolean;
+  /** Hide the picker's internal "Auto-calculated price" summary so the
+   *  parent can render a combined quote box that also includes third-party
+   *  supplier costs and markup. */
+  hideAutoPrice?: boolean;
   onChange: (next: {
     vehicleProductId: string;
     vehicleName: string;
@@ -73,6 +77,7 @@ export function AirportTransferProductPicker({
   vehicleProductId,
   transferExtras,
   vehicleIncluded = false,
+  hideAutoPrice = false,
   onChange,
 }: Props) {
   const [vehicleRows, setVehicleRows] = useState<VehicleRow[]>([]);
@@ -441,7 +446,7 @@ export function AirportTransferProductPicker({
       </div>
 
       {/* Live total */}
-      {(vehiclePrice > 0 || extrasTotal > 0) && (
+      {!hideAutoPrice && (vehiclePrice > 0 || extrasTotal > 0) && (
         <div className="rounded-md border border-primary/30 bg-primary/5 p-3">
           <div className="flex items-center justify-between text-xs uppercase tracking-wider text-muted-foreground">
             <span>Auto-calculated price</span>
@@ -452,7 +457,7 @@ export function AirportTransferProductPicker({
           <div className="mt-1 text-[11px] text-muted-foreground">
             {vehicleName ? `${vehicleName} £${vehiclePrice.toLocaleString()}` : "No vehicle"}
             {transferExtras.map(e => ` + ${e.name} £${Number(e.price).toLocaleString()}`).join("")}
-            {" "}— pushed into Client Price below. Override manually if needed.
+            {" "}— used to build the Client Price. Override manually if needed.
           </div>
         </div>
       )}
