@@ -6,6 +6,33 @@ const RAPIDAPI_KEY = process.env.RAPIDAPI_KEY;
 const AERO_HOST    = "aerodatabox.p.rapidapi.com";
 const AERO_BASE    = `https://${AERO_HOST}`;
 
+// ── Quota-protection circuit breaker ────────────────────────────────────────
+// AeroDataBox is a monthly-quota service. Once we hit HTTP 429, every further
+// call is wasted (and may still be billed by some tiers). We park the
+// integration until the start of the *next* calendar month UTC + a 1-day
+// buffer, so the next billing cycle has settled before we resume.
+let quotaExceededUntil = 0; // ms timestamp. While Date.now() < this, skip all calls.
+
+function markQuotaExceeded(reason: string) {
+  const now = new Date();
+  const resumeAt = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 2, 0, 0, 0));
+  quotaExceededUntil = resumeAt.getTime();
+  console.warn(`[FlightPoll] Quota exhausted (${reason}). Pausing flight-tracker API calls until ${resumeAt.toISOString()}.`);
+}
+
+export function isFlightApiPaused(): { paused: boolean; resumeAt: string | null } {
+  if (Date.now() < quotaExceededUntil) {
+    return { paused: true, resumeAt: new Date(quotaExceededUntil).toISOString() };
+  }
+  return { paused: false, resumeAt: null };
+}
+
+// ── Negative-result cache (per flight+date) ─────────────────────────────────
+// When a single flight lookup fails (404/timeout/etc.), don't keep retrying
+// every minute — back off for 30 min before trying that specific flight again.
+const negativeCache = new Map<string, number>();
+const NEG_CACHE_TTL_MS = 30 * 60 * 1000;
+
 export interface FlightData {
   flight_number:  string;
   origin:         string | null;
@@ -54,6 +81,16 @@ export async function fetchFlightStatus(
 ): Promise<FlightLookupResult> {
   if (!RAPIDAPI_KEY) return { ok: false, reason: "no_key" };
 
+  // Circuit breaker: skip the call entirely if we've already hit the monthly
+  // quota — otherwise every retry burns a slot AND a 429 log line.
+  if (Date.now() < quotaExceededUntil) {
+    return {
+      ok: false,
+      reason: "api_error",
+      message: `Flight API paused — monthly quota exhausted. Resumes ${new Date(quotaExceededUntil).toISOString()}.`,
+    };
+  }
+
   try {
     const url = `${AERO_BASE}/flights/number/${encodeURIComponent(flightNumber)}/${date}?withAircraftImage=false&withLocation=false`;
     const resp = await fetch(url, {
@@ -66,6 +103,11 @@ export async function fetchFlightStatus(
 
     if (!resp.ok) {
       const text = await resp.text().catch(() => "");
+      // 429 = monthly quota exhausted. Trip the circuit breaker so we stop
+      // hammering the API for the rest of the billing cycle.
+      if (resp.status === 429) {
+        markQuotaExceeded(`HTTP 429 on ${flightNumber} ${date}`);
+      }
       return { ok: false, reason: "api_error", message: `HTTP ${resp.status}: ${text.slice(0, 200)}` };
     }
 
@@ -155,6 +197,11 @@ export async function upsertCache(db: any, data: FlightData, date: string): Prom
  * Called by the scheduler every minute.
  */
 export async function pollUpcomingFlights(): Promise<void> {
+  // Hard short-circuit: if monthly quota is exhausted, don't even hit the DB
+  // for upcoming bookings. The poll resumes automatically on the configured
+  // resume date (start of next billing month).
+  if (Date.now() < quotaExceededUntil) return;
+
   const db = getServiceRoleClient() ?? supabase;
 
   const now = new Date();
@@ -178,11 +225,26 @@ export async function pollUpcomingFlights(): Promise<void> {
 
   console.info(`[FlightPoll] ${bookings.length} upcoming Airport Transfer booking(s) — checking flight cache`);
 
-  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-
   await Promise.allSettled(
     bookings.map(async (b: any) => {
       const flightDate = new Date(b.date_time).toISOString().split("T")[0];
+
+      // Negative-cache: if this exact flight failed recently, skip for 30 min.
+      const negKey = `${b.flight_number}|${flightDate}`;
+      const negUntil = negativeCache.get(negKey);
+      if (negUntil && Date.now() < negUntil) return;
+
+      // ── Adaptive cache TTL ─────────────────────────────────────────────
+      // Polling every minute when the flight is 24h away wastes quota. Use a
+      // wider TTL when the flight is far out, narrowing it as departure nears.
+      const flightMs = new Date(b.date_time).getTime();
+      const hoursToFlight = (flightMs - Date.now()) / (60 * 60 * 1000);
+      let cacheTtlMs: number;
+      if (hoursToFlight > 12)      cacheTtlMs = 4 * 60 * 60 * 1000;   // 4h
+      else if (hoursToFlight > 6)  cacheTtlMs = 60 * 60 * 1000;        // 1h
+      else if (hoursToFlight > 2)  cacheTtlMs = 15 * 60 * 1000;        // 15m
+      else                         cacheTtlMs = 5 * 60 * 1000;         // 5m (active window)
+      const cacheCutoff = new Date(Date.now() - cacheTtlMs).toISOString();
 
       // Read existing cached entry (status + delay) BEFORE fetching fresh data,
       // so we can detect meaningful status changes and fire push notifications.
@@ -194,7 +256,7 @@ export async function pollUpcomingFlights(): Promise<void> {
         .single();
 
       // Skip if cache is still fresh — avoids burning API quota on unchanged data.
-      if (cached?.last_updated && cached.last_updated > fiveMinAgo) return;
+      if (cached?.last_updated && cached.last_updated > cacheCutoff) return;
 
       const prevStatus    = cached?.status      ?? null;
       const prevDelayMins = cached?.delay_minutes ?? 0;
@@ -270,6 +332,10 @@ export async function pollUpcomingFlights(): Promise<void> {
           }
         }
       } else {
+        // Park this specific flight in the negative cache so we don't retry
+        // every minute. Quota-exceeded errors are already handled by the
+        // global circuit breaker, so this only affects 404 / network errors.
+        negativeCache.set(negKey, Date.now() + NEG_CACHE_TTL_MS);
         console.warn(`[FlightPoll] ${b.flight_number} (${b.tvl_ref ?? ""}): ${result.reason} — ${result.message ?? ""}`);
       }
     })

@@ -44,7 +44,8 @@ async function sendToSubscriptions(
       );
     } catch (e: any) {
       if (e?.statusCode === 410 || e?.statusCode === 404) {
-        svc?.from("push_subscriptions").delete().eq("endpoint", sub.endpoint).catch(() => {});
+        // Subscription is dead — remove it. Fire-and-forget; ignore errors.
+        try { await svc?.from("push_subscriptions").delete().eq("endpoint", sub.endpoint); } catch {}
       }
     }
   }
