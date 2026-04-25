@@ -191,24 +191,24 @@ export async function upsertCache(db: any, data: FlightData, date: string): Prom
 }
 
 /**
- * Poll flight status for Airport Transfer bookings in the **active window**
- * only — from 2 hours before scheduled time to 2 hours after. Outside that
- * window we don't burn the API quota at all; operators can still trigger a
- * manual lookup from the booking form whenever they want a fresh status.
+ * Poll flight status for Airport Transfer bookings — **strictly once per
+ * flight**, at exactly 2 hours before scheduled arrival time. After that
+ * single call lands in the cache, the system never re-polls that flight.
+ * Operators can still trigger a manual lookup from the booking form any
+ * time they want a fresh status.
  *
- * Within the active window:
- *   • cache TTL is a fixed 10 min (good balance of freshness vs cost)
- *   • once status is "Landed" or "Cancelled" we stop polling entirely
- *
- * Called by the scheduler every minute, but most ticks return immediately
- * because no booking is in-window.
+ * Implementation: we query for bookings whose scheduled time is within a
+ * 10-minute window centred on T-2h (i.e. 2h05m → 1h55m from now). The
+ * scheduler ticks every 60s, so exactly one tick will land in that window
+ * per flight. The cache row itself acts as the "already polled" flag —
+ * if any row exists for the flight+date, we skip.
  */
-const ACTIVE_WINDOW_BEFORE_MS = 2 * 60 * 60 * 1000; // start polling 2h before flight
-const ACTIVE_WINDOW_AFTER_MS  = 2 * 60 * 60 * 1000; // keep polling 2h after to catch late landings
-const ACTIVE_CACHE_TTL_MS     = 10 * 60 * 1000;     // 10 min freshness
-// "Early" is intentionally NOT terminal — it can mean either "landed early"
-// or "in-flight running early"; we can't tell from the cached label alone.
-const TERMINAL_STATUSES       = new Set(["Landed", "Cancelled"]);
+const POLL_OFFSET_MS    = 2 * 60 * 60 * 1000;  // T-2h before scheduled arrival
+const POLL_WINDOW_MS    = 5 * 60 * 1000;       // ±5 min around T-2h
+// Terminal statuses — once cached as one of these, never poll again.
+// "Early" is included because in the once-only model the status reflects
+// what was happening at T-2h, and we don't poll further regardless.
+const TERMINAL_STATUSES = new Set(["Landed", "Cancelled", "Early"]);
 
 export async function pollUpcomingFlights(): Promise<void> {
   // Hard short-circuit: if monthly quota is exhausted, don't even hit the DB
@@ -219,9 +219,10 @@ export async function pollUpcomingFlights(): Promise<void> {
   const db = getServiceRoleClient() ?? supabase;
 
   const now = new Date();
-  // Active window: from 2h before scheduled time to 2h after.
-  const windowStart = new Date(now.getTime() - ACTIVE_WINDOW_AFTER_MS).toISOString();
-  const windowEnd   = new Date(now.getTime() + ACTIVE_WINDOW_BEFORE_MS).toISOString();
+  // Narrow window centred on T-2h before scheduled arrival. The 60s scheduler
+  // tick is guaranteed to land in this 10-min window exactly once per flight.
+  const windowStart = new Date(now.getTime() + POLL_OFFSET_MS - POLL_WINDOW_MS).toISOString();
+  const windowEnd   = new Date(now.getTime() + POLL_OFFSET_MS + POLL_WINDOW_MS).toISOString();
 
   const { data: bookings, error } = await db
     .from("bookings")
@@ -238,9 +239,7 @@ export async function pollUpcomingFlights(): Promise<void> {
   }
   if (!bookings?.length) return;
 
-  console.info(`[FlightPoll] ${bookings.length} flight(s) in active window — checking cache`);
-
-  const cacheCutoff = new Date(Date.now() - ACTIVE_CACHE_TTL_MS).toISOString();
+  console.info(`[FlightPoll] ${bookings.length} flight(s) at T-2h — performing single status check`);
 
   await Promise.allSettled(
     bookings.map(async (b: any) => {
@@ -260,11 +259,15 @@ export async function pollUpcomingFlights(): Promise<void> {
         .eq("date", flightDate)
         .single();
 
-      // Terminal status — flight is done. No further polling needed.
-      if (cached?.status && TERMINAL_STATUSES.has(cached.status)) return;
+      // ── Once-only guard ────────────────────────────────────────────────
+      // The user wants exactly ONE API call per flight, at T-2h. If we
+      // already have a cache row for this flight+date (whether from this
+      // poll or from an earlier manual lookup), do not re-fetch.
+      if (cached?.last_updated) return;
 
-      // Skip if cache is still fresh — avoids burning API quota on unchanged data.
-      if (cached?.last_updated && cached.last_updated > cacheCutoff) return;
+      // Belt-and-suspenders: terminal status from a manual lookup also
+      // means we never need to poll this flight again.
+      if (cached?.status && TERMINAL_STATUSES.has(cached.status)) return;
 
       const prevStatus    = cached?.status      ?? null;
       const prevDelayMins = cached?.delay_minutes ?? 0;
