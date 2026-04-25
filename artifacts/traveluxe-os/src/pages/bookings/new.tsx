@@ -2015,15 +2015,15 @@ export default function NewBooking() {
                             if (datePart && /^\d{4}-\d{2}-\d{2}$/.test(datePart) && timeUk) {
                               bookingForm.setValue("date_time", `${datePart}T${timeUk}`);
                             }
-                            // The airport is the pickup on Arrival, the drop-off on Departure.
-                            // Append the terminal so the chauffeur knows exactly where to go.
+                            // For Arrival  → chauffeur meets client at the DESTINATION airport (where the plane lands).
+                            // For Departure → chauffeur drops client at the ORIGIN airport (where the plane takes off).
                             const term = terminal ? ` Terminal ${terminal}` : "";
-                            if (watchedDirection === "Arrival" && origin) {
-                              bookingForm.setValue("pickup", `${origin}${term}`);
+                            if (watchedDirection === "Arrival" && destination) {
+                              bookingForm.setValue("pickup", `${destination}${term}`);
                             }
-                            if (watchedDirection === "Departure" && destination) {
-                            bookingForm.setValue("dropoff", `${destination}${term}`);
-                          }
+                            if (watchedDirection === "Departure" && origin) {
+                              bookingForm.setValue("dropoff", `${origin}${term}`);
+                            }
                         }}
                       />
                       <FormField control={bookingForm.control} name="nameboard" render={({ field }) => (
