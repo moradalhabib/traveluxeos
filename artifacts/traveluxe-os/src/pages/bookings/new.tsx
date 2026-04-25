@@ -1880,23 +1880,26 @@ export default function NewBooking() {
                               <FormMessage />
                             </FormItem>
                           )} />
-                          <div className="grid grid-cols-3 gap-3">
+                          {/* Date + Time on one row (need width for native pickers
+                              on mobile — DD/MM/YYYY gets clipped in 3-col grid).
+                              Flight No. takes full width on its own row below. */}
+                          <div className="grid grid-cols-2 gap-3">
                             <div className="space-y-2">
                               <Label>Date</Label>
                               <Input type="date" value={dateVal} onChange={(e) => writeDate(e.target.value)} />
                             </div>
-                            <FormField control={bookingForm.control} name="flight_number" render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Flight No.</FormLabel>
-                                <FormControl><Input placeholder="BA123" {...field} className="uppercase" /></FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )} />
                             <div className="space-y-2">
                               <Label>Time <span className="text-[10px] text-muted-foreground font-normal">(UK)</span></Label>
                               <TimePicker value={timeVal} onChange={writeTime} />
                             </div>
                           </div>
+                          <FormField control={bookingForm.control} name="flight_number" render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Flight No.</FormLabel>
+                              <FormControl><Input placeholder="BA123" {...field} className="uppercase" /></FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )} />
                         </>
                       );
                     }
