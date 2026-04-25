@@ -211,26 +211,33 @@ export default function Requests() {
 }
 
 /**
- * Build a wa.me deep-link with a context-rich pre-filled message so the
- * operator doesn't have to retype anything when reaching out about a
- * specific apartment / hotel / transfer request. Strips non-digits from
- * the WhatsApp number — wa.me requires a digits-only international format.
- * Returns null when the sanitized number is too short to be a valid
- * international phone number, so callers can hide the action gracefully.
+ * Build a plain wa.me deep-link (no pre-filled message — operators
+ * preferred to start the conversation from a clean WhatsApp chat for
+ * the requests section). Strips non-digits because wa.me requires a
+ * digits-only international format. Returns null when the sanitized
+ * number is too short to be valid so callers can hide the action.
  */
 function buildWhatsAppLink(r: ClientRequest): string | null {
   const phone = (r.client_whatsapp ?? "").replace(/[^0-9]/g, "");
-  // Minimum 7 digits — shortest plausible international format. Anything
-  // less (e.g. dummy data, accidental letters-only entry) would produce
-  // an invalid wa.me/ link.
   if (phone.length < 7) return null;
-  const firstName = (r.client_name ?? "").trim().split(/\s+/)[0] || "there";
-  const dateBit = r.requested_date_time
-    ? ` for ${format(parseISO(r.requested_date_time), "EEE d MMM")}`
-    : "";
-  // Keep the message short — operator can extend it before sending.
-  const msg = `Hello ${firstName}, this is Traveluxe regarding your ${r.service_type} request${dateBit}.`;
-  return `https://wa.me/${phone}?text=${encodeURIComponent(msg)}`;
+  return `https://wa.me/${phone}`;
+}
+
+/**
+ * Format a WhatsApp number for on-card display. Keeps the leading "+" if
+ * present in the stored value, otherwise prepends one (numbers in this
+ * system are always international). Inserts a space after the country
+ * code prefix so long numbers are easier to scan on a small card.
+ */
+function formatWhatsAppForDisplay(raw: string | null | undefined): string {
+  if (!raw) return "";
+  const digits = raw.replace(/[^0-9]/g, "");
+  if (digits.length < 7) return raw;
+  // Best-effort: assume the first 1–3 digits are the country code. We
+  // can't know exactly without a libphonenumber dependency, so we just
+  // put a space after the first 2 digits for readability — works well
+  // for UK (44), Egypt (20), Saudi (966 → still readable as "96 6...").
+  return `+${digits.slice(0, 2)} ${digits.slice(2)}`;
 }
 
 function RequestCard({ r, today, selectMode, selected, onToggle }: {
@@ -279,6 +286,25 @@ function RequestCard({ r, today, selectMode, selected, onToggle }: {
                   )}
                 </h3>
                 <p className="text-xs text-muted-foreground mt-0.5">{r.service_type}</p>
+                {/*
+                  Show the WhatsApp number directly under the client name so
+                  operators can read it off the card without drilling in.
+                  Tapping the number opens WhatsApp (no pre-filled message —
+                  user prefers a clean chat for the requests workflow).
+                */}
+                {whatsAppHref && (
+                  <a
+                    href={whatsAppHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="inline-flex items-center gap-1 mt-1 text-xs font-medium text-emerald-300 hover:text-emerald-200 hover:underline"
+                    data-testid={`text-whatsapp-${r.id}`}
+                  >
+                    <MessageCircle className="w-3 h-3" />
+                    {formatWhatsAppForDisplay(r.client_whatsapp)}
+                  </a>
+                )}
               </div>
             </div>
             <Badge variant="outline" className={PRIORITY_STYLES[r.priority]}>
@@ -324,30 +350,14 @@ function RequestCard({ r, today, selectMode, selected, onToggle }: {
                 </span>
               )}
               {/*
-                Render as <button>, not <a>: the surrounding card is wrapped
-                in a <Link> anchor (see end of this component), and nesting
-                anchors is invalid HTML and produces inconsistent click
-                behaviour on some browsers. window.open opens WhatsApp in a
-                new tab, and stopPropagation prevents the card-level
-                navigation to the request detail page.
+                The primary WhatsApp action lives next to the client name
+                (it's the visible phone number itself). When no number is
+                on file, surface a small hint button that jumps to the
+                client profile so the operator can capture it. Rendered as
+                a real <button> because the surrounding card is wrapped in
+                a <Link> anchor and nesting anchors is invalid HTML.
               */}
-              {whatsAppHref ? (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    window.open(whatsAppHref, "_blank", "noopener,noreferrer");
-                  }}
-                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-md text-xs font-medium bg-emerald-500/15 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/25 active:bg-emerald-500/30 transition-colors"
-                  aria-label={`Message ${r.client_name ?? "client"} on WhatsApp`}
-                  title={`Message ${r.client_name ?? "client"} on WhatsApp`}
-                  data-testid={`button-whatsapp-${r.id}`}
-                >
-                  <MessageCircle className="w-3.5 h-3.5" />
-                  WhatsApp
-                </button>
-              ) : (r as any).client_id ? (
+              {!whatsAppHref && (r as any).client_id && (
                 <button
                   type="button"
                   onClick={(e) => {
@@ -363,7 +373,7 @@ function RequestCard({ r, today, selectMode, selected, onToggle }: {
                   <MessageCircle className="w-3.5 h-3.5" />
                   Add WhatsApp
                 </button>
-              ) : null}
+              )}
             </div>
           </div>
         </CardContent>
