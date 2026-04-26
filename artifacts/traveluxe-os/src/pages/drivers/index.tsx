@@ -127,14 +127,14 @@ export default function Drivers() {
   }, [drivers, search, statusFilter]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <h1 className="text-3xl font-bold tracking-tight text-foreground">Drivers</h1>
         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
           {isSuperAdmin && (
             <Button
               variant="outline"
-              className="w-full sm:w-auto h-12 border-destructive/40 text-destructive hover:bg-destructive/10"
+              className="w-full sm:w-auto h-9 border-destructive/40 text-destructive hover:bg-destructive/10"
               onClick={() => setResetOpen(true)}
               data-testid="button-reset-tvl-numbers"
             >
@@ -146,7 +146,7 @@ export default function Drivers() {
             bulk.selectMode ? (
               <Button
                 variant="outline"
-                className="w-full sm:w-auto h-12"
+                className="w-full sm:w-auto h-9"
                 onClick={bulk.exitSelectMode}
                 data-testid="button-bulk-cancel"
               >
@@ -156,7 +156,7 @@ export default function Drivers() {
             ) : (
               <Button
                 variant="outline"
-                className="w-full sm:w-auto h-12"
+                className="w-full sm:w-auto h-9"
                 onClick={bulk.enterSelectMode}
                 data-testid="button-bulk-select"
               >
@@ -166,7 +166,7 @@ export default function Drivers() {
             )
           )}
           <Link href="/drivers/new">
-            <Button className="w-full sm:w-auto h-12 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
+            <Button className="w-full sm:w-auto h-9 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
               <Plus className="w-4 h-4 mr-2" />
               Add Driver
             </Button>
@@ -209,7 +209,7 @@ export default function Drivers() {
         <Search className="absolute left-3 top-3.5 h-5 w-5 text-muted-foreground" />
         <Input
           placeholder="Search drivers..."
-          className="pl-10 h-12 text-lg border-primary/20 bg-card"
+          className="pl-10 h-9 border-primary/20 bg-card"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           data-testid="input-search-drivers"
@@ -230,7 +230,7 @@ export default function Drivers() {
         return <ActiveFilterChips filters={chips} onClearAll={() => setStatusFilter("All")} />;
       })()}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {isLoading ? (
           [...Array(6)].map((_, i) => <Skeleton key={i} className="h-32" />)
         ) : filtered?.map((driver: any) => {
@@ -253,11 +253,11 @@ export default function Drivers() {
                 {sel && <CheckSquare className="w-4 h-4 text-primary-foreground" />}
               </div>
             )}
-            <CardContent className="p-5 flex-1 flex flex-col">
-              <div className="flex justify-between items-start mb-4">
+            <CardContent className="p-4 flex-1 flex flex-col">
+              <div className="flex justify-between items-start mb-2">
                 <div>
                   <div className="flex items-center gap-2 flex-wrap">
-                    <h3 className="font-bold text-lg text-foreground">{driver.name}</h3>
+                    <h3 className="font-bold text-base text-foreground">{driver.name}</h3>
                     {driver.staff_no && (
                       <span className="font-mono text-xs px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/30">
                         {driver.staff_no}
@@ -286,15 +286,15 @@ export default function Drivers() {
                 </Badge>
               </div>
 
-              <div className="mt-auto text-sm text-muted-foreground mb-4">
+              <div className="mt-auto text-sm text-muted-foreground mb-2">
                 <span className="block text-xs uppercase opacity-70">Total Jobs</span>
                 <span className="font-medium text-foreground">{driver.total_jobs || 0}</span>
               </div>
 
               {!bulk.selectMode && (
-                <div className="flex gap-2 mt-auto pt-4 border-t border-border/50">
+                <div className="flex gap-2 mt-auto pt-3 border-t border-border/50">
                   <Link href={`/drivers/${driver.id}`} className="flex-1">
-                    <Button variant="outline" className="w-full h-10">View Profile</Button>
+                    <Button variant="outline" className="w-full h-8">View Profile</Button>
                   </Link>
                   {driver.whatsapp && (
                     <a
@@ -303,7 +303,7 @@ export default function Drivers() {
                       rel="noopener noreferrer"
                       className="flex-1"
                     >
-                      <Button variant="secondary" className="w-full h-10 bg-green-900/20 text-green-500 hover:bg-green-900/40 border border-green-900/50">
+                      <Button variant="secondary" className="w-full h-8 bg-green-900/20 text-green-500 hover:bg-green-900/40 border border-green-900/50">
                         <MessageSquare className="w-4 h-4 mr-2" />
                         Chat
                       </Button>

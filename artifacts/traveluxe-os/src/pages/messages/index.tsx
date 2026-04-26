@@ -56,7 +56,7 @@ export default function Messages() {
   };
 
   return (
-    <div className="space-y-6 h-[calc(100vh-100px)] md:h-[calc(100vh-80px)] flex flex-col">
+    <div className="space-y-4 h-[calc(100vh-100px)] md:h-[calc(100vh-80px)] flex flex-col">
       <h1 className="text-3xl font-bold tracking-tight text-foreground shrink-0">Messages & Tasks</h1>
 
       <div className="flex-1 grid grid-cols-1 lg:grid-cols-3 gap-6 overflow-hidden">

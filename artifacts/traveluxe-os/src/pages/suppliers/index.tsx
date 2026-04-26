@@ -162,7 +162,7 @@ export default function SuppliersList() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-2">
@@ -240,7 +240,7 @@ export default function SuppliersList() {
 
       {/* Grid */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-44 rounded-xl" />)}
         </div>
       ) : items.length === 0 ? (
@@ -256,7 +256,7 @@ export default function SuppliersList() {
           </Button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {items.map(s => {
             const wa = whatsappLink(s.whatsapp);
             const selected = bulk.isSelected(s.id);
@@ -271,7 +271,7 @@ export default function SuppliersList() {
                 onClick={() => bulk.selectMode ? bulk.toggle(s.id) : setLocation(`/suppliers/${s.id}`)}
                 data-testid={bulk.selectMode ? `select-supplier-${s.id}` : undefined}
               >
-                <CardContent className="p-5 space-y-3">
+                <CardContent className="p-4 space-y-2">
                   <div className="flex justify-between items-start gap-2">
                     <div className="min-w-0 flex items-start gap-3">
                       {bulk.selectMode && (
@@ -280,7 +280,7 @@ export default function SuppliersList() {
                         </div>
                       )}
                       <div className="min-w-0">
-                      <div className="font-bold text-lg text-foreground truncate">{s.name}</div>
+                      <div className="font-bold text-base text-foreground truncate">{s.name}</div>
                       {s.contact_name && (
                         <div className="text-xs text-muted-foreground truncate">{s.contact_name}</div>
                       )}

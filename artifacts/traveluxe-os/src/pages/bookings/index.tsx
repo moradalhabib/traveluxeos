@@ -244,7 +244,7 @@ export default function Bookings() {
   }, [timeFilteredBookings]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -380,11 +380,11 @@ export default function Bookings() {
 
       {/* Grid (grouped) */}
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
           {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-48" />)}
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-4">
           {groupedByDate.map(group => (
             <div key={group.sortKey} className="space-y-3">
               <div className="flex items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-sm py-1.5 z-10">
@@ -394,7 +394,7 @@ export default function Bookings() {
                   {group.items.length} booking{group.items.length !== 1 ? "s" : ""}
                 </Badge>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
                 {group.items.map((booking: any) => {
           const selected = bulk.isSelected(booking.id);
           return (
@@ -408,9 +408,9 @@ export default function Bookings() {
             onClick={bulk.selectMode ? () => bulk.toggle(booking.id) : () => setLocation(`/bookings/${booking.id}`)}
             data-testid={bulk.selectMode ? `select-booking-${booking.id}` : undefined}
           >
-            <CardContent className="p-4">
+            <CardContent className="p-3">
               {/* Top row: ref + badges | status badge + time */}
-              <div className="flex items-start justify-between mb-2">
+              <div className="flex items-start justify-between mb-1">
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-1.5 flex-wrap">
                     {bulk.selectMode && (
@@ -466,13 +466,13 @@ export default function Bookings() {
                   <div className="flex items-center gap-2 mt-1">
                     {booking.client_id ? (
                       <span
-                        className="font-bold text-base text-primary hover:underline"
+                        className="font-bold text-sm text-primary hover:underline"
                         onClick={(e) => { e.stopPropagation(); setLocation(`/clients/${booking.client_id}`); }}
                       >
                         {booking.client_name || "Unknown Client"}
                       </span>
                     ) : (
-                      <span className="font-bold text-base text-foreground">{booking.client_name || "Unknown Client"}</span>
+                      <span className="font-bold text-sm text-foreground">{booking.client_name || "Unknown Client"}</span>
                     )}
                     {(booking as any).client_vip_tier && (booking as any).client_vip_tier !== "Standard" && (
                       <Badge variant="outline" className={`text-[10px] py-0 px-1.5 ${getVipBadgeColor((booking as any).client_vip_tier)}`}>

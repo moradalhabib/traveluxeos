@@ -179,7 +179,7 @@ export default function Finance() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
         <div className="grid grid-cols-2 gap-3">
           {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-28" />)}
@@ -209,7 +209,7 @@ export default function Finance() {
   const totalPendingPayout = totalDriverPendingPayout + totalSupplierPayouts;
 
   return (
-    <div className="space-y-5 max-w-4xl mx-auto">
+    <div className="space-y-3 max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -290,14 +290,14 @@ export default function Finance() {
 
       {/* KPI cards */}
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-2xl border border-border bg-card p-4">
+        <div className="rounded-2xl border border-border bg-card p-3">
           <div className="flex items-center gap-2 mb-1">
             <TrendingUp className="w-4 h-4 text-primary" />
             <span className="text-xs text-muted-foreground">Total Revenue</span>
           </div>
           <div className="text-2xl font-bold text-foreground">£{(s?.total_revenue ?? 0).toLocaleString()}</div>
         </div>
-        <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4" data-testid="finance-kpi-tvl-commission">
+        <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3" data-testid="finance-kpi-tvl-commission">
           <div className="flex items-center gap-2 mb-1">
             <PoundSterling className="w-4 h-4 text-primary" />
             <span className="text-xs text-muted-foreground">TVL Commission</span>
@@ -306,7 +306,7 @@ export default function Finance() {
           <div className="text-[10px] text-muted-foreground mt-0.5">Drivers + suppliers</div>
         </div>
         <Link href="/commissions" data-testid="link-finance-outstanding">
-          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 hover:border-amber-500/40 transition-colors cursor-pointer h-full">
+          <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-3 hover:border-amber-500/40 transition-colors cursor-pointer h-full">
             <div className="flex items-center gap-2 mb-1">
               <AlertCircle className="w-4 h-4 text-amber-500" />
               <span className="text-xs text-muted-foreground">Outstanding Commissions</span>
@@ -317,7 +317,7 @@ export default function Finance() {
             </div>
           </div>
         </Link>
-        <div className="rounded-2xl border border-border bg-card p-4">
+        <div className="rounded-2xl border border-border bg-card p-3">
           <div className="flex items-center gap-2 mb-1">
             <CreditCard className="w-4 h-4 text-muted-foreground" />
             <span className="text-xs text-muted-foreground">Pending Payouts</span>
@@ -344,7 +344,7 @@ export default function Finance() {
         </TabsList>
 
         {/* OVERVIEW */}
-        <TabsContent value="overview" className="space-y-4 mt-4">
+        <TabsContent value="overview" className="space-y-3 mt-3">
           {/* Cancellation fees */}
           {(s?.cancellation_fees ?? 0) > 0 && (
             <div className="flex items-center justify-between p-4 rounded-xl border border-border bg-card">
@@ -376,15 +376,15 @@ export default function Finance() {
         </TabsContent>
 
         {/* SERVICES BREAKDOWN */}
-        <TabsContent value="services" className="space-y-4 mt-4">
+        <TabsContent value="services" className="space-y-3 mt-3">
           <p className="text-xs text-muted-foreground">Revenue and commission broken down by service type.</p>
           {serviceBreakdown.length === 0 ? (
             <div className="text-center py-12 text-muted-foreground text-sm">No bookings yet</div>
           ) : (
             <div className="space-y-3">
               {serviceBreakdown.map((svc: any) => (
-                <div key={svc.service_type} className="p-4 rounded-2xl border border-border bg-card hover:border-primary/30 transition-colors">
-                  <div className="flex items-start justify-between mb-3">
+                <div key={svc.service_type} className="p-3 rounded-2xl border border-border bg-card hover:border-primary/30 transition-colors">
+                  <div className="flex items-start justify-between mb-2">
                     <div className="flex items-center gap-2">
                       <span className="text-xl">{SERVICE_ICONS[svc.service_type] ?? "📋"}</span>
                       <div>
@@ -393,11 +393,11 @@ export default function Finance() {
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-lg font-bold text-foreground">£{(svc.revenue ?? 0).toLocaleString()}</div>
+                      <div className="text-base font-bold text-foreground">£{(svc.revenue ?? 0).toLocaleString()}</div>
                       <div className="text-xs text-muted-foreground">revenue</div>
                     </div>
                   </div>
-                  <div className="flex items-center justify-between pt-3 border-t border-border">
+                  <div className="flex items-center justify-between pt-2 border-t border-border">
                     <span className="text-xs text-muted-foreground">TVL Commission</span>
                     <span className="text-primary font-semibold text-sm">£{(svc.commission ?? 0).toLocaleString()}</span>
                   </div>
@@ -408,7 +408,7 @@ export default function Finance() {
         </TabsContent>
 
         {/* DRIVER COMMISSIONS */}
-        <TabsContent value="drivers" className="space-y-4 mt-4">
+        <TabsContent value="drivers" className="space-y-3 mt-3">
           <p className="text-xs text-muted-foreground">
             Commission owed to Traveluxe and payouts owed to each driver.
           </p>
@@ -418,7 +418,7 @@ export default function Finance() {
             <div className="space-y-3">
               {driverBreakdown.map((d: any) => (
                 <div key={d.driver_id} className="rounded-2xl border border-border bg-card overflow-hidden">
-                  <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                  <div className="flex items-center justify-between px-3 py-2 border-b border-border">
                     <div className="flex items-center gap-2">
                       <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
                         <Car className="w-4 h-4 text-primary" />
@@ -435,7 +435,7 @@ export default function Finance() {
                     </Link>
                   </div>
                   <div className="grid grid-cols-2 divide-x divide-border">
-                    <div className="px-4 py-3">
+                    <div className="px-3 py-2">
                       <div className="text-xs text-muted-foreground mb-1">Commission Owed to TVL</div>
                       <div className="font-bold text-foreground">£{(d.commission_owed ?? 0).toLocaleString()}</div>
                       {(d.commission_outstanding ?? 0) > 0 ? (
@@ -450,7 +450,7 @@ export default function Finance() {
                         </div>
                       )}
                     </div>
-                    <div className="px-4 py-3">
+                    <div className="px-3 py-2">
                       <div className="text-xs text-muted-foreground mb-1">Driver Payout</div>
                       <div className="font-bold text-foreground">£{(d.driver_payout ?? 0).toLocaleString()}</div>
                       {(d.payout_pending ?? 0) > 0 ? (
@@ -473,7 +473,7 @@ export default function Finance() {
         </TabsContent>
 
         {/* SUPPLIER COMMISSIONS */}
-        <TabsContent value="suppliers" className="space-y-4 mt-4">
+        <TabsContent value="suppliers" className="space-y-3 mt-3">
           <p className="text-xs text-muted-foreground">
             Markup commission TVL earns from suppliers in this period. Tap a card to manage collections.
           </p>
@@ -486,7 +486,7 @@ export default function Finance() {
               {supplierBreakdown.map((sup: any) => (
                 <Link key={sup.supplier_id} href={`/commissions?tab=suppliers`} data-testid={`finance-supplier-row-${sup.supplier_id}`}>
                   <div className="rounded-2xl border border-border bg-card overflow-hidden hover:border-primary/30 transition-colors cursor-pointer">
-                    <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                    <div className="flex items-center justify-between px-3 py-2 border-b border-border">
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
                           <Wallet className="w-4 h-4 text-primary" />
@@ -499,11 +499,11 @@ export default function Finance() {
                       <ChevronRight className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                     </div>
                     <div className="grid grid-cols-2 divide-x divide-border">
-                      <div className="px-4 py-3">
+                      <div className="px-3 py-2">
                         <div className="text-xs text-muted-foreground mb-1">Commission Earned</div>
                         <div className="font-bold text-foreground">£{(sup.commission_owed ?? 0).toLocaleString()}</div>
                       </div>
-                      <div className="px-4 py-3">
+                      <div className="px-3 py-2">
                         <div className="text-xs text-muted-foreground mb-1">Outstanding</div>
                         <div className="font-bold text-foreground">£{(sup.commission_outstanding ?? 0).toLocaleString()}</div>
                         {(sup.commission_outstanding ?? 0) > 0 ? (
@@ -527,7 +527,7 @@ export default function Finance() {
         </TabsContent>
 
         {/* OUTSTANDING CLIENT PAYMENTS */}
-        <TabsContent value="clients" className="space-y-4 mt-4">
+        <TabsContent value="clients" className="space-y-3 mt-3">
           <div className="flex items-center justify-between">
             <p className="text-xs text-muted-foreground">Bookings with unpaid or partially paid invoices.</p>
             {outstanding.length > 0 && (
@@ -584,7 +584,7 @@ export default function Finance() {
           )}
         </TabsContent>
         {/* ANALYTICS ── moved from Intel module ─────────────────────────── */}
-        <TabsContent value="analytics" className="space-y-5 mt-4">
+        <TabsContent value="analytics" className="space-y-3 mt-3">
           {/* Year picker */}
           <div className="flex items-center justify-between">
             <p className="text-xs text-muted-foreground">Historical revenue trends and department breakdown.</p>
@@ -703,7 +703,7 @@ export default function Finance() {
               {/* 4. Best Month card */}
               {analyticsBestMonth && (
                 <Card className="border-green-500/20 bg-green-500/5">
-                  <CardContent className="p-4">
+                  <CardContent className="p-3">
                     <div className="flex items-center gap-2 mb-2">
                       <Award className="w-4 h-4 text-green-400" />
                       <span className="text-xs font-semibold text-green-400 uppercase tracking-wider">Best Month</span>
@@ -749,7 +749,7 @@ export default function Finance() {
 
         {/* PROFIT — Super Admin only */}
         {isSuperAdminOnly && (
-          <TabsContent value="profit" className="space-y-4 mt-4">
+          <TabsContent value="profit" className="space-y-3 mt-3">
             <ProfitTab dateFrom={range.from} dateTo={range.to} periodLabel={range.label} />
           </TabsContent>
         )}
@@ -901,7 +901,7 @@ function ProfitTab({ dateFrom, dateTo, periodLabel }: { dateFrom?: string; dateT
           const value = data.summary[b] ?? 0;
           const pct = data.total_profit > 0 ? (value / data.total_profit) * 100 : 0;
           return (
-            <div key={b} className="rounded-2xl border border-border bg-card p-4">
+            <div key={b} className="rounded-2xl border border-border bg-card p-3">
               <div className="flex items-center gap-2 mb-1.5">
                 <Icon className="w-4 h-4" style={{ color: BUCKET_COLORS[b] }} />
                 <span className="text-xs text-muted-foreground">{b}</span>

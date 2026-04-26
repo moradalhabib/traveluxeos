@@ -229,7 +229,7 @@ function EventDetailSheet({ event, onClose, daysUntil }: { event: CalEvent | nul
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
       <div
-        className="relative w-full max-w-md mx-auto bg-background border border-border/80 rounded-t-2xl sm:rounded-2xl shadow-2xl p-5 space-y-4 z-10"
+        className="relative w-full max-w-md mx-auto bg-background border border-border/80 rounded-t-2xl sm:rounded-2xl shadow-2xl p-4 space-y-3 z-10"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -472,7 +472,7 @@ export default function Analytics() {
 
   // ─────────────────────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
 
       {/* ── Alert banners ────────────────────────────────────────────────────── */}
       {holidayAlert && (
@@ -616,15 +616,15 @@ export default function Analytics() {
             Gulf & Season Calendar
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-0 space-y-4">
+        <CardContent className="pt-0 space-y-3">
           {/* Countdown to most imminent event */}
           {nextEvent && (
             <button
-              className="w-full text-left rounded-xl border border-primary/30 bg-primary/5 p-4 hover:border-primary/50 hover:bg-primary/8 transition-all"
+              className="w-full text-left rounded-xl border border-primary/30 bg-primary/5 p-3 hover:border-primary/50 hover:bg-primary/8 transition-all"
               onClick={() => setSelectedEvent(nextEvent)}
             >
               <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Coming up next — tap for detail</div>
-              <div className="text-lg font-bold text-foreground">{nextEvent.name}</div>
+              <div className="text-base font-bold text-foreground">{nextEvent.name}</div>
               <div className="flex items-end justify-between mt-1">
                 <div className="text-xs text-muted-foreground">
                   {format(nextEvent.startDate, "EEE d MMM yyyy")}
@@ -731,7 +731,7 @@ export default function Analytics() {
             )}
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-0 space-y-4">
+        <CardContent className="pt-0 space-y-3">
           {demandQuery.isLoading ? (
             <Skeleton className="h-44 w-full" />
           ) : demandWeeks.length === 0 ? (
@@ -862,7 +862,7 @@ export default function Analytics() {
             )}
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-0 space-y-4">
+        <CardContent className="pt-0 space-y-3">
           {clientsQuery.isLoading ? (
             <Skeleton className="h-48 w-full" />
           ) : clientsQuery.isError ? (
@@ -1015,7 +1015,7 @@ export default function Analytics() {
             Revenue Forecast — Next 30 Days
           </CardTitle>
         </CardHeader>
-        <CardContent className="pt-0 space-y-4">
+        <CardContent className="pt-0 space-y-3">
           {forecastQuery.isLoading ? (
             <Skeleton className="h-40 w-full" />
           ) : forecastQuery.isError || !forecast ? (
@@ -1023,7 +1023,7 @@ export default function Analytics() {
           ) : (
             <>
               <div className="grid grid-cols-2 gap-3">
-                <div className="rounded-xl border border-primary/20 bg-primary/5 p-4" data-testid="text-forecast-7d">
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-3" data-testid="text-forecast-7d">
                   <div className="text-xs text-muted-foreground uppercase tracking-wider">Next 7 days</div>
                   <div className="text-2xl font-bold text-primary mt-1">
                     £{(Number(forecast.next_7_days_revenue) || 0).toLocaleString()}
@@ -1036,7 +1036,7 @@ export default function Analytics() {
                     })()} bookings
                   </div>
                 </div>
-                <div className="rounded-xl border border-primary/20 bg-primary/5 p-4" data-testid="text-forecast-30d">
+                <div className="rounded-xl border border-primary/20 bg-primary/5 p-3" data-testid="text-forecast-30d">
                   <div className="text-xs text-muted-foreground uppercase tracking-wider">Next 30 days</div>
                   <div className="text-2xl font-bold text-primary mt-1">
                     £{(Number(forecast.next_30_days_revenue) || 0).toLocaleString()}

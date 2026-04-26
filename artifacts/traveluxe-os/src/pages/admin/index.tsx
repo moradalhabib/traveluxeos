@@ -164,7 +164,7 @@ function ImportTab() {
   const NONE = '__none__';
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <div>
         <h2 className="font-semibold text-foreground mb-1">Import Clients from CSV</h2>
         <p className="text-sm text-muted-foreground">
@@ -191,7 +191,7 @@ function ImportTab() {
 
       {/* Mapping */}
       {parsed && !results && (
-        <div className="space-y-5">
+        <div className="space-y-3">
           <div className="flex items-center justify-between">
             <div>
               <p className="font-semibold text-foreground">{parsed.rows.length} rows detected</p>
@@ -575,7 +575,7 @@ function ExportTab() {
   ];
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <div>
         <h2 className="font-semibold text-foreground mb-1">Export &amp; Backup</h2>
         <p className="text-sm text-muted-foreground">Download your data at any time. CSV files open in Excel and Google Sheets.</p>
@@ -585,7 +585,7 @@ function ExportTab() {
 
       <div className="space-y-3">
         {exportOptions.map(({ id, icon: Icon, title, description, format: fmt, action }) => (
-          <div key={id} className="flex items-center gap-4 p-4 rounded-xl border border-border bg-card hover:border-primary/30 transition-all">
+          <div key={id} className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card hover:border-primary/30 transition-all">
             <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
               <Icon className="w-5 h-5 text-primary" />
             </div>
@@ -933,7 +933,7 @@ function UsersTab({ currentUserId, isSuperAdmin }: { currentUserId?: string; isS
   const visibleUsers = (users ?? []).filter((u: any) => u.name !== "[removed]");
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <div className="flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h2 className="font-semibold text-foreground mb-1">Team & Access Control</h2>
@@ -1102,7 +1102,7 @@ function FleetTab() {
   const active = drivers?.filter((d: any) => d.status === "Active").length || 0;
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <div>
         <h2 className="font-semibold text-foreground mb-1">Fleet Overview</h2>
         <p className="text-sm text-muted-foreground">All vehicles assigned to drivers. Edit a driver's profile to update their vehicle.</p>
@@ -1143,7 +1143,7 @@ function FleetTab() {
             </div>
             <div className="space-y-2">
               {group.map((d: any) => (
-                <div key={d.id} className="flex items-center gap-4 p-4 rounded-xl border border-border bg-card">
+                <div key={d.id} className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card">
                   <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center flex-shrink-0">
                     <Car className="w-5 h-5 text-primary" />
                   </div>
@@ -1226,7 +1226,7 @@ function IntegrationTab() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <h2 className="font-semibold text-foreground mb-1">CRM Integration</h2>
         <p className="text-sm text-muted-foreground">
@@ -1586,7 +1586,7 @@ function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
 
   if (editing) {
     return (
-      <div className="space-y-5">
+      <div className="space-y-3">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => setEditing(null)} className="-ml-2">← Back</Button>
           <h2 className="font-semibold">{editing.id ? "Edit Product" : "New Product"}</h2>
@@ -1719,7 +1719,7 @@ function ProductsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-semibold text-foreground">🗺 Tours Catalogue</h2>
@@ -1913,7 +1913,7 @@ function ServicesTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
 
   if (editing) {
     return (
-      <div className="space-y-5">
+      <div className="space-y-3">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="sm" onClick={() => setEditing(null)} className="-ml-2">
             ← Back
@@ -2029,7 +2029,7 @@ function ServicesTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-3">
       <div>
         <div className="flex items-center justify-between mb-1">
           <h2 className="font-semibold text-foreground">Service Catalogue</h2>
@@ -2127,7 +2127,7 @@ function ServicesTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
             </button>
 
             {expanded === svc.id && (
-              <div className="px-4 pb-4 pt-0 space-y-4 border-t border-border">
+              <div className="px-3 pb-3 pt-0 space-y-3 border-t border-border">
                 {svc.description && (
                   <p className="text-sm text-muted-foreground pt-3">{svc.description}</p>
                 )}
@@ -2204,7 +2204,7 @@ export default function Admin() {
     // Wider container + smaller side padding on mobile so the airport pricing
     // matrix and tier rows have room to breathe on a 360px Samsung S25 screen
     // instead of being squeezed by the previous max-w-3xl ceiling.
-    <div className="space-y-5 max-w-6xl mx-auto px-2 sm:px-4">
+    <div className="space-y-3 max-w-6xl mx-auto px-2 sm:px-4">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-foreground">Admin Panel</h1>
@@ -2249,7 +2249,7 @@ export default function Admin() {
             were three separate top-level tabs which was confusing — the
             Service List is one logical product surface, just split into
             sub-tabs by what's being edited. */}
-        <TabsContent value="service-list" className="mt-5">
+        <TabsContent value="service-list" className="mt-3">
           <Tabs defaultValue="catalogue" className="w-full">
             <div className="overflow-x-auto -mx-2 px-2 mb-4">
               <TabsList className="inline-flex w-auto min-w-full bg-secondary/40">
@@ -2270,23 +2270,23 @@ export default function Admin() {
           </Tabs>
         </TabsContent>
 
-        <TabsContent value="import" className="mt-5">
+        <TabsContent value="import" className="mt-3">
           <ImportTab />
         </TabsContent>
 
-        <TabsContent value="export" className="mt-5">
+        <TabsContent value="export" className="mt-3">
           <ExportTab />
         </TabsContent>
 
-        <TabsContent value="fleet" className="mt-5">
+        <TabsContent value="fleet" className="mt-3">
           <FleetTab />
         </TabsContent>
 
-        <TabsContent value="users" className="mt-5">
+        <TabsContent value="users" className="mt-3">
           <UsersTab currentUserId={user?.id} isSuperAdmin={isSuperAdmin} />
         </TabsContent>
 
-        <TabsContent value="audit" className="mt-5">
+        <TabsContent value="audit" className="mt-3">
           <Tabs defaultValue="trail" className="w-full">
             <div className="overflow-x-auto -mx-2 px-2 mb-4">
               <TabsList className="inline-flex w-auto min-w-full bg-secondary/40">
@@ -2372,12 +2372,12 @@ export default function Admin() {
           </Tabs>
         </TabsContent>
 
-        <TabsContent value="api" className="mt-5">
+        <TabsContent value="api" className="mt-3">
           <IntegrationTab />
         </TabsContent>
 
         {canEditSettings && (
-          <TabsContent value="settings" className="mt-5">
+          <TabsContent value="settings" className="mt-3">
             <SettingsTab />
           </TabsContent>
         )}
@@ -2575,7 +2575,7 @@ function SettingsTab() {
         <CardHeader>
           <CardTitle className="text-base">App Settings</CardTitle>
         </CardHeader>
-        <CardContent className="space-y-5">
+        <CardContent className="space-y-3">
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">Admin email (Daily Briefing recipient)</label>
             <p className="text-xs text-muted-foreground">

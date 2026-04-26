@@ -278,9 +278,9 @@ export default function Commissions() {
 
   if (isLoading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-4">
         <Skeleton className="h-10 w-48" />
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           {[...Array(3)].map((_, i) => <Skeleton key={i} className="h-32" />)}
         </div>
         <Skeleton className="h-64 w-full" />
@@ -471,7 +471,7 @@ export default function Commissions() {
     .sort((a, b) => b.mostRecent - a.mostRecent);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div>
         <h1 className="text-3xl font-bold tracking-tight text-foreground">Commissions</h1>
         <p className="text-sm text-muted-foreground mt-0.5">
@@ -480,7 +480,7 @@ export default function Commissions() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         <Card className="border-border bg-card">
           <CardHeader className="flex flex-row items-center justify-between pb-2 space-y-0">
             <CardTitle className="text-sm font-medium text-muted-foreground">Drivers owe TVL</CardTitle>
@@ -629,11 +629,11 @@ export default function Commissions() {
                 onClick={() => openDriver(driver, "owed_to_tvl")}
                 data-testid={`commission-driver-card-${driver.driver_id}`}
               >
-                <CardContent className="p-4 sm:p-5 flex flex-col gap-2">
+                <CardContent className="p-3 sm:p-4 flex flex-col gap-2">
                   <div className="flex items-center justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <h3 className="font-bold text-base sm:text-lg truncate">{driver.driver_name}</h3>
+                        <h3 className="font-bold text-sm sm:text-base truncate">{driver.driver_name}</h3>
                         {driver.driver_staff_no && (
                           <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30 font-semibold">
                             {driver.driver_staff_no}
@@ -706,10 +706,10 @@ export default function Commissions() {
                 onClick={() => openDriver(driver, "owed_to_driver")}
                 data-testid={`payout-driver-card-${driver.driver_id}`}
               >
-                <CardContent className="p-4 sm:p-5 flex items-center justify-between gap-4">
+                <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <h3 className="font-bold text-base sm:text-lg truncate">{driver.driver_name}</h3>
+                      <h3 className="font-bold text-sm sm:text-base truncate">{driver.driver_name}</h3>
                       {driver.driver_staff_no && (
                         <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/10 text-primary border border-primary/30 font-semibold">
                           {driver.driver_staff_no}
@@ -782,10 +782,10 @@ export default function Commissions() {
                 onClick={() => setSupplierDialog(sup)}
                 data-testid={`supplier-receivable-card-${sup.supplier_id}`}
               >
-                <CardContent className="p-4 sm:p-5 flex items-center justify-between gap-4">
+                <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-4">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
-                      <h3 className="font-bold text-base sm:text-lg truncate">{sup.supplier_name}</h3>
+                      <h3 className="font-bold text-sm sm:text-base truncate">{sup.supplier_name}</h3>
                       {overdue && (
                         <Badge
                           variant="outline"
@@ -837,7 +837,7 @@ export default function Commissions() {
                   }}
                   data-testid={`supplier-recent-collected-card-${sup.supplier_id}`}
                 >
-                  <CardContent className="p-4 sm:p-5 flex items-center justify-between gap-4">
+                  <CardContent className="p-3 sm:p-4 flex items-center justify-between gap-4">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2 mb-1 flex-wrap">
                         <h3 className="font-semibold text-sm sm:text-base truncate">{sup.supplier_name}</h3>
@@ -853,7 +853,7 @@ export default function Commissions() {
                       </div>
                     </div>
                     <div className="text-right">
-                      <div className="text-lg font-semibold text-emerald-400">
+                      <div className="text-base font-semibold text-emerald-400">
                         {isSuperAdmin ? fmtMoney(recentTotal) : "—"}
                       </div>
                       <div className="text-[10px] text-muted-foreground uppercase tracking-wider">collected</div>
@@ -867,7 +867,7 @@ export default function Commissions() {
         </TabsContent>
 
         {/* Settlement History */}
-        <TabsContent value="history" className="mt-4 space-y-4">
+        <TabsContent value="history" className="mt-3 space-y-3">
           <SettlementHistoryView
             entries={historyQuery.data ?? []}
             isLoading={historyQuery.isLoading}
@@ -878,13 +878,13 @@ export default function Commissions() {
 
         {/* Arrangement Fees tab removed — Hotel/Apartment now use supplier_cost / client_price markup model */}
         {false && (
-          <TabsContent value="arrangement" className="mt-4 space-y-4">
+          <TabsContent value="arrangement" className="mt-3 space-y-3">
           {outstandingFees.length > 0 && (
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Outstanding</h3>
               {outstandingFees.map((fee: any) => (
                 <Card key={fee.booking_id} className="border-primary/10">
-                  <CardContent className="p-4 flex flex-col sm:flex-row justify-between gap-3">
+                  <CardContent className="p-3 flex flex-col sm:flex-row justify-between gap-3">
                     <div className="flex items-start gap-3">
                       <div className="mt-0.5">
                         {fee.service_type === "Hotel" ? (
@@ -935,7 +935,7 @@ export default function Commissions() {
               <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Collected</h3>
               {collectedFees.map((fee: any) => (
                 <Card key={fee.booking_id} className="border-border opacity-60">
-                  <CardContent className="p-4 flex flex-col sm:flex-row justify-between gap-3">
+                  <CardContent className="p-3 flex flex-col sm:flex-row justify-between gap-3">
                     <div className="flex items-start gap-3">
                       <div className="mt-0.5">
                         {fee.service_type === "Hotel" ? (
@@ -1272,7 +1272,7 @@ function SettlementHistoryView({
               data-testid={`history-driver-card-${d.driver_id}`}
             >
               <Card className="border-emerald-500/20 hover:border-emerald-500/40 transition-colors">
-                <CardContent className="p-4 flex items-center justify-between gap-3 flex-wrap">
+                <CardContent className="p-3 flex items-center justify-between gap-3 flex-wrap">
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-bold text-sm">{d.driver_name}</span>
@@ -1287,7 +1287,7 @@ function SettlementHistoryView({
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <div className="text-lg font-bold text-emerald-400">
+                    <div className="text-base font-bold text-emerald-400">
                       {isSuperAdmin ? fmtMoney(d.total) : "—"}
                     </div>
                     <ChevronRight className="w-4 h-4 text-muted-foreground" />

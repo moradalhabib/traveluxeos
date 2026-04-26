@@ -295,7 +295,7 @@ export default function FollowUps() {
   };
 
   return (
-    <div className="space-y-5 max-w-4xl mx-auto">
+    <div className="space-y-3 max-w-4xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
@@ -499,7 +499,7 @@ export default function FollowUps() {
                     </div>
                   </>
                 )}
-                <CardContent className="p-4 space-y-3">
+                <CardContent className="p-3 space-y-2">
                   {/* Top row */}
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex-1 min-w-0">
@@ -662,7 +662,7 @@ export default function FollowUps() {
           <DialogHeader>
             <DialogTitle>Mark Follow-Up Done</DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="space-y-3 py-2">
             <div>
               <label className="text-sm font-medium text-foreground mb-2 block">Outcome</label>
               <div className="grid grid-cols-1 gap-1.5">

@@ -90,7 +90,7 @@ export default function Clients() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Clients</h1>
@@ -104,7 +104,7 @@ export default function Clients() {
               <Button
                 variant="outline"
                 onClick={bulk.exitSelectMode}
-                className="h-12 flex-1 sm:flex-initial"
+                className="h-9 flex-1 sm:flex-initial"
                 data-testid="button-cancel-select"
               >
                 <X className="w-4 h-4 mr-2" /> Cancel
@@ -113,7 +113,7 @@ export default function Clients() {
               <Button
                 variant="outline"
                 onClick={bulk.enterSelectMode}
-                className="h-12 flex-1 sm:flex-initial"
+                className="h-9 flex-1 sm:flex-initial"
                 data-testid="button-select-mode"
               >
                 <CheckSquare className="w-4 h-4 mr-2" /> Select
@@ -122,7 +122,7 @@ export default function Clients() {
           )}
           {!isResidenceManager && !bulk.selectMode && (
             <Link href="/clients/new" className="flex-1 sm:flex-initial">
-              <Button className="w-full h-12 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
+              <Button className="w-full h-9 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
                 <Plus className="w-4 h-4 mr-2" />
                 Add Client
               </Button>
@@ -135,7 +135,7 @@ export default function Clients() {
         <Search className="absolute left-3 top-3.5 h-5 w-5 text-muted-foreground" />
         <Input
           placeholder="Search clients by name, WhatsApp, or email..."
-          className="pl-10 h-12 text-lg border-primary/20 bg-card"
+          className="pl-10 h-9 border-primary/20 bg-card"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -159,14 +159,14 @@ export default function Clients() {
         return <ActiveFilterChips filters={chips} onClearAll={() => setTierFilter("all")} />;
       })()}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
         {isLoading ? (
           [...Array(6)].map((_, i) => <Skeleton key={i} className="h-32" />)
         ) : clients?.map((client) => {
           const selected = bulk.isSelected(client.id);
           const cardInner = (
-            <CardContent className="p-5 flex-1 flex flex-col">
-              <div className="flex justify-between items-start mb-4">
+            <CardContent className="p-4 flex-1 flex flex-col">
+              <div className="flex justify-between items-start mb-2">
                 <div className="flex items-start gap-3 min-w-0">
                   {bulk.selectMode && (
                     <div className={`mt-1 flex-shrink-0 w-5 h-5 rounded border-2 flex items-center justify-center ${selected ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
@@ -174,7 +174,7 @@ export default function Clients() {
                     </div>
                   )}
                   <div className="min-w-0">
-                    <h3 className="font-bold text-lg text-foreground truncate">{client.name}</h3>
+                    <h3 className="font-bold text-base text-foreground truncate">{client.name}</h3>
                     <div className="text-sm text-muted-foreground mt-1">{client.whatsapp}</div>
                   </div>
                 </div>
@@ -183,7 +183,7 @@ export default function Clients() {
                 </Badge>
               </div>
 
-              <div className="mt-auto grid grid-cols-2 gap-2 text-sm text-muted-foreground mb-4">
+              <div className="mt-auto grid grid-cols-2 gap-2 text-sm text-muted-foreground mb-2">
                 <div>
                   <span className="block text-xs uppercase opacity-70">Bookings</span>
                   <span className="font-medium text-foreground">{client.total_bookings || 0}</span>
@@ -195,9 +195,9 @@ export default function Clients() {
               </div>
 
               {!bulk.selectMode && (
-                <div className="flex gap-2 mt-auto pt-4 border-t border-border/50">
+                <div className="flex gap-2 mt-auto pt-3 border-t border-border/50">
                   <Link href={`/clients/${client.id}`} className="flex-1">
-                    <Button variant="outline" className="w-full h-10">View Profile</Button>
+                    <Button variant="outline" className="w-full h-8">View Profile</Button>
                   </Link>
                   <a
                     href={`https://wa.me/${client.whatsapp.replace(/\D/g, '')}`}
@@ -205,7 +205,7 @@ export default function Clients() {
                     rel="noopener noreferrer"
                     className="flex-1"
                   >
-                    <Button variant="secondary" className="w-full h-10 bg-green-900/20 text-green-500 hover:bg-green-900/40 border border-green-900/50">
+                    <Button variant="secondary" className="w-full h-8 bg-green-900/20 text-green-500 hover:bg-green-900/40 border border-green-900/50">
                       <MessageSquare className="w-4 h-4 mr-2" />
                       WhatsApp
                     </Button>
