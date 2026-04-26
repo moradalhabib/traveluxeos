@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { supabase } from "../lib/supabase";
+import { supabase, getServiceRoleClient } from "../lib/supabase";
 
 const router = Router();
 
@@ -123,7 +123,7 @@ router.get("/summary", async (_req, res) => {
   todayEnd.setHours(23, 59, 59, 999);
   const { data: todaysJobsRaw } = await supabase
     .from("bookings")
-    .select("id, tvl_ref, service_type, direction, pickup, dropoff, date_time, status, driver_id, client_id, vehicle_type")
+    .select("id, tvl_ref, service_type, direction, pickup, dropoff, date_time, status, driver_id, client_id, vehicle_type, flight_number")
     .gte("date_time", now.toISOString())
     .lte("date_time", todayEnd.toISOString())
     .neq("status", "Cancelled")
@@ -132,6 +132,30 @@ router.get("/summary", async (_req, res) => {
     .limit(5);
   const todayJobClientIds = Array.from(new Set((todaysJobsRaw ?? []).map((b: any) => b.client_id).filter(Boolean)));
   const todayJobDriverIds = Array.from(new Set((todaysJobsRaw ?? []).map((b: any) => b.driver_id).filter(Boolean)));
+
+  // Batch-fetch flight status cache for AT jobs that have a flight number (cache-only, no AeroDataBox).
+  const todayAtJobs = (todaysJobsRaw ?? []).filter((b: any) => b.service_type === "Airport Transfer" && b.flight_number && b.date_time);
+  const flightDates: { fn: string; date: string }[] = [];
+  todayAtJobs.forEach((b: any) => {
+    const date = new Date(b.date_time).toISOString().split("T")[0];
+    if (!flightDates.find(x => x.fn === b.flight_number && x.date === date)) {
+      flightDates.push({ fn: b.flight_number, date });
+    }
+  });
+  const flightCacheByKey: Record<string, any> = {};
+  if (flightDates.length > 0) {
+    const serviceClient = getServiceRoleClient() ?? supabase;
+    await Promise.all(flightDates.map(async ({ fn, date }) => {
+      const { data } = await serviceClient
+        .from("flight_status_cache")
+        .select("*")
+        .eq("flight_number", fn)
+        .eq("date", date)
+        .single();
+      if (data) flightCacheByKey[`${fn}|${date}`] = data;
+    }));
+  }
+
   const [{ data: todayJobClients }, { data: todayJobDrivers }] = await Promise.all([
     supabase.from("clients").select("id, name, vip_tier").in("id", todayJobClientIds.length ? todayJobClientIds : ["00000000-0000-0000-0000-000000000000"]),
     supabase.from("drivers").select("id, name").in("id", todayJobDriverIds.length ? todayJobDriverIds : ["00000000-0000-0000-0000-000000000000"]),
@@ -140,21 +164,32 @@ router.get("/summary", async (_req, res) => {
   (todayJobClients ?? []).forEach((c: any) => { todayJobClientMap[c.id] = c; });
   const todayJobDriverMap: Record<string, any> = {};
   (todayJobDrivers ?? []).forEach((d: any) => { todayJobDriverMap[d.id] = d; });
-  const todaysJobs = (todaysJobsRaw ?? []).map((b: any) => ({
-    id: b.id,
-    tvl_ref: b.tvl_ref,
-    service_type: b.service_type,
-    direction: b.direction,
-    pickup: b.pickup,
-    dropoff: b.dropoff,
-    date_time: b.date_time,
-    status: b.status,
-    vehicle_type: b.vehicle_type,
-    client_name: todayJobClientMap[b.client_id]?.name ?? null,
-    client_vip_tier: todayJobClientMap[b.client_id]?.vip_tier ?? null,
-    driver_name: todayJobDriverMap[b.driver_id]?.name ?? null,
-    driver_id: b.driver_id,
-  }));
+  const todaysJobs = (todaysJobsRaw ?? []).map((b: any) => {
+    const flightDate = b.date_time ? new Date(b.date_time).toISOString().split("T")[0] : null;
+    const cachedFlight = (b.flight_number && flightDate) ? (flightCacheByKey[`${b.flight_number}|${flightDate}`] ?? null) : null;
+    return {
+      id: b.id,
+      tvl_ref: b.tvl_ref,
+      service_type: b.service_type,
+      direction: b.direction,
+      pickup: b.pickup,
+      dropoff: b.dropoff,
+      date_time: b.date_time,
+      status: b.status,
+      vehicle_type: b.vehicle_type,
+      flight_number: b.flight_number ?? null,
+      flight_status: cachedFlight ? {
+        status:         cachedFlight.status,
+        delay_minutes:  cachedFlight.delay_minutes ?? 0,
+        terminal:       cachedFlight.terminal ?? null,
+        last_updated:   cachedFlight.last_updated,
+      } : null,
+      client_name: todayJobClientMap[b.client_id]?.name ?? null,
+      client_vip_tier: todayJobClientMap[b.client_id]?.vip_tier ?? null,
+      driver_name: todayJobDriverMap[b.driver_id]?.name ?? null,
+      driver_id: b.driver_id,
+    };
+  });
 
   // "TVL owes drivers" — realized money only: TVL only owes the driver once
   // the client has paid TVL (payment_status='Paid'). Future Confirmed-but-

@@ -5,11 +5,22 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, Plus, BellRing, Car } from "lucide-react";
+import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, Plus, BellRing, Car, Plane } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { getVipPillClass } from "@/lib/vip";
+
+function getFlightBadgeClass(status?: string) {
+  switch (status) {
+    case "Delayed":   return "bg-amber-500/15 text-amber-400 border-amber-500/40";
+    case "Early":     return "bg-emerald-500/15 text-emerald-400 border-emerald-500/40";
+    case "Cancelled": return "bg-red-500/15 text-red-400 border-red-500/40";
+    case "Landed":    return "bg-blue-500/15 text-blue-400 border-blue-500/30";
+    case "On Time":   return "bg-green-500/15 text-green-400 border-green-500/30";
+    default:          return "bg-muted/30 text-muted-foreground border-border";
+  }
+}
 
 function whatsappLink(num?: string | null, message?: string) {
   if (!num) return null;
@@ -281,6 +292,28 @@ export default function Dashboard() {
                       <div className="text-[11px] text-muted-foreground truncate mt-0.5">
                         {j.service_type}{j.direction ? ` · ${j.direction}` : ""} · {j.pickup ?? "—"} → {j.dropoff ?? "—"}
                       </div>
+                      {/* Flight status badge — shown for Airport Transfer jobs with a cached status */}
+                      {j.flight_number && (() => {
+                        const fs = j.flight_status;
+                        const st = fs?.status as string | undefined;
+                        const delayMins = fs?.delay_minutes ?? 0;
+                        const note = st === "Delayed" && delayMins > 0 ? ` +${delayMins}m`
+                                   : st === "Early"   && delayMins < 0 ? ` ${Math.abs(delayMins)}m early` : "";
+                        return (
+                          <div className="mt-1">
+                            <Badge variant="outline" className={`text-[10px] py-0 px-1.5 inline-flex items-center gap-0.5 ${getFlightBadgeClass(st)}`}>
+                              <Plane className="w-2.5 h-2.5 flex-shrink-0" />
+                              <span className="font-mono font-medium">{j.flight_number}</span>
+                              {st && st !== "Unknown" && (
+                                <span className="ml-0.5 font-normal opacity-90">{st}{note}</span>
+                              )}
+                              {!st && (
+                                <span className="ml-0.5 font-normal opacity-60">tracking</span>
+                              )}
+                            </Badge>
+                          </div>
+                        );
+                      })()}
                     </div>
                     {/* Right side: active bell OR driver/no-driver */}
                     <div className="flex flex-col items-end gap-1 flex-shrink-0">
