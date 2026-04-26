@@ -385,6 +385,25 @@ export default function Dashboard() {
         </Card>
       )}
 
+      {/* Quick links — 3-col grid, compact */}
+      <div className="grid grid-cols-3 gap-2">
+        {[
+          { href: "/jobs",      icon: <Briefcase className="w-4 h-4 text-primary mx-auto mb-1" />,      label: "Jobs Board" },
+          { href: "/bookings",  icon: <CalendarRange className="w-4 h-4 text-primary mx-auto mb-1" />,  label: "Bookings" },
+          { href: "/services",  icon: <Layers className="w-4 h-4 text-primary mx-auto mb-1" />,         label: "Services" },
+          { href: "/clients",   icon: <Users className="w-4 h-4 text-primary mx-auto mb-1" />,          label: "Clients" },
+          { href: "/search",    icon: <Search className="w-4 h-4 text-primary mx-auto mb-1" />,         label: "Search" },
+          { href: "/invoices",  icon: <Receipt className="w-4 h-4 text-primary mx-auto mb-1" />,        label: "Invoices" },
+        ].map(({ href, icon, label }) => (
+          <Link key={href} href={href}>
+            <div className="rounded-xl border border-border bg-card p-2.5 text-center hover:border-primary/50 hover:bg-secondary/20 transition-all cursor-pointer">
+              {icon}
+              <span className="text-[10px] font-medium text-foreground">{label}</span>
+            </div>
+          </Link>
+        ))}
+      </div>
+
       {/* KPI Cards — 2-col grid, tighter */}
       <div className="grid grid-cols-2 gap-2">
         <Link href="/follow-ups">
@@ -488,25 +507,6 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         </Link>
-      </div>
-
-      {/* Quick links — 3-col grid, compact */}
-      <div className="grid grid-cols-3 gap-2">
-        {[
-          { href: "/jobs",      icon: <Briefcase className="w-4 h-4 text-primary mx-auto mb-1" />,      label: "Jobs Board" },
-          { href: "/bookings",  icon: <CalendarRange className="w-4 h-4 text-primary mx-auto mb-1" />,  label: "Bookings" },
-          { href: "/services",  icon: <Layers className="w-4 h-4 text-primary mx-auto mb-1" />,         label: "Services" },
-          { href: "/clients",   icon: <Users className="w-4 h-4 text-primary mx-auto mb-1" />,          label: "Clients" },
-          { href: "/search",    icon: <Search className="w-4 h-4 text-primary mx-auto mb-1" />,         label: "Search" },
-          { href: "/invoices",  icon: <Receipt className="w-4 h-4 text-primary mx-auto mb-1" />,        label: "Invoices" },
-        ].map(({ href, icon, label }) => (
-          <Link key={href} href={href}>
-            <div className="rounded-xl border border-border bg-card p-2.5 text-center hover:border-primary/50 hover:bg-secondary/20 transition-all cursor-pointer">
-              {icon}
-              <span className="text-[10px] font-medium text-foreground">{label}</span>
-            </div>
-          </Link>
-        ))}
       </div>
 
       {/* Top Clients & Drivers — side by side if both present */}
