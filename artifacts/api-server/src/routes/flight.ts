@@ -115,6 +115,42 @@ router.get("/quota-status", (_req, res) => {
   });
 });
 
+// ─── POST /api/flight/:flight_number/force-refresh ───────────────────────────
+// Admin / ops escape-hatch: clears the cached status for a flight+date and
+// immediately fetches fresh data from AeroDataBox.  Use when the cache is
+// visibly wrong (e.g. shows "Early" while the flight is still airborne).
+// Query params: date (YYYY-MM-DD, required), direction (Arrival|Departure)
+router.post("/:flight_number/force-refresh", async (req, res) => {
+  const { flight_number } = req.params;
+  const { date, direction } = req.query;
+  if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+    return res.status(400).json({ error: "date query param required (YYYY-MM-DD)" });
+  }
+  const flightDate = String(date);
+  const dir = direction === "Departure" ? "Departure" : "Arrival" as const;
+  const db  = getServiceRoleClient() ?? supabase;
+
+  // Clear existing cache so the terminal-status guard can't block the refresh.
+  await db
+    .from("flight_status_cache")
+    .delete()
+    .eq("flight_number", flight_number.toUpperCase())
+    .eq("date", flightDate);
+
+  const { paused, resumeAt } = isFlightApiPaused();
+  if (paused) {
+    return res.status(503).json({ error: `Flight API paused — quota exhausted. Resumes ${resumeAt}.` });
+  }
+
+  const result = await fetchFlightStatus(flight_number.toUpperCase(), flightDate, dir);
+  if (result.ok) {
+    await upsertCache(db, result.data, flightDate);
+    return res.json({ ...result.data, force_refreshed: true });
+  }
+
+  return res.status(502).json({ error: result.message ?? result.reason });
+});
+
 // ─── GET /api/flight/ ─────────────────────────────────────────────────────────
 // Flight tracker board: today + tomorrow Airport Transfer bookings.
 // CACHE-ONLY — never calls AeroDataBox directly. The background poller

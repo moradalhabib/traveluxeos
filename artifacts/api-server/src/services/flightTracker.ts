@@ -273,7 +273,11 @@ const MAX_CALLS_PER_FLIGHT = 6;
 const pollCallCounts = new Map<string, number>();
 
 // Terminal statuses — once reached, no further polls for this flight.
-const TERMINAL_STATUSES = new Set(["Landed", "Cancelled", "Early"]);
+// NOTE: "Early" is intentionally excluded. AeroDataBox occasionally returns
+// "Arrived" prematurely (while the plane is still airborne), which would map
+// to "Early" and permanently block updates. We only stop when AeroDataBox
+// confirms actual on-ground status ("Landed") or a cancellation.
+const TERMINAL_STATUSES = new Set(["Landed", "Cancelled"]);
 
 export async function pollUpcomingFlights(): Promise<void> {
   // Hard short-circuit: if monthly quota is exhausted, don't even hit the DB.
