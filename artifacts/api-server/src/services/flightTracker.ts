@@ -355,14 +355,25 @@ export async function pollUpcomingFlights(): Promise<void> {
       // Read existing cached entry BEFORE fetching so we can detect changes.
       const { data: cached } = await db
         .from("flight_status_cache")
-        .select("last_updated, status, delay_minutes")
+        .select("last_updated, status, delay_minutes, estimated_time")
         .eq("flight_number", b.flight_number)
         .eq("date", flightDate)
         .single();
 
       // ── Terminal guard ─────────────────────────────────────────────────
-      // Once Landed / Cancelled / Early, stop all further auto-polls.
-      if (cached?.status && TERMINAL_STATUSES.has(cached.status)) return;
+      // "Landed" / "Cancelled" → unconditionally stop.
+      // "Early" → stop ONLY if the estimated arrival time has already passed
+      //   (the plane has genuinely landed early).  If estimated_time is still
+      //   in the future the cached "Early" came from a premature API response
+      //   and we must keep polling so the real status can replace it.
+      if (cached?.status) {
+        if (TERMINAL_STATUSES.has(cached.status)) return;
+        if (cached.status === "Early") {
+          const estMs = cached.estimated_time ? new Date(cached.estimated_time).getTime() : null;
+          if (estMs !== null && estMs < Date.now()) return; // genuinely landed early
+          // else: estimated_time is still in the future → stale data, keep polling
+        }
+      }
 
       // ── Phase-appropriate debounce ─────────────────────────────────────
       // Pre-arrival: 20 min — prevents double-poll within same checkpoint window.
