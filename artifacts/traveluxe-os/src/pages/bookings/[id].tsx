@@ -3113,8 +3113,15 @@ export default function BookingDetail() {
                     onChange={e => {
                       const next = e.target.value;
                       const patch: any = { payment_status: next };
-                      if (next === "Paid" && !((booking as any).payment_date)) {
-                        patch.payment_date = new Date().toISOString().slice(0, 10);
+                      if (next === "Paid") {
+                        // Auto-stamp today's date if not already set
+                        if (!((booking as any).payment_date)) {
+                          patch.payment_date = new Date().toISOString().slice(0, 10);
+                        }
+                        // Auto-fill amount paid with full fare if not already set
+                        if (!((booking as any).paid_amount)) {
+                          patch.paid_amount = displayedTotal;
+                        }
                       }
                       updateBooking.mutate({ id, data: patch }, { onSuccess: invalidateBookingDetail });
                     }}
