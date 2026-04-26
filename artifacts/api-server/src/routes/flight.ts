@@ -62,8 +62,11 @@ router.get("/:flight_number", async (req, res) => {
 });
 
 // ─── GET /api/flight/ ─────────────────────────────────────────────────────────
-// Flight tracker board: today + tomorrow Airport Transfer bookings with a
-// flight number. Uses 5-min cache; calls API only for missing/stale entries.
+// Flight tracker board: today + tomorrow Airport Transfer bookings.
+// CACHE-ONLY — never calls AeroDataBox directly. The background poller
+// (T-1h / T-30min / post-arrival) is the sole writer to flight_status_cache.
+// This keeps browser auto-refreshes (Flights dashboard, booking detail) from
+// consuming any AeroDataBox quota.
 router.get("/", async (_req, res) => {
   const now = new Date();
   const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
@@ -85,32 +88,41 @@ router.get("/", async (_req, res) => {
 
   if (error) return res.status(500).json({ error: error.message });
 
-  const results = await Promise.all(
-    (bookings ?? []).map(async (b: any) => {
+  // Batch-fetch all cached statuses in one query to avoid N+1 round-trips.
+  const flightKeys = (bookings ?? [])
+    .filter((b: any) => b.flight_number && b.date_time)
+    .map((b: any) => ({
+      fn:   (b.flight_number as string).toUpperCase(),
+      date: new Date(b.date_time).toISOString().split("T")[0],
+    }));
+
+  // Build a lookup map: "FLIGHT|DATE" → cached row
+  const cacheMap = new Map<string, any>();
+  if (flightKeys.length) {
+    // Supabase doesn't support OR on composite keys natively, so we fetch
+    // all cache rows for any of the flight numbers across the date range and
+    // filter in JS. The result set is tiny (today + tomorrow's flights).
+    const fns  = [...new Set(flightKeys.map(k => k.fn))];
+    const dates = [...new Set(flightKeys.map(k => k.date))];
+    const { data: rows } = await db
+      .from("flight_status_cache")
+      .select("*")
+      .in("flight_number", fns)
+      .in("date", dates);
+    for (const row of (rows ?? [])) {
+      cacheMap.set(`${row.flight_number}|${row.date}`, row);
+    }
+  }
+
+  const results = (bookings ?? []).map((b: any) => {
       const flightDate = b.date_time ? new Date(b.date_time).toISOString().split("T")[0] : null;
       let flightStatus: any = null;
 
       if (b.flight_number && flightDate) {
-        const { data: cached } = await db
-          .from("flight_status_cache")
-          .select("*")
-          .eq("flight_number", b.flight_number)
-          .eq("date", flightDate)
-          .single();
-
-        const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-        if (cached && cached.last_updated > fiveMinAgo) {
-          flightStatus = buildCacheResponse(cached, b.flight_number);
-        } else {
-          const dir = b.direction === "Departure" ? "Departure" : "Arrival" as const;
-          const live = await fetchFlightStatus(b.flight_number, flightDate, dir);
-          if (live.ok) {
-            flightStatus = live.data;
-            await upsertCache(db, live.data, flightDate);
-          } else if (cached) {
-            flightStatus = buildCacheResponse(cached, b.flight_number);
-          }
-        }
+        const cached = cacheMap.get(`${(b.flight_number as string).toUpperCase()}|${flightDate}`);
+        if (cached) flightStatus = buildCacheResponse(cached, b.flight_number);
+        // No cache yet → poller hasn't fired yet (pre T-1h). Show null so the
+        // dashboard displays "Awaiting feed" rather than calling AeroDataBox.
       }
 
       const enriched = flightStatus
@@ -133,8 +145,7 @@ router.get("/", async (_req, res) => {
         driver_staff_no: b.drivers?.staff_no ?? null,
         flight_status:   enriched,
       };
-    })
-  );
+    });
 
   return res.json(results);
 });
