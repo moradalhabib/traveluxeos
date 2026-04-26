@@ -656,131 +656,95 @@ export async function notifyDriverDeclined(bookingId: string, driverName: string
   }
 }
 
-// ─── No-driver alerts (3-hour & 24-hour windows) ────────────────────────────
-// 3h  → push at most once per 2 hours per booking (was every 60 s — too noisy)
-// 24h → push once per day per booking
-// Both use audit_log gating identical to sendUpcomingAlerts so the push never
-// fires again within the same window even if the scheduler ticks mid-window.
+// ─── No-driver alerts — 3 fixed milestones only ──────────────────────────────
+// Exactly 3 pushes per unassigned booking, no more:
+//   • 12 h before departure  — "heads up, sort this today"
+//   •  8 h before departure  — "getting urgent"
+//   •  2 h before departure  — "URGENT, act now"
+//
+// Each milestone fires once and is gated by an audit_log row so the 60-second
+// ticker cannot re-send even if the server restarts mid-window.
+// Detection window for each milestone is ±15 minutes so the 60-second tick
+// reliably catches it even if a tick is slightly delayed.
 async function checkNoDriverAlerts() {
   const now = Date.now();
-  const in3h = new Date(now + 3 * 60 * 60 * 1000).toISOString();
-  const in24h = new Date(now + 24 * 60 * 60 * 1000).toISOString();
   const nowIso = new Date(now).toISOString();
 
-  // ── 3-hour urgent alerts ─────────────────────────────────────────────
-  const { data: urgent } = await schedDb()
+  // Fetch ALL unassigned upcoming bookings in the next 13 h (covers all windows)
+  const in13h = new Date(now + 13 * 60 * 60 * 1000).toISOString();
+  const { data: unassigned } = await schedDb()
     .from("bookings")
-    .select("id, tvl_ref, clients(name), date_time, status")
+    .select("id, tvl_ref, date_time, status")
     .is("driver_id", null)
     .in("status", ["Confirmed", "Pending"])
     .gte("date_time", nowIso)
-    .lte("date_time", in3h)
-    .limit(50);
+    .lte("date_time", in13h)
+    .limit(100);
 
-  if (urgent && urgent.length > 0) {
-    // 2-hour bucket: push fires at most once per 2 h per booking
-    const twoHourBucket = Math.floor(now / (2 * 60 * 60 * 1000));
-    const bucketKey = String(twoHourBucket);
+  if (!unassigned || unassigned.length === 0) return;
 
-    // Batch audit-log check — skip any booking already pushed this bucket
-    const ids3h = urgent.map(b => b.id);
-    const cutoff3h = new Date(now - 2 * 60 * 60 * 1000).toISOString();
-    const { data: alreadySent3h } = await schedDb()
-      .from("audit_log")
-      .select("entity_id")
-      .eq("action", "no_driver_3h_push")
-      .in("entity_id", ids3h)
-      .gte("created_at", cutoff3h);
-    const sent3hSet = new Set((alreadySent3h ?? []).map((r: any) => r.entity_id));
+  const ids = unassigned.map(b => b.id);
 
-    for (const b of urgent) {
-      if (sent3hSet.has(b.id)) continue; // already pushed within this 2-h window
+  // Fetch all no-driver audit rows for these bookings in the last 13 h
+  const cutoff = new Date(now - 13 * 60 * 60 * 1000).toISOString();
+  const { data: sentRows } = await schedDb()
+    .from("audit_log")
+    .select("entity_id, action")
+    .in("action", ["no_driver_12h_push", "no_driver_8h_push", "no_driver_2h_push"])
+    .in("entity_id", ids)
+    .gte("created_at", cutoff);
 
-      const start = b.date_time ? new Date(b.date_time).getTime() : now;
-      const minsLeft = Math.max(0, Math.round((start - now) / 60000));
-      const hoursLeft = (minsLeft / 60).toFixed(1);
-      const msg = `${b.tvl_ref ?? ""} has no driver assigned — job in ${hoursLeft}h`;
+  // Build a Set of "bookingId:action" already sent
+  const sentSet = new Set((sentRows ?? []).map((r: any) => `${r.entity_id}:${r.action}`));
+
+  const WINDOW_MS = 15 * 60 * 1000; // ±15 min detection window
+
+  const milestones = [
+    { hours: 12, action: "no_driver_12h_push", title: "No Driver — 12h Warning",    severity: "warning", requireInteraction: false },
+    { hours:  8, action: "no_driver_8h_push",  title: "No Driver — 8h Warning",     severity: "warning", requireInteraction: false },
+    { hours:  2, action: "no_driver_2h_push",  title: "URGENT — No Driver Assigned", severity: "urgent",  requireInteraction: true  },
+  ] as const;
+
+  for (const b of unassigned) {
+    if (!b.date_time) continue;
+    const start = new Date(b.date_time).getTime();
+    const timeLabel = new Date(b.date_time).toLocaleString("en-GB", {
+      weekday: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/London",
+    });
+
+    for (const m of milestones) {
+      const targetMs = start - m.hours * 60 * 60 * 1000;
+      const inWindow = Math.abs(now - targetMs) <= WINDOW_MS;
+      if (!inWindow) continue;
+
+      const key = `${b.id}:${m.action}`;
+      if (sentSet.has(key)) continue; // already fired this milestone
+
+      const msg = `${b.tvl_ref ?? ""} has no driver — ${m.hours}h to departure (${timeLabel})`;
 
       notifyByRoles(STAFF_ROLES, {
         type: "no_driver_3h",
-        title: "URGENT — No Driver",
+        title: m.title,
         message: msg,
         link: `/bookings/${b.id}`,
         entityType: "booking",
         entityId: b.id,
-        severity: "urgent",
-        dedupeKey: `no_driver_3h:${b.id}:${bucketKey}`,
+        severity: m.severity,
+        dedupeKey: `${m.action}:${b.id}`,
       }).catch(() => {});
 
       await sendWebPushToAll({
-        title: "URGENT — No Driver",
+        title: m.title,
         body:  msg,
         link:  `/bookings/${b.id}`,
-        tag:   `no-driver-3h-${b.id}`,
-        requireInteraction: true,
+        tag:   `no-driver-${b.id}`,          // same tag → replaces previous push silently
+        requireInteraction: m.requireInteraction,
       }).catch(() => {});
 
-      await auditLog("no_driver_3h_push", "booking", b.id, null,
-        `No-driver 3h push sent for ${b.tvl_ref}`).catch(() => {});
+      await auditLog(m.action, "booking", b.id, null, msg).catch(() => {});
+      sentSet.add(key); // prevent double-fire within same tick if bookings overlap
 
-      console.info(`[Scheduler] no-driver 3h push: ${b.tvl_ref}`);
-    }
-  }
-
-  // ── 24-hour warning alerts (only outside the 3h window) ──────────────
-  const { data: tomorrow } = await schedDb()
-    .from("bookings")
-    .select("id, tvl_ref, clients(name), date_time, status")
-    .is("driver_id", null)
-    .in("status", ["Confirmed", "Pending"])
-    .gt("date_time", in3h)
-    .lte("date_time", in24h)
-    .limit(50);
-
-  if (tomorrow && tomorrow.length > 0) {
-    const today = new Date().toISOString().slice(0, 10);
-    const todayStart = `${today}T00:00:00.000Z`;
-
-    // Batch audit-log check — skip any booking already pushed today
-    const ids24h = tomorrow.map(b => b.id);
-    const { data: alreadySent24h } = await schedDb()
-      .from("audit_log")
-      .select("entity_id")
-      .eq("action", "no_driver_24h_push")
-      .in("entity_id", ids24h)
-      .gte("created_at", todayStart);
-    const sent24hSet = new Set((alreadySent24h ?? []).map((r: any) => r.entity_id));
-
-    for (const b of tomorrow) {
-      if (sent24hSet.has(b.id)) continue; // already pushed today
-
-      const t = b.date_time
-        ? new Date(b.date_time).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })
-        : "soon";
-      const msg = `${b.tvl_ref ?? ""} has no driver assigned — ${t}`;
-
-      notifyByRoles(STAFF_ROLES, {
-        type: "no_driver_24h",
-        title: "No Driver — Tomorrow",
-        message: msg,
-        link: `/bookings/${b.id}`,
-        entityType: "booking",
-        entityId: b.id,
-        severity: "warning",
-        dedupeKey: `no_driver_24h:${b.id}:${today}`,
-      }).catch(() => {});
-
-      await sendWebPushToAll({
-        title: "No Driver — Tomorrow",
-        body:  msg,
-        link:  `/bookings/${b.id}`,
-        tag:   `no-driver-24h-${b.id}`,
-      }).catch(() => {});
-
-      await auditLog("no_driver_24h_push", "booking", b.id, null,
-        `No-driver 24h push sent for ${b.tvl_ref}`).catch(() => {});
-
-      console.info(`[Scheduler] no-driver 24h push: ${b.tvl_ref}`);
+      console.info(`[Scheduler] ${m.action}: ${b.tvl_ref}`);
     }
   }
 }

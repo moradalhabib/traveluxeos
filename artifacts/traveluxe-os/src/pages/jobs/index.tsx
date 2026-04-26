@@ -338,16 +338,16 @@ export default function Jobs() {
   }, [filteredBookings]);
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-2">
       {/* Header */}
       <div className="flex items-center justify-between gap-2">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-foreground">
+        <div className="flex items-baseline gap-2">
+          <h1 className="text-xl font-bold tracking-tight text-foreground">
             {statusFilter ? `${statusFilter} Jobs` : "Jobs Board"}
           </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
+          <p className="text-xs text-muted-foreground">
             {filteredBookings.length} job{filteredBookings.length !== 1 ? 's' : ''}
-            {statusFilter ? ` · status: ${statusFilter}` : ` · ${activeJobs.length} total active`}
+            {!statusFilter && ` · ${activeJobs.length} active`}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -449,68 +449,61 @@ export default function Jobs() {
         </div>
       )}
 
-      {!statusFilter && (
-        <div className="flex flex-wrap gap-2 items-center">
-          <FilterDropdown
-            label="Time:"
-            value={timeFilter}
-            onChange={setTimeFilter}
-            options={[
-              { value: "today", label: "Today" },
-              { value: "tomorrow", label: "Tomorrow" },
-              { value: "this_week", label: "This Week" },
-              { value: "all", label: "All Upcoming" },
-            ]}
-            testId="filter-jobs-time"
-          />
-          <FilterDropdown
-            label="Show:"
-            value={unassignedOnly ? "unassigned" : "all"}
-            onChange={(v) => setUnassignedOnly(v === "unassigned")}
-            options={[
-              { value: "all", label: "All jobs" },
-              { value: "unassigned", label: "Unassigned only" },
-            ]}
-            testId="filter-jobs-unassigned"
-          />
-        </div>
-      )}
-
-      {(() => {
-        // Single canonical chip row covering every active filter on this page.
-        // `statusFilter` is URL-driven (deep links from the dashboard land
-        // here with ?status=…); clearing it strips the query param.
-        // `timeFilter` and `unassignedOnly` are local state set via the
-        // dropdowns above. We render the chip row whenever any of those are
-        // non-default so the user always has a one-tap "back to default" path.
-        const TIME_LABELS: Record<string, string> = { today: "Today", tomorrow: "Tomorrow", this_week: "This Week", all: "All Upcoming" };
-        const chips: ActiveFilter[] = [];
-        if (statusFilter) chips.push({ key: "status", label: "Status", value: statusFilter, onClear: () => setLocation("/jobs") });
-        if (timeFilter !== "all") chips.push({ key: "time", label: "Time", value: TIME_LABELS[timeFilter] ?? timeFilter, onClear: () => setTimeFilter("all") });
-        if (unassignedOnly) chips.push({ key: "unassigned", label: "Show", value: "Unassigned only", onClear: () => setUnassignedOnly(false) });
-        return (
-          <ActiveFilterChips
-            filters={chips}
-            onClearAll={() => {
-              setTimeFilter("all");
-              setUnassignedOnly(false);
-              if (statusFilter) setLocation("/jobs");
-            }}
-          />
-        );
-      })()}
+      {/* Filters + chips — single scrollable row */}
+      <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+        {!statusFilter && (
+          <>
+            <FilterDropdown
+              label="Time"
+              value={timeFilter}
+              onChange={setTimeFilter}
+              options={[
+                { value: "today", label: "Today" },
+                { value: "tomorrow", label: "Tomorrow" },
+                { value: "this_week", label: "This Week" },
+                { value: "all", label: "All Upcoming" },
+              ]}
+              testId="filter-jobs-time"
+            />
+            <FilterDropdown
+              label="Show"
+              value={unassignedOnly ? "unassigned" : "all"}
+              onChange={(v) => setUnassignedOnly(v === "unassigned")}
+              options={[
+                { value: "all", label: "All jobs" },
+                { value: "unassigned", label: "Unassigned only" },
+              ]}
+              testId="filter-jobs-unassigned"
+            />
+          </>
+        )}
+        {(() => {
+          const TIME_LABELS: Record<string, string> = { today: "Today", tomorrow: "Tomorrow", this_week: "This Week", all: "All Upcoming" };
+          const chips: ActiveFilter[] = [];
+          if (statusFilter) chips.push({ key: "status", label: "Status", value: statusFilter, onClear: () => setLocation("/jobs") });
+          if (timeFilter !== "all") chips.push({ key: "time", label: "Time", value: TIME_LABELS[timeFilter] ?? timeFilter, onClear: () => setTimeFilter("all") });
+          if (unassignedOnly) chips.push({ key: "unassigned", label: "Show", value: "Unassigned only", onClear: () => setUnassignedOnly(false) });
+          if (chips.length === 0) return null;
+          return (
+            <ActiveFilterChips
+              filters={chips}
+              onClearAll={() => { setTimeFilter("all"); setUnassignedOnly(false); if (statusFilter) setLocation("/jobs"); }}
+            />
+          );
+        })()}
+      </div>
 
       {/* Job cards grouped by date */}
-      <div className="space-y-6">
+      <div className="space-y-4">
         {isLoading ? (
-          [...Array(4)].map((_, i) => <Skeleton key={i} className="h-36" />)
+          [...Array(4)].map((_, i) => <Skeleton key={i} className="h-28" />)
         ) : filteredBookings.length > 0 ? groupedByDate.map((group) => (
-          <div key={group.sortKey} className="space-y-3">
-            <div className="flex items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-sm py-1.5 z-10">
-              <h2 className="text-sm font-bold text-primary uppercase tracking-wide">{group.label}</h2>
+          <div key={group.sortKey} className="space-y-1.5">
+            <div className="flex items-center gap-2 sticky top-0 bg-background/95 backdrop-blur-sm py-1 z-10">
+              <h2 className="text-[11px] font-bold text-primary uppercase tracking-widest">{group.label}</h2>
               <div className="flex-1 h-px bg-border" />
               <Badge variant="outline" className="text-[10px] text-muted-foreground border-border">
-                {group.jobs.length} job{group.jobs.length !== 1 ? "s" : ""}
+                {group.jobs.length}
               </Badge>
             </div>
             {group.jobs.map((job) => {
@@ -532,103 +525,64 @@ export default function Jobs() {
             onMouseLeave={() => !bulk.selectMode && cancelLongPress()}
             onContextMenu={(e) => { e.preventDefault(); if (!bulk.selectMode) { setQuickMenuJob(job); longPressFired.current = true; } }}
           >
-            <CardContent className="p-4">
-              {/* Top row: ref + time + status dropdown */}
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {bulk.selectMode && (
-                      <div className={`flex-shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center ${bulk.isSelected(job.id) ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
-                        {bulk.isSelected(job.id) && <CheckSquare className="w-2.5 h-2.5 text-primary-foreground" />}
-                      </div>
-                    )}
-                    <div className="text-xs text-muted-foreground font-mono">{job.tvl_ref}</div>
-                    {job.service_type && (
-                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-secondary/40 text-foreground border-border">
-                        {job.service_type}{(job as any).direction ? ` · ${(job as any).direction}` : ""}
+            <CardContent className="p-3">
+              {/* Row 1: ref + badges | time + status */}
+              <div className="flex items-center gap-2 mb-1.5">
+                <div className="flex items-center gap-1 flex-1 min-w-0 flex-wrap">
+                  {bulk.selectMode && (
+                    <div className={`flex-shrink-0 w-3.5 h-3.5 rounded border-2 flex items-center justify-center ${bulk.isSelected(job.id) ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
+                      {bulk.isSelected(job.id) && <CheckSquare className="w-2 h-2 text-primary-foreground" />}
+                    </div>
+                  )}
+                  <span className="font-mono text-[10px] text-muted-foreground">{job.tvl_ref}</span>
+                  {job.service_type && (
+                    <Badge variant="outline" className="text-[9px] py-0 px-1 bg-secondary/40 text-foreground border-border">
+                      {job.service_type}{(job as any).direction ? ` · ${(job as any).direction}` : ""}
+                    </Badge>
+                  )}
+                  {(job as any).flight_number && (() => {
+                    const fs = (job as any).flight_status;
+                    const st = fs?.status as string | undefined;
+                    const delayMins = fs?.delay_minutes ?? 0;
+                    const cls =
+                      st === "Delayed"   ? "bg-amber-500/15 text-amber-400 border-amber-500/40" :
+                      st === "Early"     ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40" :
+                      st === "Cancelled" ? "bg-destructive/15 text-destructive border-destructive/40" :
+                      st === "Landed"    ? "bg-blue-500/15 text-blue-400 border-blue-500/30" :
+                      st === "On Time"   ? "bg-green-500/15 text-green-400 border-green-500/30" :
+                                          "bg-blue-500/10 text-blue-400 border-blue-500/30";
+                    const note = st === "Delayed" && delayMins > 0 ? ` +${delayMins}m` :
+                                 st === "Early"   && delayMins < 0 ? ` ${Math.abs(delayMins)}m early` : "";
+                    return (
+                      <Badge variant="outline" className={`text-[9px] py-0 px-1 flex items-center gap-0.5 ${cls}`}>
+                        <Plane className="w-2 h-2" />{(job as any).flight_number}
+                        {st && st !== "Unknown" && <span className="opacity-80">{st}{note}</span>}
                       </Badge>
-                    )}
-                    {(job as any).flight_number && (() => {
-                      const fs = (job as any).flight_status;
-                      const st = fs?.status as string | undefined;
-                      const delayMins = fs?.delay_minutes ?? 0;
-                      const cls =
-                        st === "Delayed"   ? "bg-amber-500/15 text-amber-400 border-amber-500/40" :
-                        st === "Early"     ? "bg-emerald-500/15 text-emerald-400 border-emerald-500/40" :
-                        st === "Cancelled" ? "bg-destructive/15 text-destructive border-destructive/40" :
-                        st === "Landed"    ? "bg-blue-500/15 text-blue-400 border-blue-500/30" :
-                        st === "On Time"   ? "bg-green-500/15 text-green-400 border-green-500/30" :
-                                            "bg-blue-500/10 text-blue-400 border-blue-500/30";
-                      const note =
-                        st === "Delayed" && delayMins > 0 ? ` +${delayMins}m` :
-                        st === "Early"   && delayMins < 0 ? ` ${Math.abs(delayMins)}m early` : "";
-                      return (
-                        <Badge variant="outline" className={`text-[10px] py-0 px-1.5 flex items-center gap-0.5 ${cls}`}>
-                          <Plane className="w-2.5 h-2.5" />
-                          {(job as any).flight_number}
-                          {st && st !== "Unknown" && (
-                            <span className="ml-0.5 font-normal opacity-80">{st}{note}</span>
-                          )}
-                        </Badge>
-                      );
-                    })()}
-                    {/* T004: tiny last-email status indicator. Only shows when
-                        we have a logged event — so unset bookings stay clean. */}
-                    {(job as any).last_email_status === 'sent' && (
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] py-0 px-1.5 bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
-                        title={`Email sent${(job as any).last_email_kind ? ` · ${(job as any).last_email_kind.replace(/_/g, ' ')}` : ''}`}
-                      >
-                        ✓ Email
-                      </Badge>
-                    )}
-                    {(job as any).last_email_status === 'failed' && (
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] py-0 px-1.5 bg-destructive/10 text-destructive border-destructive/40"
-                        title={`Last email FAILED${(job as any).last_email_kind ? ` · ${(job as any).last_email_kind.replace(/_/g, ' ')}` : ''} — open booking to retry`}
-                      >
-                        ⚠ Email failed
-                      </Badge>
-                    )}
-                    {(job as any).last_email_status === 'skipped_no_email' && (
-                      <Badge
-                        variant="outline"
-                        className="text-[10px] py-0 px-1.5 bg-amber-500/10 text-amber-300 border-amber-500/40"
-                        title="No email on file — emails will be skipped"
-                      >
-                        No email
-                      </Badge>
-                    )}
-                  </div>
-                  <div className="font-bold text-foreground text-base mt-0.5 flex items-center gap-2">
-                    {job.client_id ? (
-                      <span
-                        className="text-primary hover:underline cursor-pointer"
-                        onClick={(e) => { e.stopPropagation(); setLocation(`/clients/${job.client_id}`); }}
-                      >
-                        {job.client_name || 'Unknown Client'}
-                      </span>
-                    ) : (
-                      <span>{job.client_name || 'Unknown Client'}</span>
-                    )}
-                    {job.client_vip_tier && job.client_vip_tier !== 'Standard' && (
-                      <Badge variant="outline" className={`text-[10px] py-0 px-1.5 ${getVipBadgeColor(job.client_vip_tier)}`}>
-                        {job.client_vip_tier}
-                      </Badge>
-                    )}
-                  </div>
+                    );
+                  })()}
+                  {(job as any).last_email_status === 'sent' && (
+                    <Badge variant="outline" className="text-[9px] py-0 px-1 bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+                      title={`Email sent${(job as any).last_email_kind ? ` · ${(job as any).last_email_kind.replace(/_/g, ' ')}` : ''}`}>
+                      ✓ Email
+                    </Badge>
+                  )}
+                  {(job as any).last_email_status === 'failed' && (
+                    <Badge variant="outline" className="text-[9px] py-0 px-1 bg-destructive/10 text-destructive border-destructive/40">⚠ Email</Badge>
+                  )}
                 </div>
-                <div className="flex flex-col items-end gap-1.5">
-                  {/* Inline status dropdown */}
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  {job.date_time && (
+                    <div className="text-right">
+                      <div className="text-xs font-bold text-foreground leading-none">{format(new Date(job.date_time), 'HH:mm')}</div>
+                      <div className="text-[9px] text-muted-foreground mt-0.5">{format(new Date(job.date_time), "EEE d MMM")}</div>
+                    </div>
+                  )}
                   <select
                     value={job.status}
                     onClick={e => e.stopPropagation()}
                     onChange={e => handleStatusChange(e, job.id)}
                     disabled={job.status === 'Cancelled'}
-                    title={job.status === 'Cancelled' ? 'Cancelled bookings are read-only' : undefined}
-                    className={`h-7 rounded-full border text-[11px] font-semibold px-2 appearance-none text-center ${job.status === 'Cancelled' ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${STATUS_COLORS[job.status] ?? 'bg-secondary text-secondary-foreground border-border'}`}
+                    className={`h-6 rounded-full border text-[10px] font-semibold px-1.5 appearance-none text-center ${job.status === 'Cancelled' ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer'} ${STATUS_COLORS[job.status] ?? 'bg-secondary text-secondary-foreground border-border'}`}
                   >
                     <option value="Pending">Pending</option>
                     <option value="Confirmed">Confirmed</option>
@@ -636,153 +590,123 @@ export default function Jobs() {
                     <option value="Completed">Completed</option>
                     <option value="Cancelled">Cancelled</option>
                   </select>
-                  {job.date_time && (
-                    <div className="flex flex-col items-end gap-0.5">
-                      <div className="flex items-center gap-1 text-sm font-semibold text-foreground">
-                        <Clock className="w-3 h-3 text-primary" />
-                        {format(new Date(job.date_time), 'HH:mm')}
-                      </div>
-                      <span className="text-[10px] text-muted-foreground">
-                        {format(new Date(job.date_time), "EEE d MMM yyyy")}
-                      </span>
-                    </div>
-                  )}
                 </div>
               </div>
 
-              {/* Route */}
-              <div className="flex items-start gap-2 text-sm mb-3">
-                <MapPin className="w-4 h-4 mt-0.5 text-primary flex-shrink-0" />
-                <span className="text-muted-foreground line-clamp-1">
+              {/* Row 2: client name */}
+              <div className="flex items-center gap-1.5 mb-1.5 min-w-0">
+                {job.client_id ? (
+                  <span className="font-semibold text-sm text-primary hover:underline cursor-pointer truncate"
+                    onClick={(e) => { e.stopPropagation(); setLocation(`/clients/${job.client_id}`); }}>
+                    {job.client_name || 'Unknown Client'}
+                  </span>
+                ) : (
+                  <span className="font-semibold text-sm text-foreground truncate">{job.client_name || 'Unknown Client'}</span>
+                )}
+                {job.client_vip_tier && job.client_vip_tier !== 'Standard' && (
+                  <Badge variant="outline" className={`text-[9px] py-0 px-1 flex-shrink-0 ${getVipBadgeColor(job.client_vip_tier)}`}>
+                    {job.client_vip_tier}
+                  </Badge>
+                )}
+              </div>
+
+              {/* Row 3: route */}
+              <div className="flex items-center gap-1 mb-2">
+                <MapPin className="w-3 h-3 text-primary flex-shrink-0" />
+                <span className="text-xs text-muted-foreground truncate">
                   <span className="text-foreground">{job.pickup || '—'}</span>
-                  <span className="mx-1.5 text-muted-foreground">→</span>
+                  <span className="mx-1">→</span>
                   <span className="text-foreground">{(job as any).dropoff || (job as any).destination || '—'}</span>
                 </span>
               </div>
 
-              {/* Bottom row: driver + price + payment dropdown */}
-              <div className="flex items-center justify-between pt-3 border-t border-border">
-                <div className="flex items-center gap-2 text-sm">
-                  <Car className="w-4 h-4 text-muted-foreground" />
+              {/* Row 4: driver | price + payment */}
+              <div className="flex items-center justify-between border-t border-border pt-2">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Car className="w-3 h-3 text-muted-foreground flex-shrink-0" />
                   {job.driver_name ? (
                     job.driver_id ? (
-                      <span
-                        className="font-medium text-primary hover:underline cursor-pointer flex items-center gap-1.5"
-                        onClick={(e) => { e.stopPropagation(); setLocation(`/drivers/${job.driver_id}`); }}
-                      >
+                      <span className="text-xs font-medium text-primary hover:underline cursor-pointer flex items-center gap-1 truncate"
+                        onClick={(e) => { e.stopPropagation(); setLocation(`/drivers/${job.driver_id}`); }}>
                         {(job as any).driver_staff_no && (
-                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">
+                          <span className="font-mono text-[10px] px-1 py-0 rounded bg-primary/15 text-primary border border-primary/30">
                             {(job as any).driver_staff_no}
                           </span>
                         )}
                         {job.driver_name}
                       </span>
                     ) : (
-                      <span className="font-medium text-foreground flex items-center gap-1.5">
-                        {(job as any).driver_staff_no && (
-                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">
-                            {(job as any).driver_staff_no}
-                          </span>
-                        )}
-                        {job.driver_name}
-                      </span>
+                      <span className="text-xs font-medium text-foreground truncate">{job.driver_name}</span>
                     )
                   ) : (
-                    <span className="text-destructive font-medium flex items-center gap-1">
-                      <AlertTriangle className="w-3 h-3" /> No Driver
+                    <span className="text-xs text-destructive font-medium flex items-center gap-0.5">
+                      <AlertTriangle className="w-3 h-3 flex-shrink-0" /> No Driver
                     </span>
                   )}
-                  {/* WhatsApp Driver — Fix 13. Quick-ping the assigned
-                      driver from the jobs list with a pre-filled message. */}
                   {job.driver_id && (() => {
                     const drv = driversById.get(job.driver_id);
                     const phone = (drv?.whatsapp || drv?.phone || "").replace(/[^0-9+]/g, "");
                     if (!phone) return null;
                     const msg = `Hi ${drv?.name ?? job.driver_name ?? ""}, I've just sent you booking ${job.tvl_ref}. Please confirm receipt. Thanks.`;
                     return (
-                      <a
-                        href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="ml-1 text-green-500 hover:text-green-400"
-                        title="WhatsApp Driver"
-                        data-testid={`link-wa-driver-${job.id}`}
-                      >
-                        <MessageCircle className="w-4 h-4" />
+                      <a href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`} target="_blank" rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()} className="text-green-500 hover:text-green-400 flex-shrink-0"
+                        data-testid={`link-wa-driver-${job.id}`}>
+                        <MessageCircle className="w-3 h-3" />
                       </a>
                     );
                   })()}
+                  {(job as any).client_notified_at && (
+                    <Badge variant="outline" className="text-[9px] py-0 px-1 bg-green-500/10 text-green-400 border-green-500/30 flex-shrink-0">
+                      <MessageCircle className="w-2 h-2 mr-0.5" />C
+                    </Badge>
+                  )}
+                  {(job as any).driver_notified_at && (
+                    <Badge variant="outline" className="text-[9px] py-0 px-1 bg-amber-500/10 text-amber-400 border-amber-500/30 flex-shrink-0">
+                      <Car className="w-2 h-2 mr-0.5" />D
+                    </Badge>
+                  )}
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-foreground">£{job.price}</span>
-                  {/* Inline payment status dropdown */}
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <span className="text-xs font-bold text-foreground">£{job.price}</span>
                   <select
                     value={job.payment_status || "Unpaid"}
                     onClick={e => e.stopPropagation()}
                     onChange={e => handlePaymentChange(e, job.id)}
-                    className={`h-6 rounded-full border text-[10px] font-semibold px-2 cursor-pointer appearance-none text-center ${PAYMENT_COLORS[job.payment_status || 'Unpaid'] ?? 'text-amber-400 border-amber-500/40 bg-amber-500/10'}`}
+                    className={`h-6 rounded-full border text-[10px] font-semibold px-1.5 cursor-pointer appearance-none text-center ${PAYMENT_COLORS[job.payment_status || 'Unpaid'] ?? 'text-amber-400 border-amber-500/40 bg-amber-500/10'}`}
                   >
                     <option value="Unpaid">Unpaid</option>
                     <option value="Partial">Partial</option>
                     <option value="Paid">Paid</option>
                   </select>
+                  {canDelete && !bulk.selectMode && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild onClick={(e) => e.stopPropagation()}>
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive/50 hover:text-destructive hover:bg-destructive/10"
+                          data-testid={`button-delete-${job.id}`}>
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete {job.tvl_ref}?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            Permanently removes the booking and all related records. Use Cancel status for real cancellations. Cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Keep job</AlertDialogCancel>
+                          <AlertDialogAction className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                            onClick={() => deleteBookingMut.mutate({ id: job.id })}
+                            data-testid={`button-confirm-delete-${job.id}`}>
+                            Delete permanently
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
                 </div>
               </div>
-
-              {/* Notified badges — surfaced when ops has actually pinged the
-                  client / driver. Helps avoid double-messaging. */}
-              {((job as any).client_notified_at || (job as any).driver_notified_at) && (
-                <div className="flex items-center gap-1.5 mt-2 pt-2 border-t border-border/50">
-                  {(job as any).client_notified_at && (
-                    <Badge variant="outline" className="text-[9px] py-0 px-1.5 bg-green-500/10 text-green-400 border-green-500/30">
-                      <MessageCircle className="w-2.5 h-2.5 mr-0.5" /> Client notified
-                    </Badge>
-                  )}
-                  {(job as any).driver_notified_at && (
-                    <Badge variant="outline" className="text-[9px] py-0 px-1.5 bg-amber-500/10 text-amber-400 border-amber-500/30">
-                      <Car className="w-2.5 h-2.5 mr-0.5" /> Driver notified
-                    </Badge>
-                  )}
-                </div>
-              )}
-
-              {/* Per-card delete — admin/super-admin only, hidden in select mode */}
-              {canDelete && !bulk.selectMode && (
-                <div className="flex justify-end mt-2 pt-2 border-t border-border/50" onClick={(e) => e.stopPropagation()}>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-7 w-7 text-destructive/60 hover:text-destructive hover:bg-destructive/10"
-                        title="Delete job"
-                        data-testid={`button-delete-${job.id}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete {job.tvl_ref}?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This permanently removes the booking and all related records (invoice, follow-ups, email log). For real cancellations use the Cancel status instead. This cannot be undone.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Keep job</AlertDialogCancel>
-                        <AlertDialogAction
-                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                          onClick={() => deleteBookingMut.mutate({ id: job.id })}
-                          data-testid={`button-confirm-delete-${job.id}`}
-                        >
-                          Delete permanently
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
-                </div>
-              )}
             </CardContent>
           </Card>
 
