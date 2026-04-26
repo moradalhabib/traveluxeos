@@ -44,29 +44,38 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
   const [loading, setLoading] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [unavailableReason, setUnavailableReason] = useState<string | null>(null);
+  // Cache key: flight|date|direction — exactly one request per unique combination.
   const [lastFetched, setLastFetched] = useState("");
+
+  const dir = direction === "Departure" ? "Departure" : "Arrival";
 
   useEffect(() => {
     const normalized = flightNumber?.toUpperCase().replace(/\s/g, "");
-    if (!normalized || normalized.length < 3) {
+    // Require at least 4 characters (e.g. "BA12") before firing so partial
+    // entries like "BA1" don't consume quota.
+    if (!normalized || normalized.length < 4) {
       setData(null);
       setNotFound(false);
       return;
     }
-    // Need a date to query — pre-bookings can be weeks out.
+    // Need a date — pre-bookings can be weeks out.
     if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       setData(null);
       setNotFound(false);
       return;
     }
-    const cacheKey = `${normalized}|${date}`;
+    // One request per unique flight + date + direction combination.
+    const cacheKey = `${normalized}|${date}|${dir}`;
     if (cacheKey === lastFetched) return;
 
+    // 1 s debounce so the user finishes typing before we fire.
     const timer = setTimeout(async () => {
       setLoading(true);
       setNotFound(false);
       try {
-        const res = await fetch(`/api/flight-tracker/${normalized}?date=${date}`);
+        const res = await fetch(
+          `/api/flight-tracker/${encodeURIComponent(normalized)}?date=${date}&direction=${dir}`
+        );
         if (res.ok) {
           const json = await res.json();
           if (json && json.status !== undefined && (json.origin || json.destination || json.scheduled_time)) {
@@ -85,16 +94,16 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
           setLastFetched(cacheKey);
         }
       } catch {
-        // silent — no disruptive error
+        // silent — no disruptive error for the operator
       } finally {
         setLoading(false);
       }
-    }, 900);
+    }, 1000);
 
     return () => clearTimeout(timer);
-  }, [flightNumber, date]);
+  }, [flightNumber, date, dir]);
 
-  if (!flightNumber || flightNumber.length < 3) return null;
+  if (!flightNumber || flightNumber.length < 4) return null;
 
   // Helpful hint when the operator hasn't entered a date yet.
   if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -107,16 +116,13 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
   }
 
   const meta = STATUS_META[data?.status ?? "Unknown"] ?? STATUS_META["Unknown"];
-  const isArrival = direction !== "Departure";
+  const isArrival = dir !== "Departure";
 
-  const relevantTime = isArrival
-    ? (data?.estimated_time || data?.scheduled_time)
-    : (data?.estimated_time || data?.scheduled_time);
+  const relevantTime = data?.estimated_time || data?.scheduled_time;
 
   const handleAutoFill = () => {
     if (!data || !relevantTime || !onAutoFill) return;
-    // Format the time as HH:mm in UK time (Europe/London handles GMT vs BST
-    // automatically) regardless of the operator's browser timezone.
+    // Format as HH:mm in UK time (Europe/London handles GMT vs BST automatically).
     const dt = new Date(relevantTime);
     const ukTime = new Intl.DateTimeFormat("en-GB", {
       timeZone: "Europe/London",
@@ -133,7 +139,7 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
     return (
       <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-border bg-card/50 text-xs text-muted-foreground">
         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        Looking up {flightNumber.toUpperCase()}…
+        Verifying {flightNumber.toUpperCase()} on {format(new Date(`${date}T00:00:00`), "dd MMM yyyy")}…
       </div>
     );
   }
@@ -173,16 +179,19 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
         )}
       </div>
 
-      {/* Route */}
+      {/* Route — confirms which flight the operator is booking */}
       {(data.origin || data.destination) && (
         <div className="flex items-center gap-2 text-sm">
           <span className="font-medium text-foreground">{data.origin ?? "—"}</span>
           <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" />
           <span className="font-medium text-foreground">{data.destination ?? "—"}</span>
+          {data.terminal && (
+            <span className="text-xs text-muted-foreground ml-1">· Terminal {data.terminal}</span>
+          )}
         </div>
       )}
 
-      {/* Times — all displayed in Europe/London (handles GMT/BST automatically) */}
+      {/* Times — displayed in Europe/London */}
       {data.scheduled_time && (() => {
         const fmtHm = (iso: string) => new Intl.DateTimeFormat("en-GB", {
           hour: "2-digit", minute: "2-digit", timeZone: "Europe/London",
@@ -198,7 +207,7 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
         return (
           <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
             <span className="flex items-center gap-1">
-              🕐 Scheduled:{" "}
+              🕐 {isArrival ? "Arrival" : "Departure"}:{" "}
               <span className={`font-medium ${(isDelayed || isEarly) ? "line-through text-muted-foreground" : "text-foreground"}`}>
                 {fmtDate(data.scheduled_time)} · {fmtHm(data.scheduled_time)}
               </span>
@@ -227,13 +236,13 @@ export function FlightLookupCard({ flightNumber, direction, date, onAutoFill }: 
           className="h-7 text-xs border-primary/30 text-primary hover:bg-primary/10"
         >
           <Clock className="w-3 h-3 mr-1" />
-          Auto-fill time, airport {isArrival ? "(pickup)" : "(drop-off)"}{data.terminal ? " & terminal" : ""}
+          Auto-fill time{isArrival ? ", pickup airport" : ", drop-off airport"}{data.terminal ? " & terminal" : ""}
         </Button>
       )}
 
       {data.last_updated && (
         <p className="text-[10px] text-muted-foreground/50">
-          Updated {new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" }).format(new Date(data.last_updated))}
+          Verified {new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" }).format(new Date(data.last_updated))}
         </p>
       )}
     </div>

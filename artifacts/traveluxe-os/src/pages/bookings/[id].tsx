@@ -525,13 +525,14 @@ export default function BookingDetail() {
     query: {
       enabled: !!id,
       queryKey: getGetBookingQueryKey(id),
-      // Auto-refresh every 60 s when this is an active Airport Transfer with a
-      // non-terminal flight — so the page picks up polling updates automatically.
+      // Refresh every 5 min when this is an active Airport Transfer with a
+      // non-terminal flight — the background poller writes to the cache;
+      // this just picks up those updates without hammering the API.
       refetchInterval: (query) => {
         const bk = query.state.data as any;
         if (!bk?.flight_number || bk.service_type !== "Airport Transfer") return false;
         if (bk.flight_status?.status && FLIGHT_TERMINAL.has(bk.flight_status.status)) return false;
-        return 60_000;
+        return 5 * 60_000;
       },
     }
   });
