@@ -37,7 +37,7 @@ const diffMins = (scheduled?: string | null, estimated?: string | null): number 
 
 export default function Flights() {
   const { data: flights, isLoading, refetch } = useListFlightTracker(
-    { query: { enabled: true, queryKey: getListFlightTrackerQueryKey() } }
+    { query: { enabled: true, queryKey: getListFlightTrackerQueryKey(), refetchInterval: 60_000 } }
   );
 
   const statusBadgeClass = (status?: string) => {

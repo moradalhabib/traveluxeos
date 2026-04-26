@@ -35,6 +35,8 @@ import { Phone, MessageCircle, Mail, Pencil, Plus, Trash2, FileDown } from "luci
 import { getVipBadgeColor } from "@/lib/vip";
 import { Label } from "@/components/ui/label";
 
+const FLIGHT_TERMINAL = new Set(["Landed", "Cancelled", "Early"]);
+
 function whatsappLink(num?: string) {
   if (!num) return null;
   const clean = num.replace(/[^\d+]/g, "");
@@ -520,7 +522,18 @@ export default function BookingDetail() {
   }, [qc, id]);
 
   const { data: booking, isLoading, refetch } = useGetBooking(id, {
-    query: { enabled: !!id, queryKey: getGetBookingQueryKey(id) }
+    query: {
+      enabled: !!id,
+      queryKey: getGetBookingQueryKey(id),
+      // Auto-refresh every 60 s when this is an active Airport Transfer with a
+      // non-terminal flight — so the page picks up polling updates automatically.
+      refetchInterval: (query) => {
+        const bk = query.state.data as any;
+        if (!bk?.flight_number || bk.service_type !== "Airport Transfer") return false;
+        if (bk.flight_status?.status && FLIGHT_TERMINAL.has(bk.flight_status.status)) return false;
+        return 60_000;
+      },
+    }
   });
 
   const [orderLines, setOrderLines] = useState<any[]>([]);
