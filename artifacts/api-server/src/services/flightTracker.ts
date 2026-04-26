@@ -191,32 +191,38 @@ export async function upsertCache(db: any, data: FlightData, date: string): Prom
 }
 
 /**
- * Poll flight status for Airport Transfer bookings at three checkpoints:
- *   T‑3h  — early logistics view (pre-driver dispatch decision)
- *   T‑1h  — last chance before driver leaves for the airport
- *   T‑30m — sharpest status with driver already en route
+ * Automated flight-status polling for Airport Transfer bookings.
  *
- * Each checkpoint is a ±5 min window; the 60s scheduler tick guarantees
- * exactly one tick lands in each window per flight. Once a flight reaches
- * a terminal status (Landed / Cancelled / Early) it is never re-polled.
+ * Schedule (per flight):
+ *   T‑1h   — last check before driver leaves for the airport
+ *   T‑30m  — sharpest read with driver already en route
+ *   +30m / +60m / +90m / +120m  — every 30 min after scheduled arrival
+ *                                   while the flight is still not terminal
  *
- * Debounce: if a cache row was written within the last 20 min (e.g. an
- * operator triggered a manual refresh just before the auto-poll fires)
- * we skip the auto-poll for that window to avoid burning a quota unit.
+ * Stops immediately once status reaches Landed / Early / Cancelled.
+ * Hard ceiling: MAX_CALLS_PER_FLIGHT = 6 API calls per flight per date,
+ * regardless of what else happens (belt-and-suspenders on top of terminal
+ * guard + debounce + monthly circuit breaker).
  *
- * Max API calls per flight: 3.  With Pro-plan unit costs of ≤60 units/call
- * and 6,000 units/month budget, the system can comfortably track up to
- * ~33 Airport Transfer flights per day before hitting the unit cap.
+ * Normal on-time flight: 2 calls (T-1h + T-30m → Landed stops it).
+ * Worst-case 2-hour delay: up to 6 calls before ceiling kicks in.
  */
 
-// Three poll offsets before scheduled arrival / departure.
+// Pre-arrival checkpoint offsets (before scheduled arrival / departure).
 const POLL_OFFSETS_MS: number[] = [
-  3 * 60 * 60 * 1000,   // T-3h
-  1 * 60 * 60 * 1000,   // T-1h
-  30 * 60 * 1000,        // T-30min
+  60 * 60 * 1000,   // T-1h
+  30 * 60 * 1000,   // T-30min
 ];
-const POLL_WINDOW_HALF_MS = 5  * 60 * 1000;  // ±5 min each side of checkpoint
-const POLL_DEBOUNCE_MS    = 20 * 60 * 1000;  // skip if polled within last 20 min
+const POLL_WINDOW_HALF_MS  = 5  * 60 * 1000;  // ±5 min window around each checkpoint
+const POLL_DEBOUNCE_PRE_MS = 20 * 60 * 1000;  // debounce for pre-arrival polls
+const POLL_DEBOUNCE_DEL_MS = 30 * 60 * 1000;  // debounce for post-arrival (delayed) polls
+const DELAYED_LOOKBACK_MS  = 2  * 60 * 60 * 1000; // track delayed flights up to 2 h past schedule
+
+// Hard per-flight ceiling — safety guard so a single flight can never exhaust quota.
+const MAX_CALLS_PER_FLIGHT = 6;
+// In-memory counter (resets on server restart; belt-and-suspenders on top of
+// terminal guard + debounce). Key: `${flightNumber}|${flightDate}`.
+const pollCallCounts = new Map<string, number>();
 
 // Terminal statuses — once reached, no further polls for this flight.
 const TERMINAL_STATUSES = new Set(["Landed", "Cancelled", "Early"]);
@@ -230,15 +236,12 @@ export async function pollUpcomingFlights(): Promise<void> {
   const now = Date.now();
 
   // ── Single broad DB query covering both phases ─────────────────────────────
-  // Phase A (pre-arrival): bookings at T-3h / T-1h / T-30min checkpoint windows.
-  // Phase B (delayed):     bookings past their scheduled time that haven't yet
-  //                        reached a terminal status — poll every 30 min for
-  //                        up to 3 h after the scheduled arrival time.
+  // Phase A (pre-arrival): bookings inside T-1h or T-30min ±5 min windows.
+  // Phase B (delayed):     bookings past their scheduled time that are still
+  //                        not terminal — poll every 30 min for up to 2 h.
   //
-  // Query window: from 3 h in the past (delayed tracking) to 3h5min in the
-  // future (furthest pre-arrival checkpoint). One DB round-trip covers both.
-  const DELAYED_LOOKBACK_MS = 3 * 60 * 60 * 1000;   // keep tracking up to 3 h late
-  const farthestMs          = Math.max(...POLL_OFFSETS_MS);
+  // Query span: 2 h in the past → 1h5min in the future. One round-trip.
+  const farthestMs = Math.max(...POLL_OFFSETS_MS);
   const queryStart = new Date(now - DELAYED_LOOKBACK_MS).toISOString();
   const queryEnd   = new Date(now + farthestMs + POLL_WINDOW_HALF_MS).toISOString();
 
@@ -257,20 +260,19 @@ export async function pollUpcomingFlights(): Promise<void> {
   }
   if (!bookings?.length) return;
 
-  // Classify each booking into phase A (pre-arrival checkpoint) or phase B
-  // (delayed / post-scheduled-time). Bookings that fall in neither are skipped.
+  // Classify each booking.
   type Phase = "pre" | "delayed";
   const candidates: Array<{ b: any; phase: Phase }> = [];
   for (const b of bookings as any[]) {
     const dt = new Date(b.date_time).getTime();
     if (dt > now) {
-      // Phase A: must be inside one of the 3 ±5-min checkpoint windows.
+      // Phase A: must be inside one of the ±5-min checkpoint windows.
       const inCheckpoint = POLL_OFFSETS_MS.some(
         offset => Math.abs(dt - now - offset) <= POLL_WINDOW_HALF_MS
       );
       if (inCheckpoint) candidates.push({ b, phase: "pre" });
     } else {
-      // Phase B: scheduled time is in the past; eligible for delayed tracking.
+      // Phase B: past scheduled time — eligible for delayed tracking.
       candidates.push({ b, phase: "delayed" });
     }
   }
@@ -284,6 +286,14 @@ export async function pollUpcomingFlights(): Promise<void> {
   await Promise.allSettled(
     candidates.map(async ({ b, phase }) => {
       const flightDate = new Date(b.date_time).toISOString().split("T")[0];
+      const countKey   = `${b.flight_number}|${flightDate}`;
+
+      // ── Hard call-count ceiling (safety guard) ─────────────────────────
+      const callsSoFar = pollCallCounts.get(countKey) ?? 0;
+      if (callsSoFar >= MAX_CALLS_PER_FLIGHT) {
+        console.warn(`[FlightPoll] ${b.flight_number} hit ${MAX_CALLS_PER_FLIGHT}-call ceiling — skipping`);
+        return;
+      }
 
       // Negative-cache: if this exact flight failed recently, skip for 30 min.
       const negKey   = `${b.flight_number}|${flightDate}`;
@@ -299,15 +309,13 @@ export async function pollUpcomingFlights(): Promise<void> {
         .single();
 
       // ── Terminal guard ─────────────────────────────────────────────────
-      // Once a flight has Landed, been Cancelled, or arrived Early we have
-      // all the information we need — no further polling for this flight.
+      // Once Landed / Cancelled / Early, stop all further auto-polls.
       if (cached?.status && TERMINAL_STATUSES.has(cached.status)) return;
 
       // ── Phase-appropriate debounce ─────────────────────────────────────
-      // Pre-arrival checkpoints: 20 min (prevents double-poll within window).
-      // Delayed / post-schedule: 30 min (conserves quota while still tracking
-      //   every half-hour until the flight lands or we give up at 3 h late).
-      const debounceMs = phase === "pre" ? POLL_DEBOUNCE_MS : 30 * 60 * 1000;
+      // Pre-arrival: 20 min — prevents double-poll within same checkpoint window.
+      // Delayed: 30 min — one poll every 30 min until terminal or ceiling hit.
+      const debounceMs = phase === "pre" ? POLL_DEBOUNCE_PRE_MS : POLL_DEBOUNCE_DEL_MS;
       if (cached?.last_updated) {
         const ageMs = Date.now() - new Date(cached.last_updated).getTime();
         if (ageMs < debounceMs) return;
@@ -318,6 +326,10 @@ export async function pollUpcomingFlights(): Promise<void> {
 
       const dir    = b.direction === "Departure" ? "Departure" : "Arrival" as const;
       const result = await fetchFlightStatus(b.flight_number, flightDate, dir);
+
+      // Always increment the call counter, whether the call succeeded or not,
+      // so that a consistently-erroring flight can't bypass the ceiling.
+      pollCallCounts.set(countKey, (pollCallCounts.get(countKey) ?? 0) + 1);
 
       if (result.ok) {
         await upsertCache(db, result.data, flightDate);
