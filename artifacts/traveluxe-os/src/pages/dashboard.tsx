@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, BellRing, Car, Plane, Bell, X } from "lucide-react";
+import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, BellRing, Car, Plane, Bell, X, Inbox } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -470,6 +470,21 @@ export default function Dashboard() {
             <CardContent className="px-3 pb-3 pt-1">
               <div className="text-xl font-bold text-foreground">{s?.unpaid_invoices_count ?? 0}</div>
               <p className="text-[10px] text-muted-foreground">Awaiting payment</p>
+            </CardContent>
+          </Card>
+        </Link>
+
+        <Link href="/bookings?status=Pending">
+          <Card className="border-border bg-card hover:border-primary/30 transition-colors cursor-pointer">
+            <CardHeader className="flex flex-row items-center justify-between pb-0 pt-3 px-3 space-y-0">
+              <CardTitle className="text-[11px] font-medium text-muted-foreground">Pending Requests</CardTitle>
+              <Inbox className={`w-3.5 h-3.5 ${(s?.pending_requests?.length ?? 0) > 0 ? "text-amber-400" : "text-primary"}`} />
+            </CardHeader>
+            <CardContent className="px-3 pb-3 pt-1">
+              <div className={`text-xl font-bold ${(s?.pending_requests?.length ?? 0) > 0 ? "text-amber-400" : "text-foreground"}`}>
+                {s?.pending_requests?.length ?? 0}
+              </div>
+              <p className="text-[10px] text-muted-foreground">Awaiting confirmation</p>
             </CardContent>
           </Card>
         </Link>
