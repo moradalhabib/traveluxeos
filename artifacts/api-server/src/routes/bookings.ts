@@ -1293,6 +1293,31 @@ router.put("/:id", async (req, res) => {
         changed_by_name: operatorName,
       });
     }
+
+    // Resolve driver_id UUIDs → human-readable driver names before persisting.
+    // Collect all unique driver IDs that appear in old_value / new_value for
+    // "Driver" rows, fetch them in one query, then substitute.
+    const driverRows = amendmentRows.filter(r => r.field_name === "Driver");
+    if (driverRows.length > 0) {
+      const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      const ids = new Set<string>();
+      for (const r of driverRows) {
+        if (r.old_value && uuidRe.test(r.old_value)) ids.add(r.old_value);
+        if (r.new_value && uuidRe.test(r.new_value)) ids.add(r.new_value);
+      }
+      if (ids.size > 0) {
+        const { data: drvNames } = await supabase
+          .from("drivers")
+          .select("id, name")
+          .in("id", [...ids]);
+        const nameMap = new Map((drvNames ?? []).map((d: any) => [d.id, d.name]));
+        for (const r of driverRows) {
+          if (r.old_value && nameMap.has(r.old_value)) r.old_value = nameMap.get(r.old_value);
+          if (r.new_value && nameMap.has(r.new_value)) r.new_value = nameMap.get(r.new_value);
+        }
+      }
+    }
+
     insertAmendments(amendmentRows).catch(() => {});
   }
 

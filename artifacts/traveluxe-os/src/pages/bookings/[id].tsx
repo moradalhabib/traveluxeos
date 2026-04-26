@@ -1613,38 +1613,6 @@ export default function BookingDetail() {
         return null;
       })()}
 
-      {/* Download branded confirmation PDF — always available, even before
-          confirmation, since it doubles as a quote/proforma the operator can
-          send to the client. */}
-      <Button
-        variant="outline"
-        className="w-full border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
-        onClick={async () => {
-          try {
-            const { data: { session } } = await supabase.auth.getSession();
-            const token = session?.access_token;
-            const res = await fetch(`/api/bookings/${booking.id}/confirmation.pdf`, {
-              headers: token ? { Authorization: `Bearer ${token}` } : {},
-            });
-            if (!res.ok) throw new Error(await res.text());
-            const blob = await res.blob();
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `traveluxe-${booking.tvl_ref ?? booking.id}.pdf`;
-            document.body.appendChild(a);
-            a.click();
-            a.remove();
-            setTimeout(() => URL.revokeObjectURL(url), 1000);
-          } catch (e: any) {
-            toast({ title: "PDF failed", description: e?.message ?? "Could not generate PDF", variant: "destructive" });
-          }
-        }}
-      >
-        <FileDown className="w-4 h-4 mr-2" />
-        Download Booking Confirmation (PDF)
-      </Button>
-
       {/* Message Client + Message Driver — compact side-by-side */}
       {!['Quote','Pending','Cancelled'].includes(booking.status) && (
         <div className="grid grid-cols-2 gap-2">
@@ -1689,27 +1657,64 @@ export default function BookingDetail() {
         </div>
       )}
 
-      {/* Status actions — compact dropdown */}
-      {booking.status !== 'Completed' && booking.status !== 'Cancelled' && (
-        <div className="flex items-center gap-2">
-          {/* Primary action shown inline for quick access */}
-          {booking.status === 'Confirmed' && (
-            <Button size="sm" variant="outline" onClick={() => handleUpdateStatus('Active')} className="flex-1 text-green-400 hover:bg-green-500/10 border-green-500/30">
-              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Mark Active
-            </Button>
-          )}
-          {booking.status === 'Active' && (
-            <Button size="sm" variant="outline" onClick={openCompleteDialog} className="flex-1 text-gray-300 hover:bg-gray-500/10 border-gray-500/30" data-testid="button-mark-completed">
-              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Mark Completed
-            </Button>
-          )}
-          {(booking.status === 'Pending' || booking.status === 'Quote') && (
-            <Button size="sm" variant="outline" onClick={() => handleUpdateStatus('Confirmed')} className="flex-1 text-blue-400 hover:bg-blue-500/10 border-blue-500/30">
-              Mark Confirmed
-            </Button>
-          )}
+      {/* Status actions + PDF download in one compact row */}
+      <div className="flex items-center gap-2">
+        {booking.status !== 'Completed' && booking.status !== 'Cancelled' && (
+          <>
+            {booking.status === 'Confirmed' && (
+              <Button size="sm" variant="outline" onClick={() => handleUpdateStatus('Active')} className="flex-1 text-green-400 hover:bg-green-500/10 border-green-500/30">
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Mark Active
+              </Button>
+            )}
+            {booking.status === 'Active' && (
+              <Button size="sm" variant="outline" onClick={openCompleteDialog} className="flex-1 text-gray-300 hover:bg-gray-500/10 border-gray-500/30" data-testid="button-mark-completed">
+                <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Mark Completed
+              </Button>
+            )}
+            {(booking.status === 'Pending' || booking.status === 'Quote') && (
+              <Button size="sm" variant="outline" onClick={() => handleUpdateStatus('Confirmed')} className="flex-1 text-blue-400 hover:bg-blue-500/10 border-blue-500/30">
+                Mark Confirmed
+              </Button>
+            )}
+          </>
+        )}
+        {(booking.status === 'Completed' || booking.status === 'Cancelled') && (
+          <div className="flex-1" />
+        )}
 
-          {/* All other actions in a dropdown */}
+        {/* PDF download — compact icon button always visible */}
+        <Button
+          size="sm"
+          variant="outline"
+          className="px-2.5 border-amber-500/40 text-amber-400 hover:bg-amber-500/10"
+          title="Download Booking Confirmation (PDF)"
+          onClick={async () => {
+            try {
+              const { data: { session } } = await supabase.auth.getSession();
+              const token = session?.access_token;
+              const res = await fetch(`/api/bookings/${booking.id}/confirmation.pdf`, {
+                headers: token ? { Authorization: `Bearer ${token}` } : {},
+              });
+              if (!res.ok) throw new Error(await res.text());
+              const blob = await res.blob();
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `traveluxe-${booking.tvl_ref ?? booking.id}.pdf`;
+              document.body.appendChild(a);
+              a.click();
+              a.remove();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+            } catch (e: any) {
+              toast({ title: "PDF failed", description: e?.message ?? "Could not generate PDF", variant: "destructive" });
+            }
+          }}
+        >
+          <FileDown className="w-4 h-4" />
+        </Button>
+
+        {/* All other actions in a dropdown */}
+        {booking.status !== 'Completed' && booking.status !== 'Cancelled' && (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button size="sm" variant="outline" className="px-2.5">
@@ -1738,15 +1743,8 @@ export default function BookingDetail() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        </div>
-      )}
-
-      {/* Hint for auto-activate (Confirmed state) */}
-      {booking.status === 'Confirmed' && (
-        <p className="text-[10px] text-muted-foreground/60 italic -mt-1">
-          Auto-activates at scheduled time. Use Mark Active to override.
-        </p>
-      )}
+        )}
+      </div>
 
       {/* Dialogs — mounted outside the button group so they survive dropdown close */}
       <Dialog open={isWaitingOpen} onOpenChange={setIsWaitingOpen}>
@@ -2620,31 +2618,11 @@ export default function BookingDetail() {
               <span className="text-destructive font-medium text-sm">Unassigned</span>
             )}
 
-            {/* Driver WhatsApp + Acceptance status — Fixes 13 & 15.
-                The WA button uses the assigned driver's phone (from the
-                drivers list lookup) and pre-fills a polite job-sent message.
-                The acceptance select lets ops record explicit confirmation
-                from the driver and triggers the admin-alert flow on decline. */}
+            {/* Driver Acceptance status */}
             {(booking as any).driver_id && (() => {
-              const drv = (drivers as any[] | undefined)?.find((d) => d.id === (booking as any).driver_id);
-              const phone = (drv?.whatsapp || drv?.phone || "").replace(/[^0-9+]/g, "");
               const acceptance = (booking as any).driver_acceptance_status ?? "Assigned";
-              const msg = `Hi ${drv?.name ?? booking.driver_name ?? ""}, I've just sent you booking ${booking.tvl_ref}. Please confirm receipt. Thanks.`;
               return (
                 <div className="mt-1 space-y-1.5">
-                  {phone ? (
-                    <a
-                      href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      data-testid="link-whatsapp-driver"
-                      className="inline-flex items-center gap-1.5 text-xs font-medium text-green-500 hover:text-green-400 underline"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5" /> WhatsApp Driver
-                    </a>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">No driver WhatsApp on file</p>
-                  )}
                   <div>
                     <p className="text-[10px] uppercase text-muted-foreground tracking-wide mb-1">Driver Acceptance</p>
                     <Select
