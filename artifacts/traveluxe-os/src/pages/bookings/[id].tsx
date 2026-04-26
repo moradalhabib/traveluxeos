@@ -741,6 +741,7 @@ export default function BookingDetail() {
   const [ratingNote, setRatingNote] = useState("");
   const [isCancelOpen, setIsCancelOpen] = useState(false);
   const [isWaitingOpen, setIsWaitingOpen] = useState(false);
+  const [paymentNotesOpen, setPaymentNotesOpen] = useState(false);
   const [isRateOpen, setIsRateOpen] = useState(false);
 
   // ── Completion dialog state (Fix 12) ───────────────────────────────────
@@ -3101,118 +3102,109 @@ export default function BookingDetail() {
                 </div>
               </>
             )}
-            <div className="flex items-center gap-3 pt-2 border-t border-border">
-              <div className="flex-1">
-                <p className="text-xs text-muted-foreground mb-1">Payment Status</p>
-                <select
-                  value={booking.payment_status || "Unpaid"}
-                  onChange={e => {
-                    const next = e.target.value;
-                    // When flipping to Paid, auto-stamp today's Date Paid if
-                    // it's still empty. Operator can still override the date
-                    // manually using the date input below.
-                    const patch: any = { payment_status: next };
-                    if (next === "Paid" && !((booking as any).payment_date)) {
-                      patch.payment_date = new Date().toISOString().slice(0, 10);
-                    }
-                    updateBooking.mutate({ id, data: patch }, {
-                      onSuccess: invalidateBookingDetail,
-                    });
-                  }}
-                  className={`h-9 rounded-md border px-3 text-sm bg-background w-full ${
-                    booking.payment_status === 'Paid'
-                      ? 'text-green-400 border-green-500/40'
-                      : booking.payment_status === 'Partial'
-                        ? 'text-blue-400 border-blue-500/40'
-                        : 'text-amber-400 border-amber-500/40'
-                  }`}
-                >
-                  <option value="Unpaid">Unpaid</option>
-                  <option value="Partial">Partial</option>
-                  <option value="Paid">Paid</option>
-                </select>
-              </div>
-              {booking.payment_method && (
-                <div>
-                  <p className="text-xs text-muted-foreground mb-1">Method</p>
-                  <Badge variant="outline" className="h-9 px-3 flex items-center">{booking.payment_method}</Badge>
+            {/* ── Payment row: Status · Method · Date Paid (auto-stamped) ── */}
+            <div className="pt-2 border-t border-border space-y-2">
+              <div className="flex items-end gap-2">
+                {/* Status */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] uppercase text-muted-foreground tracking-wide mb-1">Status</p>
+                  <select
+                    value={booking.payment_status || "Unpaid"}
+                    onChange={e => {
+                      const next = e.target.value;
+                      const patch: any = { payment_status: next };
+                      if (next === "Paid" && !((booking as any).payment_date)) {
+                        patch.payment_date = new Date().toISOString().slice(0, 10);
+                      }
+                      updateBooking.mutate({ id, data: patch }, { onSuccess: invalidateBookingDetail });
+                    }}
+                    className={`h-8 rounded-md border px-2 text-xs bg-background w-full ${
+                      booking.payment_status === 'Paid'    ? 'text-green-400 border-green-500/40'
+                      : booking.payment_status === 'Partial' ? 'text-blue-400 border-blue-500/40'
+                      : 'text-amber-400 border-amber-500/40'
+                    }`}
+                  >
+                    <option value="Unpaid">Unpaid</option>
+                    <option value="Partial">Partial</option>
+                    <option value="Paid">Paid</option>
+                  </select>
                 </div>
-              )}
-            </div>
+                {/* Method */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] uppercase text-muted-foreground tracking-wide mb-1">Method</p>
+                  <select
+                    value={booking.payment_method || ""}
+                    onChange={e => updateBooking.mutate({ id, data: { payment_method: e.target.value || null } as any }, { onSuccess: invalidateBookingDetail })}
+                    className="h-8 w-full rounded-md border border-border px-2 text-xs bg-background"
+                    data-testid="select-payment-method"
+                  >
+                    <option value="">—</option>
+                    <option value="Cash">Cash</option>
+                    <option value="Bank Transfer">Bank Transfer</option>
+                    <option value="Card">Card</option>
+                    <option value="Wise">Wise</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+                {/* Date Paid — always visible; auto-filled on Paid */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] uppercase text-muted-foreground tracking-wide mb-1">Date Paid</p>
+                  <Input
+                    key={(booking as any).payment_date ?? "empty"}
+                    type="date"
+                    defaultValue={(booking as any).payment_date?.slice(0,10) || ""}
+                    onBlur={e => {
+                      const next = e.target.value || null;
+                      const cur = (booking as any).payment_date?.slice(0,10) || null;
+                      if (next === cur) return;
+                      updateBooking.mutate({ id, data: { payment_date: next } as any }, { onSuccess: invalidateBookingDetail });
+                    }}
+                    className="h-8 text-xs"
+                    data-testid="input-payment-date"
+                  />
+                </div>
+              </div>
 
-            {/* Payment details — date, amount, method, notes (Migration B). */}
-            <div className="grid grid-cols-2 gap-3 pt-3 border-t border-border">
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Date Paid</p>
-                <Input
-                  // The `key` forces React to remount this uncontrolled input
-                  // whenever the server-side payment_date changes (e.g. when
-                  // F1 autofill stamps today's date after flipping to Paid).
-                  // Without it, the stale defaultValue persists and the
-                  // operator's next blur could overwrite the autofill with "".
-                  key={(booking as any).payment_date ?? "empty"}
-                  type="date"
-                  defaultValue={(booking as any).payment_date?.slice(0,10) || ""}
-                  onBlur={e => {
-                    const next = e.target.value || null;
-                    const cur = (booking as any).payment_date?.slice(0,10) || null;
-                    if (next === cur) return; // no-op blur shouldn't clobber autofill
-                    updateBooking.mutate({ id, data: { payment_date: next } as any }, {
-                      onSuccess: invalidateBookingDetail,
-                    });
-                  }}
-                  className="h-9"
-                  data-testid="input-payment-date"
-                />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Amount Paid (£)</p>
-                <Input
-                  type="number" step="0.01" min="0"
-                  defaultValue={(booking as any).paid_amount ?? ""}
-                  onBlur={e => updateBooking.mutate({ id, data: { paid_amount: e.target.value === "" ? null : Number(e.target.value) } as any }, {
-                    onSuccess: invalidateBookingDetail,
-                  })}
-                  className="h-9"
-                  data-testid="input-paid-amount"
-                />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Method</p>
-                <select
-                  value={booking.payment_method || ""}
-                  onChange={e => updateBooking.mutate({ id, data: { payment_method: e.target.value || null } as any }, {
-                    onSuccess: invalidateBookingDetail,
-                  })}
-                  className="h-9 w-full rounded-md border border-border px-3 text-sm bg-background"
-                  data-testid="select-payment-method"
-                >
-                  <option value="">—</option>
-                  <option value="Cash">Cash</option>
-                  <option value="Card">Card</option>
-                  <option value="Bank Transfer">Bank Transfer</option>
-                  <option value="Stripe">Stripe</option>
-                  <option value="Wise">Wise</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground mb-1">Outstanding</p>
-                <div className="h-9 flex items-center px-3 rounded-md border border-border bg-muted/30 font-bold">
-                  £{Math.max(0, displayedTotal - Number((booking as any).paid_amount ?? (booking.payment_status === "Paid" ? displayedTotal : 0))).toLocaleString()}
+              {/* Amount Paid + Outstanding */}
+              <div className="flex items-end gap-2">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] uppercase text-muted-foreground tracking-wide mb-1">Amount Paid (£)</p>
+                  <Input
+                    type="number" step="0.01" min="0"
+                    defaultValue={(booking as any).paid_amount ?? ""}
+                    onBlur={e => updateBooking.mutate({ id, data: { paid_amount: e.target.value === "" ? null : Number(e.target.value) } as any }, { onSuccess: invalidateBookingDetail })}
+                    className="h-8 text-xs"
+                    data-testid="input-paid-amount"
+                  />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[10px] uppercase text-muted-foreground tracking-wide mb-1">Outstanding</p>
+                  <div className="h-8 flex items-center px-2 rounded-md border border-border bg-muted/30 text-xs font-bold">
+                    £{Math.max(0, displayedTotal - Number((booking as any).paid_amount ?? (booking.payment_status === "Paid" ? displayedTotal : 0))).toLocaleString()}
+                  </div>
                 </div>
               </div>
-              <div className="col-span-2">
-                <p className="text-xs text-muted-foreground mb-1">Payment Notes</p>
-                <Textarea
-                  defaultValue={(booking as any).payment_notes || ""}
-                  onBlur={e => updateBooking.mutate({ id, data: { payment_notes: e.target.value || null } as any }, {
-                    onSuccess: invalidateBookingDetail,
-                  })}
-                  placeholder="e.g. Wise transfer ref TX12345 · settled by Mr Khalifa"
-                  rows={2}
-                  data-testid="textarea-payment-notes"
-                />
+
+              {/* Payment Notes — collapsible */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setPaymentNotesOpen(o => !o)}
+                  className="flex items-center gap-1.5 text-[10px] uppercase text-muted-foreground tracking-wide hover:text-foreground transition-colors"
+                >
+                  {paymentNotesOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                  Payment Notes {(booking as any).payment_notes && !paymentNotesOpen && <span className="normal-case text-primary ml-0.5">•</span>}
+                </button>
+                {paymentNotesOpen && (
+                  <Textarea
+                    defaultValue={(booking as any).payment_notes || ""}
+                    onBlur={e => updateBooking.mutate({ id, data: { payment_notes: e.target.value || null } as any }, { onSuccess: invalidateBookingDetail })}
+                    placeholder="e.g. Wise transfer ref TX12345 · settled by Mr Khalifa"
+                    rows={2}
+                    className="mt-1.5 text-xs"
+                    data-testid="textarea-payment-notes"
+                  />
+                )}
               </div>
             </div>
 
