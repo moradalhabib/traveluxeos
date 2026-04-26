@@ -290,7 +290,7 @@ export default function Dashboard() {
               );
             })}
             {pendingRequests.length > 6 && (
-              <Link href="/bookings?status=Pending">
+              <Link href="/requests">
                 <p className="text-xs text-amber-400 hover:underline cursor-pointer text-center pt-0.5">
                   + {pendingRequests.length - 6} more →
                 </p>
@@ -474,7 +474,7 @@ export default function Dashboard() {
           </Card>
         </Link>
 
-        <Link href="/bookings?status=Pending">
+        <Link href="/requests">
           <Card className="border-border bg-card hover:border-primary/30 transition-colors cursor-pointer">
             <CardHeader className="flex flex-row items-center justify-between pb-0 pt-3 px-3 space-y-0">
               <CardTitle className="text-[11px] font-medium text-muted-foreground">Pending Requests</CardTitle>
