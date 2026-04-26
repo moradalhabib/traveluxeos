@@ -220,6 +220,13 @@ export default function InvoiceDetail() {
     _invQuoted < supplierLinesTotal;
   const correctedJobTotal  = invLegacyMissing ? _invStored + supplierLinesTotal : _invStored;
   const correctedHeadline  = Math.max(0, correctedJobTotal - supplierLinesTotal);
+  // When a discount is present, show the vehicle/service line at its GROSS
+  // (pre-discount) price so the client sees the full breakdown:
+  //   Airport Transfer £160 + VIP Silver £250 − Discount £10 = £400
+  // Without this, the headline shows £150 (net) which hides the saving.
+  const grossHeadline = _invDiscount > 0
+    ? Math.max(0, correctedJobTotal + _invDiscount - supplierLinesTotal)
+    : correctedHeadline;
 
   const handlePrint = () => window.print();
 
@@ -280,9 +287,11 @@ export default function InvoiceDetail() {
     // In hasLines mode we trust booking_products to already represent the
     // full charged total and DO NOT re-render supplier_items, otherwise we
     // would double-count if the operator already itemised them as order lines.
-    // Use correctedHeadline (closure) so legacy bookings where supplier_items
-    // were not included in bk.price show the right vehicle-only line amount.
-    const fallbackHeadlinePrice = correctedHeadline;
+    // Use grossHeadline (closure) so:
+    //  - Legacy bookings show the correct pre-discount vehicle price.
+    //  - When a discount exists, the headline shows the gross amount so
+    //    a separate discount row makes the client-facing breakdown clear.
+    const fallbackHeadlinePrice = grossHeadline;
     const headRowsHtml = hasLines
       ? lines.map(l => `<tr><td>${l.name}</td><td style="text-align:center">${l.quantity}</td><td style="text-align:right">£${Number(l.unit_price).toLocaleString()}</td><td style="text-align:right;font-weight:600">£${Number(l.total ?? l.unit_price * l.quantity).toLocaleString()}</td></tr>`).join("")
       : `<tr><td>${buildFallbackDesc(bk)}</td><td style="text-align:center">1</td><td style="text-align:right">£${fallbackHeadlinePrice.toLocaleString()}</td><td style="text-align:right;font-weight:600">£${fallbackHeadlinePrice.toLocaleString()}</td></tr>`;
@@ -293,7 +302,12 @@ export default function InvoiceDetail() {
       : supplierLines.map(l =>
           `<tr><td>${l.name}</td><td style="text-align:center">${l.qty}</td><td style="text-align:right">£${l.unit.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td><td style="text-align:right;font-weight:600">£${l.total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td></tr>`
         ).join("");
-    const linesHtml = headRowsHtml + supplierRowsHtml;
+    // Discount row — only when a discount is present and we're in fallback mode.
+    const invDiscountReason = (bk as any).discount_reason || "";
+    const discountRowHtml = !hasLines && _invDiscount > 0
+      ? `<tr style="color:#999"><td>Discount${invDiscountReason ? ` — ${invDiscountReason}` : ""}</td><td style="text-align:center">—</td><td style="text-align:right">−£${_invDiscount.toLocaleString()}</td><td style="text-align:right;font-weight:600">−£${_invDiscount.toLocaleString()}</td></tr>`
+      : "";
+    const linesHtml = headRowsHtml + supplierRowsHtml + discountRowHtml;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -829,8 +843,8 @@ export default function InvoiceDetail() {
                   )}
                 </div>
                 <div className="col-span-2 text-center text-muted-foreground">1</div>
-                <div className="col-span-2 text-right text-muted-foreground">£{correctedHeadline.toLocaleString()}</div>
-                <div className="col-span-2 text-right font-semibold text-foreground">£{correctedHeadline.toLocaleString()}</div>
+                <div className="col-span-2 text-right text-muted-foreground">£{grossHeadline.toLocaleString()}</div>
+                <div className="col-span-2 text-right font-semibold text-foreground">£{grossHeadline.toLocaleString()}</div>
               </div>
             )}
 
@@ -886,6 +900,18 @@ export default function InvoiceDetail() {
                 <div className="flex justify-between items-center text-sm px-1">
                   <span className="text-muted-foreground">Products Subtotal</span>
                   <span className="text-foreground font-medium">£{productsTotal.toLocaleString()}</span>
+                </div>
+              )}
+              {/* Discount line — only in fallback mode (no booking_products). */}
+              {!hasLines && _invDiscount > 0 && (
+                <div className="flex justify-between items-center text-sm px-1">
+                  <span className="text-muted-foreground">
+                    Discount
+                    {(booking as any)?.discount_reason
+                      ? <span className="ml-1 text-muted-foreground/60">— {(booking as any).discount_reason}</span>
+                      : null}
+                  </span>
+                  <span className="text-green-400 font-medium">−£{_invDiscount.toLocaleString()}</span>
                 </div>
               )}
               <div className="flex justify-between items-center bg-primary/5 border border-primary/20 rounded-xl px-4 py-3.5">
