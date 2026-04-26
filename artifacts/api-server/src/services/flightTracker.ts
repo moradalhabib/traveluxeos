@@ -27,6 +27,37 @@ export function isFlightApiPaused(): { paused: boolean; resumeAt: string | null 
   return { paused: false, resumeAt: null };
 }
 
+// ── Daily global call counter ────────────────────────────────────────────────
+// Hard ceiling on total AeroDataBox calls per calendar day (UTC).
+// Covers ALL callers — the background poller + booking-creation lookups.
+// At 6,000 monthly units / 30 days ≈ 200 safe calls/day; we cap at 80 so
+// we never burn more than 40 % of the daily budget in one day.
+const DAILY_CALL_LIMIT = 80;
+let dailyCallCount = 0;
+let dailyCallResetDay = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
+
+function checkDailyLimit(): boolean {
+  const today = new Date().toISOString().slice(0, 10);
+  if (today !== dailyCallResetDay) {
+    dailyCallCount   = 0;
+    dailyCallResetDay = today;
+  }
+  return dailyCallCount < DAILY_CALL_LIMIT;
+}
+
+function incrementDailyCount() {
+  const today = new Date().toISOString().slice(0, 10);
+  if (today !== dailyCallResetDay) {
+    dailyCallCount   = 0;
+    dailyCallResetDay = today;
+  }
+  dailyCallCount++;
+}
+
+export function getDailyCallStats(): { used: number; limit: number; resetDay: string } {
+  return { used: dailyCallCount, limit: DAILY_CALL_LIMIT, resetDay: dailyCallResetDay };
+}
+
 // ── Negative-result cache (per flight+date) ─────────────────────────────────
 // When a single flight lookup fails (404/timeout/etc.), don't keep retrying
 // every minute — back off for 30 min before trying that specific flight again.
@@ -81,8 +112,8 @@ export async function fetchFlightStatus(
 ): Promise<FlightLookupResult> {
   if (!RAPIDAPI_KEY) return { ok: false, reason: "no_key" };
 
-  // Circuit breaker: skip the call entirely if we've already hit the monthly
-  // quota — otherwise every retry burns a slot AND a 429 log line.
+  // Guard 1 — Monthly circuit breaker: trip on HTTP 429; parks until next
+  // billing month so a quota event doesn't cascade into hundreds of retries.
   if (Date.now() < quotaExceededUntil) {
     return {
       ok: false,
@@ -90,6 +121,21 @@ export async function fetchFlightStatus(
       message: `Flight API paused — monthly quota exhausted. Resumes ${new Date(quotaExceededUntil).toISOString()}.`,
     };
   }
+
+  // Guard 2 — Daily global call ceiling: covers ALL callers (poller + booking-
+  // creation lookups). Resets at midnight UTC. Prevents runaway usage even
+  // if multiple safeguards are somehow bypassed.
+  if (!checkDailyLimit()) {
+    console.warn(`[FlightTracker] Daily call limit (${DAILY_CALL_LIMIT}) reached for ${dailyCallResetDay} — skipping ${flightNumber}.`);
+    return {
+      ok: false,
+      reason: "api_error",
+      message: `Daily AeroDataBox call limit (${DAILY_CALL_LIMIT}) reached. Resets tomorrow UTC.`,
+    };
+  }
+
+  incrementDailyCount();
+  console.info(`[FlightTracker] AeroDataBox call #${dailyCallCount}/${DAILY_CALL_LIMIT} today — ${flightNumber} ${date}`);
 
   try {
     const url = `${AERO_BASE}/flights/number/${encodeURIComponent(flightNumber)}/${date}?withAircraftImage=false&withLocation=false`;
@@ -194,24 +240,26 @@ export async function upsertCache(db: any, data: FlightData, date: string): Prom
  * Automated flight-status polling for Airport Transfer bookings.
  *
  * Schedule (per flight):
+ *   T‑2h   — early heads-up; driver briefing window
  *   T‑1h   — last check before driver leaves for the airport
  *   T‑30m  — sharpest read with driver already en route
- *   +30m / +60m / +90m / +120m  — every 30 min after scheduled arrival
- *                                   while the flight is still not terminal
+ *   +30m / +60m / +90m  — every 30 min after scheduled arrival
+ *                          while the flight is still not terminal
  *
  * Stops immediately once status reaches Landed / Early / Cancelled.
  * Hard ceiling: MAX_CALLS_PER_FLIGHT = 6 API calls per flight per date,
  * regardless of what else happens (belt-and-suspenders on top of terminal
  * guard + debounce + monthly circuit breaker).
  *
- * Normal on-time flight: 2 calls (T-1h + T-30m → Landed stops it).
+ * Normal on-time flight: 3 calls (T-2h + T-1h + T-30m → Landed stops it).
  * Worst-case 2-hour delay: up to 6 calls before ceiling kicks in.
  */
 
 // Pre-arrival checkpoint offsets (before scheduled arrival / departure).
 const POLL_OFFSETS_MS: number[] = [
-  60 * 60 * 1000,   // T-1h
-  30 * 60 * 1000,   // T-30min
+  2  * 60 * 60 * 1000,  // T-2h  — early heads-up / driver briefing window
+  60 * 60 * 1000,        // T-1h  — last check before driver departs
+  30 * 60 * 1000,        // T-30min — sharpest read with driver en route
 ];
 const POLL_WINDOW_HALF_MS  = 5  * 60 * 1000;  // ±5 min window around each checkpoint
 const POLL_DEBOUNCE_PRE_MS = 20 * 60 * 1000;  // debounce for pre-arrival polls

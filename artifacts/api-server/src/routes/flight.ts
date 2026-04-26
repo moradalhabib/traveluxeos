@@ -4,6 +4,8 @@ import {
   fetchFlightStatus,
   buildCacheResponse,
   upsertCache,
+  isFlightApiPaused,
+  getDailyCallStats,
 } from "../services/flightTracker";
 
 const router = Router();
@@ -35,6 +37,30 @@ router.get("/:flight_number", async (req, res) => {
 
   if (cached) return res.json(buildCacheResponse(cached, flight_number));
 
+  // Guard: check monthly circuit breaker + daily cap before making a live call.
+  // fetchFlightStatus also checks these internally, but we short-circuit here
+  // so a paused state returns a clear response without an unnecessary function call.
+  const { paused, resumeAt } = isFlightApiPaused();
+  const { used, limit } = getDailyCallStats();
+  if (paused) {
+    return res.json({
+      flight_number:      flight_number.toUpperCase(),
+      status:             "Unknown",
+      delay_minutes:      0,
+      unavailable_reason: `Flight tracking paused — monthly quota exhausted. Resumes ${resumeAt}.`,
+      last_updated:       new Date().toISOString(),
+    });
+  }
+  if (used >= limit) {
+    return res.json({
+      flight_number:      flight_number.toUpperCase(),
+      status:             "Unknown",
+      delay_minutes:      0,
+      unavailable_reason: `Daily lookup limit reached (${used}/${limit}). Resets tomorrow UTC.`,
+      last_updated:       new Date().toISOString(),
+    });
+  }
+
   // No cache at all → this is a brand-new booking lookup. Call AeroDataBox once
   // and store the result so the poller can take over from here.
   const result = await fetchFlightStatus(flight_number.toUpperCase(), flightDate, dir);
@@ -60,6 +86,32 @@ router.get("/:flight_number", async (req, res) => {
     delay_minutes:      0,
     unavailable_reason: unavailableReason,
     last_updated:       new Date().toISOString(),
+  });
+});
+
+// ─── GET /api/flight/quota-status ─────────────────────────────────────────────
+// Admin endpoint — returns the current state of all AeroDataBox quota guards.
+// Call this any time to verify how many tokens have been used today and whether
+// the monthly circuit breaker is active.
+router.get("/quota-status", (_req, res) => {
+  const cb    = isFlightApiPaused();
+  const daily = getDailyCallStats();
+  return res.json({
+    monthly_circuit_breaker: {
+      tripped:   cb.paused,
+      resumeAt:  cb.resumeAt,
+    },
+    daily: {
+      calls_used:  daily.used,
+      calls_limit: daily.limit,
+      reset_day:   daily.resetDay,
+      remaining:   Math.max(0, daily.limit - daily.used),
+    },
+    summary: cb.paused
+      ? "⛔ PAUSED — monthly quota exhausted"
+      : daily.used >= daily.limit
+        ? `⛔ PAUSED — daily limit reached (${daily.used}/${daily.limit})`
+        : `✅ OK — ${daily.used}/${daily.limit} calls used today`,
   });
 });
 
