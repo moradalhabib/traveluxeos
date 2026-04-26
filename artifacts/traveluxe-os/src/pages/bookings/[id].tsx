@@ -190,7 +190,7 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
           </Button>
         )}
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-2">
         {supplier ? (
           <div className="flex items-start justify-between gap-3 p-3 rounded-lg bg-secondary/20 border border-border">
             <div className="min-w-0">
@@ -1177,7 +1177,7 @@ export default function BookingDetail() {
 
   if (isLoading) {
     return (
-      <div className="space-y-5">
+      <div className="space-y-3">
         <Skeleton className="h-10 w-48" />
         <Skeleton className="h-[300px] w-full" />
       </div>
@@ -1542,7 +1542,7 @@ export default function BookingDetail() {
     : null;
 
   return (
-    <div className="space-y-5 max-w-3xl mx-auto pb-10">
+    <div className="space-y-3 max-w-3xl mx-auto pb-10">
       {/* Header */}
       <div className="flex items-center gap-3">
         <Button
@@ -1586,7 +1586,7 @@ export default function BookingDetail() {
         const isAwaitingConfirmation = blockedStatuses.includes(booking.status);
         if (isAwaitingConfirmation) {
           return (
-            <div className="rounded-2xl border border-amber-700/40 bg-amber-900/10 p-4 flex items-start gap-3">
+            <div className="rounded-2xl border border-amber-700/40 bg-amber-900/10 p-3 flex items-start gap-3">
               <Clock className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
               <div className="flex-1">
                 <p className="font-semibold text-amber-400 text-sm">
@@ -2538,9 +2538,9 @@ export default function BookingDetail() {
 
       {/* Client + Driver */}
       <Card className="border-primary/10 bg-card">
-        <CardContent className="p-4 grid grid-cols-2 gap-4">
+        <CardContent className="p-3 grid grid-cols-2 gap-3">
           <div>
-            <p className="text-xs text-muted-foreground uppercase mb-2 font-medium">Client</p>
+            <p className="text-xs text-muted-foreground uppercase mb-1 font-medium">Client</p>
             <div className="flex items-center gap-2 flex-wrap">
               {(booking as any).client_id ? (
                 <Link href={`/clients/${(booking as any).client_id}`}>
@@ -2568,7 +2568,7 @@ export default function BookingDetail() {
             )}
           </div>
           <div>
-            <p className="text-xs text-muted-foreground uppercase mb-2 font-medium">Driver</p>
+            <p className="text-xs text-muted-foreground uppercase mb-1 font-medium">Driver</p>
             {!isResidenceManager ? (
               <Select
                 value={(booking as any).driver_id ?? "unassigned"}
@@ -2576,7 +2576,7 @@ export default function BookingDetail() {
                 disabled={assigningDriver}
               >
                 <SelectTrigger
-                  className={`h-9 ${
+                  className={`h-8 text-xs ${
                     (booking as any).driver_id
                       ? ""
                       : "text-destructive border-2 border-destructive bg-destructive/10 animate-pulse shadow-md shadow-destructive/30"
@@ -2631,7 +2631,7 @@ export default function BookingDetail() {
               const acceptance = (booking as any).driver_acceptance_status ?? "Assigned";
               const msg = `Hi ${drv?.name ?? booking.driver_name ?? ""}, I've just sent you booking ${booking.tvl_ref}. Please confirm receipt. Thanks.`;
               return (
-                <div className="mt-2 space-y-2">
+                <div className="mt-1 space-y-1.5">
                   {phone ? (
                     <a
                       href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`}
@@ -2688,7 +2688,7 @@ export default function BookingDetail() {
         return (
       <Card className="border-primary/10 bg-card">
         <CardHeader className="pb-2"><CardTitle className="text-base">{accommodation ? "Property Details" : "Journey"}</CardTitle></CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-2">
           {!accommodation && id && (
             <BookingRouteOverridesHint bookingId={id} />
           )}
@@ -2727,29 +2727,29 @@ export default function BookingDetail() {
               {booking.nameboard && (
                 <div className="col-span-2">
                   <p className="text-xs text-muted-foreground mb-1">Meet &amp; Greet Board</p>
-                  <p className="font-bold text-primary text-lg">"{booking.nameboard}"</p>
+                  <p className="font-bold text-primary text-base">"{booking.nameboard}"</p>
                 </div>
               )}
             </div>
           )}
 
           {extras && (
-            <div className="pt-3 border-t border-border">
+            <div className="pt-2 border-t border-border">
               <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><Gift className="w-3 h-3" /> Extras</p>
-              <p className="font-medium">{extras}</p>
+              <p className="text-sm font-medium">{extras}</p>
             </div>
           )}
 
           {(booking as any).special_requests && (
-            <div className="pt-3 border-t border-border">
+            <div className="pt-2 border-t border-border">
               <p className="text-xs text-muted-foreground mb-1 flex items-center gap-1"><ClipboardList className="w-3 h-3" /> Special Requests</p>
-              <p className="font-medium">{(booking as any).special_requests}</p>
+              <p className="text-sm font-medium">{(booking as any).special_requests}</p>
             </div>
           )}
 
           {/* Tour details */}
           {(booking as any).tour_name && (
-            <div className="pt-3 border-t border-border space-y-2">
+            <div className="pt-2 border-t border-border space-y-1.5">
               <p className="text-xs text-muted-foreground uppercase font-semibold flex items-center gap-1"><Map className="w-3 h-3" /> Tour</p>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="col-span-2">
@@ -2785,7 +2785,7 @@ export default function BookingDetail() {
 
           {/* Hotel details */}
           {svc === "Hotel" && (
-            <div className="pt-3 border-t border-border space-y-2">
+            <div className="pt-2 border-t border-border space-y-1.5">
               <p className="text-xs text-muted-foreground uppercase font-semibold flex items-center gap-1"><Building2 className="w-3 h-3" /> Hotel</p>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 {(booking as any).hotel_name && (
@@ -2841,7 +2841,7 @@ export default function BookingDetail() {
 
           {/* Accommodation details (Apartment) */}
           {(booking as any).property_name && (
-            <div className="pt-3 border-t border-border space-y-2">
+            <div className="pt-2 border-t border-border space-y-1.5">
               <p className="text-xs text-muted-foreground uppercase font-semibold flex items-center gap-1"><Building2 className="w-3 h-3" /> Accommodation</p>
               <div className="grid grid-cols-2 gap-3 text-sm">
                 <div className="col-span-2">
@@ -2888,7 +2888,7 @@ export default function BookingDetail() {
           <CardContent className="pt-0">
             <div className="divide-y divide-border">
               {orderLines.map((line: any) => (
-                <div key={line.id} className="flex items-center justify-between py-2.5">
+                <div key={line.id} className="flex items-center justify-between py-1.5">
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium text-foreground">{line.name}</div>
                     <div className="text-xs text-muted-foreground">
@@ -2901,8 +2901,8 @@ export default function BookingDetail() {
                 </div>
               ))}
             </div>
-            <div className="flex justify-between items-center pt-3 border-t border-border mt-1">
-              <span className="text-sm text-muted-foreground">Products Subtotal</span>
+            <div className="flex justify-between items-center pt-2 border-t border-border mt-0.5">
+              <span className="text-xs text-muted-foreground">Products Subtotal</span>
               <span className="font-bold text-primary">
                 £{orderLines.reduce((s: number, l: any) => s + (l.total ?? (l.unit_price ?? 0) * (l.quantity ?? 0)), 0).toLocaleString()}
               </span>
@@ -3320,7 +3320,7 @@ export default function BookingDetail() {
       {booking.notes && (
         <Card className="border-border bg-card">
           <CardHeader className="pb-2"><CardTitle className="text-sm text-muted-foreground">Internal Notes</CardTitle></CardHeader>
-          <CardContent><p className="text-sm whitespace-pre-wrap break-words">{booking.notes}</p></CardContent>
+          <CardContent className="p-3 pt-0"><p className="text-xs whitespace-pre-wrap break-words">{booking.notes}</p></CardContent>
         </Card>
       )}
 
@@ -3337,7 +3337,7 @@ export default function BookingDetail() {
             )}
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-2">
           {issues.length === 0 ? (
             <p className="text-xs text-muted-foreground">No issues raised for this booking.</p>
           ) : (
