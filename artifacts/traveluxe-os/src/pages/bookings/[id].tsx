@@ -2292,13 +2292,21 @@ export default function BookingDetail() {
                 </div>
 
                 {svc === "Airport Transfer" && (() => {
-                  // PRICING MODEL: client_price = driver_pay + driver_commission + supplier_cost.
-                  // Driver Pay/Commission are entered in the vehicle area
-                  // above; Supplier Cost/Commission in the Third-party
-                  // Supplier section above. This block only surfaces the
-                  // balance check + TVL profit summary so all inputs live
-                  // next to the things they describe.
-                  const bal = editPrice - editDriverCost - editSupplierCost - editTvlCommission;
+                  // PRICING MODEL:
+                  //   client_price = driver_pay + driver_commission
+                  //                + old_supplier_cost (legacy field)
+                  //                + supplier_items_total (new product-based)
+                  // TVL keeps driver_commission + supplier_commission;
+                  // supplier_commission is the markup already inside
+                  // supplier_items_total so it is NOT subtracted again here.
+                  const editSupplierItemsTotal = editSupplierItems.reduce((s: number, it: any) => {
+                    const qty  = Number(it.qty || 0);
+                    const rate = it.daily_rate != null ? Number(it.daily_rate)
+                      : it.hourly_rate != null ? Number(it.hourly_rate) : 0;
+                    return s + (it.override_price != null ? Number(it.override_price) : rate * qty);
+                  }, 0);
+                  const totalSupplierCost = editSupplierCost + editSupplierItemsTotal;
+                  const bal = editPrice - editDriverCost - totalSupplierCost - editTvlCommission;
                   const ok  = Math.abs(bal) < 0.01;
                   const tvlProfit = editTvlCommission + editSupplierCommission;
                   if (editPrice <= 0) return null;
@@ -2319,7 +2327,12 @@ export default function BookingDetail() {
                           <span>Client price</span><span className="text-right font-medium text-foreground">£{editPrice.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                           <span>Driver pay</span><span className="text-right">− £{editDriverCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
                           <span>Driver commission</span><span className="text-right">− £{editTvlCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                          <span>Supplier cost</span><span className="text-right">− £{editSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                          {editSupplierCost > 0 && (
+                            <><span>Supplier cost</span><span className="text-right">− £{editSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></>
+                          )}
+                          {editSupplierItemsTotal > 0 && (
+                            <><span>Supplier products</span><span className="text-right">− £{editSupplierItemsTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span></>
+                          )}
                         </div>
                         <div className={`flex justify-between border-t pt-1 font-semibold ${ok ? "text-green-400 border-green-500/30" : "text-amber-400 border-amber-500/30"}`}>
                           <span>Unaccounted</span>
@@ -2328,9 +2341,9 @@ export default function BookingDetail() {
                         {!ok && (
                           <p className="text-amber-400/80 text-[10px]">Driver Pay + Driver Commission + Supplier Cost must equal Client Price.</p>
                         )}
-                        {editSupplierCommission > 0 && (
+                        {editSupplierCommission > 0 && totalSupplierCost > 0 && (
                           <p className="text-muted-foreground/80 text-[10px] pt-1 border-t border-border/40">
-                            Supplier markup of £{editSupplierCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })} is your profit on the £{editSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} supplier service — already inside Supplier Cost (supplier receives £{Math.max(0, editSupplierCost - editSupplierCommission).toLocaleString(undefined, { maximumFractionDigits: 2 })}).
+                            Supplier markup of £{editSupplierCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })} is your profit on the £{totalSupplierCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} supplier total — supplier receives £{Math.max(0, totalSupplierCost - editSupplierCommission).toLocaleString(undefined, { maximumFractionDigits: 2 })}.
                           </p>
                         )}
                       </div>
@@ -3037,6 +3050,21 @@ export default function BookingDetail() {
                   <span className="text-muted-foreground">Driver Receives</span>
                   <span className="font-medium text-blue-400">£{(booking.driver_receives || 0).toLocaleString()}</span>
                 </div>
+                {/* Supplier Receives — total charged to client for supplier
+                    services (old field + new supplier_items products) minus
+                    TVL's markup commission.  Shows whenever any supplier
+                    service is attached to the booking. */}
+                {(() => {
+                  const supplierClientTotal = supplierItemsTotal + Number((booking as any).supplier_cost || 0);
+                  if (supplierClientTotal <= 0) return null;
+                  const supplierReceives = Math.max(0, supplierClientTotal - Number((booking as any).supplier_commission || 0));
+                  return (
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="text-muted-foreground">Supplier Receives</span>
+                      <span className="font-medium text-purple-400">£{supplierReceives.toLocaleString()}</span>
+                    </div>
+                  );
+                })()}
               </>
             ) : (
               <>
@@ -3148,7 +3176,7 @@ export default function BookingDetail() {
               <div>
                 <p className="text-xs text-muted-foreground mb-1">Outstanding</p>
                 <div className="h-9 flex items-center px-3 rounded-md border border-border bg-muted/30 font-bold">
-                  £{Math.max(0, Number(booking.price ?? 0) - Number((booking as any).paid_amount ?? (booking.payment_status === "Paid" ? booking.price ?? 0 : 0))).toLocaleString()}
+                  £{Math.max(0, displayedTotal - Number((booking as any).paid_amount ?? (booking.payment_status === "Paid" ? displayedTotal : 0))).toLocaleString()}
                 </div>
               </div>
               <div className="col-span-2">

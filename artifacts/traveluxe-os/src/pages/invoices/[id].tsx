@@ -204,6 +204,23 @@ export default function InvoiceDetail() {
     .filter((l) => l.total > 0);
   const supplierLinesTotal = supplierLines.reduce((s, l) => s + l.total, 0);
 
+  // Apply the same legacy-detection heuristic used in the booking-detail
+  // Financials card.  When a booking was saved before the supplier-products
+  // feature correctly folded supplier_items into quoted/price, the stored
+  // price is just the vehicle fare (e.g. £150) while supplier_items add
+  // another £250.  Without this correction the invoice TOTAL DUE shows £150
+  // and the headline vehicle line renders as £0 (£150 − £250 clamped to 0).
+  const _invQuoted   = Number((booking as any)?.quoted_price ?? 0);
+  const _invDiscount = Number((booking as any)?.discount_amount ?? 0);
+  const _invStored   = Number(booking?.price || 0);
+  const invLegacyMissing =
+    supplierLinesTotal > 0 &&
+    _invQuoted > 0 &&
+    Math.abs(_invStored - (_invQuoted - _invDiscount)) < 0.01 &&
+    _invQuoted < supplierLinesTotal;
+  const correctedJobTotal  = invLegacyMissing ? _invStored + supplierLinesTotal : _invStored;
+  const correctedHeadline  = Math.max(0, correctedJobTotal - supplierLinesTotal);
+
   const handlePrint = () => window.print();
 
   const handleDownload = () => {
@@ -263,7 +280,9 @@ export default function InvoiceDetail() {
     // In hasLines mode we trust booking_products to already represent the
     // full charged total and DO NOT re-render supplier_items, otherwise we
     // would double-count if the operator already itemised them as order lines.
-    const fallbackHeadlinePrice = Math.max(0, Number(bk.price || 0) - supplierLinesTotal);
+    // Use correctedHeadline (closure) so legacy bookings where supplier_items
+    // were not included in bk.price show the right vehicle-only line amount.
+    const fallbackHeadlinePrice = correctedHeadline;
     const headRowsHtml = hasLines
       ? lines.map(l => `<tr><td>${l.name}</td><td style="text-align:center">${l.quantity}</td><td style="text-align:right">£${Number(l.unit_price).toLocaleString()}</td><td style="text-align:right;font-weight:600">£${Number(l.total ?? l.unit_price * l.quantity).toLocaleString()}</td></tr>`).join("")
       : `<tr><td>${buildFallbackDesc(bk)}</td><td style="text-align:center">1</td><td style="text-align:right">£${fallbackHeadlinePrice.toLocaleString()}</td><td style="text-align:right;font-weight:600">£${fallbackHeadlinePrice.toLocaleString()}</td></tr>`;
@@ -373,7 +392,7 @@ export default function InvoiceDetail() {
   <div class="total-section">
     <div class="total-row grand">
       <span>TOTAL DUE</span>
-      <span>£${Number(bk.price || 0).toLocaleString()}</span>
+      <span>£${correctedJobTotal.toLocaleString()}</span>
     </div>
   </div>
 
@@ -810,8 +829,8 @@ export default function InvoiceDetail() {
                   )}
                 </div>
                 <div className="col-span-2 text-center text-muted-foreground">1</div>
-                <div className="col-span-2 text-right text-muted-foreground">£{Math.max(0, Number(booking?.price || 0) - supplierLinesTotal).toLocaleString()}</div>
-                <div className="col-span-2 text-right font-semibold text-foreground">£{Math.max(0, Number(booking?.price || 0) - supplierLinesTotal).toLocaleString()}</div>
+                <div className="col-span-2 text-right text-muted-foreground">£{correctedHeadline.toLocaleString()}</div>
+                <div className="col-span-2 text-right font-semibold text-foreground">£{correctedHeadline.toLocaleString()}</div>
               </div>
             )}
 
@@ -871,7 +890,7 @@ export default function InvoiceDetail() {
               )}
               <div className="flex justify-between items-center bg-primary/5 border border-primary/20 rounded-xl px-4 py-3.5">
                 <span className="font-bold text-base text-foreground">TOTAL DUE</span>
-                <span className="font-bold text-2xl text-primary">£{jobTotal.toLocaleString()}</span>
+                <span className="font-bold text-2xl text-primary">£{correctedJobTotal.toLocaleString()}</span>
               </div>
             </div>
           </div>
