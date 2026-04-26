@@ -15,13 +15,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift, Map, Building2, CalendarRange, RotateCcw, ExternalLink, AlertTriangle, CheckCircle2, History, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, MessageSquare, Clock, XCircle, FileText, Star, Plane, MapPin, Car, Users, Package, ClipboardList, Gift, Map, Building2, CalendarRange, RotateCcw, ExternalLink, AlertTriangle, CheckCircle2, History, ChevronDown, ChevronUp, MoreHorizontal } from "lucide-react";
 import { format } from "date-fns";
 import { fmtLondon, isoToLondonInput, londonInputToIso } from "@/lib/datetime";
 import { nationalityFlag } from "@/lib/nationalities";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { Textarea } from "@/components/ui/textarea";
@@ -1643,127 +1644,129 @@ export default function BookingDetail() {
         Download Booking Confirmation (PDF)
       </Button>
 
-      <div className={`grid grid-cols-1 gap-3 ${['Quote','Pending','Cancelled'].includes(booking.status) ? 'hidden' : ''}`}>
-        {clientWa ? (
-          <a href={clientMsgUrl} target="_blank" rel="noopener noreferrer">
-            <div className="flex items-center gap-4 p-4 rounded-2xl bg-green-900/20 border border-green-700/40 hover:bg-green-900/30 hover:border-green-600/60 transition-all cursor-pointer">
-              <div className="w-12 h-12 rounded-xl bg-green-500/20 flex items-center justify-center flex-shrink-0">
-                <MessageSquare className="w-6 h-6 text-green-400" />
+      {/* Message Client + Message Driver — compact side-by-side */}
+      {!['Quote','Pending','Cancelled'].includes(booking.status) && (
+        <div className="grid grid-cols-2 gap-2">
+          {clientWa ? (
+            <a href={clientMsgUrl} target="_blank" rel="noopener noreferrer">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-900/20 border border-green-700/40 hover:bg-green-900/35 hover:border-green-600/60 transition-all cursor-pointer">
+                <MessageSquare className="w-4 h-4 text-green-400 flex-shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-green-400 leading-tight">Message Client</p>
+                  <p className="text-[10px] text-green-600 truncate">{booking.client_name}</p>
+                </div>
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-green-400 text-base">Message Client</p>
-                <p className="text-xs text-green-600 truncate">{booking.client_name} — booking confirmation pre-filled</p>
-              </div>
-            </div>
-          </a>
-        ) : (
-          <div className="flex items-center gap-4 p-4 rounded-2xl bg-muted/20 border border-border opacity-50">
-            <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
-              <MessageSquare className="w-6 h-6 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="font-semibold text-muted-foreground">Message Client</p>
-              <p className="text-xs text-muted-foreground">No WhatsApp number on file</p>
-            </div>
-          </div>
-        )}
-
-        {driverMsgUrl ? (
-          <a href={driverMsgUrl} target="_blank" rel="noopener noreferrer">
-            <div className="flex items-center gap-4 p-4 rounded-2xl bg-blue-900/20 border border-blue-700/40 hover:bg-blue-900/30 hover:border-blue-600/60 transition-all cursor-pointer">
-              <div className="w-12 h-12 rounded-xl bg-blue-500/20 flex items-center justify-center flex-shrink-0">
-                <Car className="w-6 h-6 text-blue-400" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-blue-400 text-base">Message Driver</p>
-                <p className="text-xs text-blue-600 truncate">{booking.driver_name} — job sheet pre-filled (no client number)</p>
+            </a>
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/20 border border-border opacity-40">
+              <MessageSquare className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-muted-foreground leading-tight">Message Client</p>
+                <p className="text-[10px] text-muted-foreground truncate">No WhatsApp</p>
               </div>
             </div>
-          </a>
-        ) : (
-          <div className="flex items-center gap-4 p-4 rounded-2xl bg-muted/20 border border-border opacity-50">
-            <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center flex-shrink-0">
-              <Car className="w-6 h-6 text-muted-foreground" />
-            </div>
-            <div>
-              <p className="font-semibold text-muted-foreground">Message Driver</p>
-              <p className="text-xs text-muted-foreground">{booking.driver_name ? "No driver WhatsApp on file" : "No driver assigned yet"}</p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Status actions */}
-      {booking.status !== 'Completed' && booking.status !== 'Cancelled' && (
-        <div className="flex flex-col gap-2">
-          {booking.status === 'Confirmed' && (
-            <p className="text-xs text-muted-foreground italic">
-              💡 The system auto-activates this booking at its scheduled start time. Use <em>Mark Active</em> only to override.
-            </p>
           )}
-        <div className="flex gap-2 flex-wrap">
+          {driverMsgUrl ? (
+            <a href={driverMsgUrl} target="_blank" rel="noopener noreferrer">
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-900/20 border border-blue-700/40 hover:bg-blue-900/35 hover:border-blue-600/60 transition-all cursor-pointer">
+                <Car className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-blue-400 leading-tight">Message Driver</p>
+                  <p className="text-[10px] text-blue-600 truncate">{booking.driver_name ?? "Driver"}</p>
+                </div>
+              </div>
+            </a>
+          ) : (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/20 border border-border opacity-40">
+              <Car className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-muted-foreground leading-tight">Message Driver</p>
+                <p className="text-[10px] text-muted-foreground truncate">{booking.driver_name ? "No WhatsApp" : "No driver"}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Status actions — compact dropdown */}
+      {booking.status !== 'Completed' && booking.status !== 'Cancelled' && (
+        <div className="flex items-center gap-2">
+          {/* Primary action shown inline for quick access */}
+          {booking.status === 'Confirmed' && (
+            <Button size="sm" variant="outline" onClick={() => handleUpdateStatus('Active')} className="flex-1 text-green-400 hover:bg-green-500/10 border-green-500/30">
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Mark Active
+            </Button>
+          )}
+          {booking.status === 'Active' && (
+            <Button size="sm" variant="outline" onClick={openCompleteDialog} className="flex-1 text-gray-300 hover:bg-gray-500/10 border-gray-500/30" data-testid="button-mark-completed">
+              <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Mark Completed
+            </Button>
+          )}
           {(booking.status === 'Pending' || booking.status === 'Quote') && (
-            <Button variant="outline" size="sm" onClick={() => handleUpdateStatus('Confirmed')} className="text-blue-400 hover:bg-blue-500/10 border-blue-500/30">
+            <Button size="sm" variant="outline" onClick={() => handleUpdateStatus('Confirmed')} className="flex-1 text-blue-400 hover:bg-blue-500/10 border-blue-500/30">
               Mark Confirmed
             </Button>
           )}
-          {booking.status === 'Confirmed' && (
-            <Button variant="outline" size="sm" onClick={() => handleUpdateStatus('Active')} className="text-green-400 hover:bg-green-500/10 border-green-500/30">
-              Mark Active
-            </Button>
-          )}
-          <Button variant="outline" size="sm" onClick={openCompleteDialog} className="text-gray-400 hover:bg-gray-500/10" data-testid="button-mark-completed">
-            <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" /> Mark Completed
-          </Button>
-          {/* Rebook — clone this booking into a new draft with a fresh TVL
-              ref. The operator only needs to set the new date/time. */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setLocation(`/bookings/new?clone_of=${id}`)}
-            className="text-emerald-400 hover:bg-emerald-500/10 border-emerald-500/30"
-            data-testid="button-rebook"
-          >
-            <CalendarRange className="w-3.5 h-3.5 mr-1.5" /> Rebook
-          </Button>
-          {/* Edit available for every service type — clients change flight
-              dates, swap vehicles, extend stays, and tweak tour itineraries. */}
-          <Button variant="outline" size="sm" onClick={openEdit} className="text-primary hover:bg-primary/10 border-primary/30">
-            <CalendarRange className="w-3.5 h-3.5 mr-1.5" />
-            {svc === "Apartment" ? "Extend / Edit" : "Edit Booking"}
-          </Button>
-          <Dialog open={isWaitingOpen} onOpenChange={setIsWaitingOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm" className="text-amber-400 hover:bg-amber-500/10 border-amber-500/30">
-                <Clock className="w-3.5 h-3.5 mr-1.5" /> Add Waiting
+
+          {/* All other actions in a dropdown */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button size="sm" variant="outline" className="px-2.5">
+                <MoreHorizontal className="w-4 h-4" />
               </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader><DialogTitle>Add Waiting Time Charge</DialogTitle></DialogHeader>
-              <div className="py-4">
-                <Input type="number" placeholder="Amount in GBP" value={waitingAmount || ''} onChange={e => setWaitingAmount(Number(e.target.value))} />
-              </div>
-              <DialogFooter><Button onClick={handleAddWaiting}>Save Charge</Button></DialogFooter>
-            </DialogContent>
-          </Dialog>
-          <Dialog open={isCancelOpen} onOpenChange={setIsCancelOpen}>
-            <DialogTrigger asChild>
-              <Button variant="outline" size="sm" className="text-destructive hover:bg-destructive/10 border-destructive/30">
-                <XCircle className="w-3.5 h-3.5 mr-1.5" /> Cancel
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader><DialogTitle>Cancel Booking</DialogTitle></DialogHeader>
-              <div className="space-y-4 py-4">
-                <Textarea placeholder="Reason for cancellation" value={cancelReason} onChange={e => setCancelReason(e.target.value)} />
-                <Input type="number" placeholder="Cancellation fee (if applicable)" value={cancelFee || ''} onChange={e => setCancelFee(Number(e.target.value))} />
-              </div>
-              <DialogFooter><Button variant="destructive" onClick={handleCancel}>Confirm Cancellation</Button></DialogFooter>
-            </DialogContent>
-          </Dialog>
-        </div>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              {booking.status === 'Confirmed' && (
+                <DropdownMenuItem onClick={openCompleteDialog} data-testid="button-mark-completed">
+                  <CheckCircle2 className="w-3.5 h-3.5 mr-2 text-gray-400" /> Mark Completed
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={openEdit}>
+                <CalendarRange className="w-3.5 h-3.5 mr-2 text-primary" />
+                {svc === "Apartment" ? "Extend / Edit" : "Edit Booking"}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setLocation(`/bookings/new?clone_of=${id}`)} data-testid="button-rebook">
+                <CalendarRange className="w-3.5 h-3.5 mr-2 text-emerald-400" /> Rebook
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setIsWaitingOpen(true)}>
+                <Clock className="w-3.5 h-3.5 mr-2 text-amber-400" /> Add Waiting
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setIsCancelOpen(true)} className="text-destructive focus:text-destructive">
+                <XCircle className="w-3.5 h-3.5 mr-2" /> Cancel Booking
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       )}
+
+      {/* Hint for auto-activate (Confirmed state) */}
+      {booking.status === 'Confirmed' && (
+        <p className="text-[10px] text-muted-foreground/60 italic -mt-1">
+          Auto-activates at scheduled time. Use Mark Active to override.
+        </p>
+      )}
+
+      {/* Dialogs — mounted outside the button group so they survive dropdown close */}
+      <Dialog open={isWaitingOpen} onOpenChange={setIsWaitingOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Add Waiting Time Charge</DialogTitle></DialogHeader>
+          <div className="py-4">
+            <Input type="number" placeholder="Amount in GBP" value={waitingAmount || ''} onChange={e => setWaitingAmount(Number(e.target.value))} />
+          </div>
+          <DialogFooter><Button onClick={handleAddWaiting}>Save Charge</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+      <Dialog open={isCancelOpen} onOpenChange={setIsCancelOpen}>
+        <DialogContent>
+          <DialogHeader><DialogTitle>Cancel Booking</DialogTitle></DialogHeader>
+          <div className="space-y-4 py-4">
+            <Textarea placeholder="Reason for cancellation" value={cancelReason} onChange={e => setCancelReason(e.target.value)} />
+            <Input type="number" placeholder="Cancellation fee (if applicable)" value={cancelFee || ''} onChange={e => setCancelFee(Number(e.target.value))} />
+          </div>
+          <DialogFooter><Button variant="destructive" onClick={handleCancel}>Confirm Cancellation</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Edit Booking dialog — works for every service type.
           Mounted outside the conditional status-actions block so it can be
