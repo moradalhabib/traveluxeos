@@ -229,12 +229,17 @@ export async function pollUpcomingFlights(): Promise<void> {
   const db  = getServiceRoleClient() ?? supabase;
   const now = Date.now();
 
-  // Broad DB query: bookings whose scheduled time falls inside any of the
-  // three poll windows. We cover the full span from (nearest window − 5 min)
-  // to (furthest window + 5 min) so a single round-trip fetches all candidates.
-  const nearestMs  = Math.min(...POLL_OFFSETS_MS);
-  const farthestMs = Math.max(...POLL_OFFSETS_MS);
-  const queryStart = new Date(now + nearestMs  - POLL_WINDOW_HALF_MS).toISOString();
+  // ── Single broad DB query covering both phases ─────────────────────────────
+  // Phase A (pre-arrival): bookings at T-3h / T-1h / T-30min checkpoint windows.
+  // Phase B (delayed):     bookings past their scheduled time that haven't yet
+  //                        reached a terminal status — poll every 30 min for
+  //                        up to 3 h after the scheduled arrival time.
+  //
+  // Query window: from 3 h in the past (delayed tracking) to 3h5min in the
+  // future (furthest pre-arrival checkpoint). One DB round-trip covers both.
+  const DELAYED_LOOKBACK_MS = 3 * 60 * 60 * 1000;   // keep tracking up to 3 h late
+  const farthestMs          = Math.max(...POLL_OFFSETS_MS);
+  const queryStart = new Date(now - DELAYED_LOOKBACK_MS).toISOString();
   const queryEnd   = new Date(now + farthestMs + POLL_WINDOW_HALF_MS).toISOString();
 
   const { data: bookings, error } = await db
@@ -252,17 +257,32 @@ export async function pollUpcomingFlights(): Promise<void> {
   }
   if (!bookings?.length) return;
 
-  // Filter to only those actually inside one of the three ±5-min windows.
-  const inWindow = (bookings as any[]).filter((b) => {
+  // Classify each booking into phase A (pre-arrival checkpoint) or phase B
+  // (delayed / post-scheduled-time). Bookings that fall in neither are skipped.
+  type Phase = "pre" | "delayed";
+  const candidates: Array<{ b: any; phase: Phase }> = [];
+  for (const b of bookings as any[]) {
     const dt = new Date(b.date_time).getTime();
-    return POLL_OFFSETS_MS.some(offset => Math.abs(dt - now - offset) <= POLL_WINDOW_HALF_MS);
-  });
-  if (!inWindow.length) return;
+    if (dt > now) {
+      // Phase A: must be inside one of the 3 ±5-min checkpoint windows.
+      const inCheckpoint = POLL_OFFSETS_MS.some(
+        offset => Math.abs(dt - now - offset) <= POLL_WINDOW_HALF_MS
+      );
+      if (inCheckpoint) candidates.push({ b, phase: "pre" });
+    } else {
+      // Phase B: scheduled time is in the past; eligible for delayed tracking.
+      candidates.push({ b, phase: "delayed" });
+    }
+  }
+  if (!candidates.length) return;
 
-  console.info(`[FlightPoll] ${inWindow.length} flight(s) in poll window — checking status`);
+  const preCount     = candidates.filter(c => c.phase === "pre").length;
+  const delayedCount = candidates.filter(c => c.phase === "delayed").length;
+  if (preCount)     console.info(`[FlightPoll] ${preCount} flight(s) at checkpoint — checking status`);
+  if (delayedCount) console.info(`[FlightPoll] ${delayedCount} flight(s) past schedule — checking for delays`);
 
   await Promise.allSettled(
-    inWindow.map(async (b: any) => {
+    candidates.map(async ({ b, phase }) => {
       const flightDate = new Date(b.date_time).toISOString().split("T")[0];
 
       // Negative-cache: if this exact flight failed recently, skip for 30 min.
@@ -283,12 +303,14 @@ export async function pollUpcomingFlights(): Promise<void> {
       // all the information we need — no further polling for this flight.
       if (cached?.status && TERMINAL_STATUSES.has(cached.status)) return;
 
-      // ── Debounce ───────────────────────────────────────────────────────
-      // If the cache was updated within the last 20 min (manual lookup or
-      // previous auto-poll) skip this tick to avoid burning a quota unit.
+      // ── Phase-appropriate debounce ─────────────────────────────────────
+      // Pre-arrival checkpoints: 20 min (prevents double-poll within window).
+      // Delayed / post-schedule: 30 min (conserves quota while still tracking
+      //   every half-hour until the flight lands or we give up at 3 h late).
+      const debounceMs = phase === "pre" ? POLL_DEBOUNCE_MS : 30 * 60 * 1000;
       if (cached?.last_updated) {
         const ageMs = Date.now() - new Date(cached.last_updated).getTime();
-        if (ageMs < POLL_DEBOUNCE_MS) return;
+        if (ageMs < debounceMs) return;
       }
 
       const prevStatus    = cached?.status      ?? null;
