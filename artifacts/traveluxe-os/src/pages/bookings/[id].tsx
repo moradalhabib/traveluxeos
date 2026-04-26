@@ -1558,6 +1558,32 @@ export default function BookingDetail() {
     // Privacy: NEVER include client whatsapp
     return lines.join('\n');
   };
+  // Short driver-confirmation message to the client.
+  // Format: concise, luxury, reads instantly on a phone screen.
+  const buildDriverConfirmMessage = () => {
+    const firstName = booking.client_name?.split(' ')[0] ?? booking.client_name ?? 'there';
+    const driverName   = booking.driver_name ?? '—';
+    const staffNo      = (booking as any).driver_staff_no ?? '';
+    const vehicle      = booking.vehicle_type ?? '—';
+    const lines: string[] = [
+      `*Traveluxe London*`,
+      ``,
+      `Dear ${firstName},`,
+      ``,
+      `Your chauffeur for *${booking.tvl_ref}* is confirmed:`,
+      ``,
+      `🚘 *Driver:* ${driverName}`,
+    ];
+    if (staffNo) lines.push(`   *Staff No.:* ${staffNo}`);
+    lines.push(`   *Vehicle:* ${vehicle}`);
+    lines.push(
+      ``,
+      `See you soon — our team is here 24/7.`,
+      `— *Traveluxe London*`,
+    );
+    return lines.join('\n');
+  };
+
   // suppress unused-var warning for helper flags
   void isTransport; void isAccommodation;
 
@@ -1643,44 +1669,78 @@ export default function BookingDetail() {
 
       {/* Message Client + Message Driver — compact side-by-side */}
       {!['Quote','Pending','Cancelled'].includes(booking.status) && (
-        <div className="grid grid-cols-2 gap-2">
-          {clientWa ? (
-            <a href={clientMsgUrl} target="_blank" rel="noopener noreferrer">
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-900/20 border border-green-700/40 hover:bg-green-900/35 hover:border-green-600/60 transition-all cursor-pointer">
-                <MessageSquare className="w-4 h-4 text-green-400 flex-shrink-0" />
+        <div className="space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            {clientWa ? (
+              <a href={clientMsgUrl} target="_blank" rel="noopener noreferrer">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-green-900/20 border border-green-700/40 hover:bg-green-900/35 hover:border-green-600/60 transition-all cursor-pointer">
+                  <MessageSquare className="w-4 h-4 text-green-400 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-green-400 leading-tight">Message Client</p>
+                    <p className="text-[10px] text-green-600 truncate">{booking.client_name}</p>
+                  </div>
+                </div>
+              </a>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/20 border border-border opacity-40">
+                <MessageSquare className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold text-green-400 leading-tight">Message Client</p>
-                  <p className="text-[10px] text-green-600 truncate">{booking.client_name}</p>
+                  <p className="text-xs font-semibold text-muted-foreground leading-tight">Message Client</p>
+                  <p className="text-[10px] text-muted-foreground truncate">No WhatsApp</p>
                 </div>
               </div>
-            </a>
-          ) : (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/20 border border-border opacity-40">
-              <MessageSquare className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-muted-foreground leading-tight">Message Client</p>
-                <p className="text-[10px] text-muted-foreground truncate">No WhatsApp</p>
-              </div>
-            </div>
-          )}
-          {driverMsgUrl ? (
-            <a href={driverMsgUrl} target="_blank" rel="noopener noreferrer">
-              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-900/20 border border-blue-700/40 hover:bg-blue-900/35 hover:border-blue-600/60 transition-all cursor-pointer">
-                <Car className="w-4 h-4 text-blue-400 flex-shrink-0" />
+            )}
+            {driverMsgUrl ? (
+              <a href={driverMsgUrl} target="_blank" rel="noopener noreferrer">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-900/20 border border-blue-700/40 hover:bg-blue-900/35 hover:border-blue-600/60 transition-all cursor-pointer">
+                  <Car className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-blue-400 leading-tight">Message Driver</p>
+                    <p className="text-[10px] text-blue-600 truncate">{booking.driver_name ?? "Driver"}</p>
+                  </div>
+                </div>
+              </a>
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/20 border border-border opacity-40">
+                <Car className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold text-blue-400 leading-tight">Message Driver</p>
-                  <p className="text-[10px] text-blue-600 truncate">{booking.driver_name ?? "Driver"}</p>
+                  <p className="text-xs font-semibold text-muted-foreground leading-tight">Message Driver</p>
+                  <p className="text-[10px] text-muted-foreground truncate">{booking.driver_name ? "No WhatsApp" : "No driver"}</p>
                 </div>
               </div>
-            </a>
-          ) : (
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/20 border border-border opacity-40">
-              <Car className="w-4 h-4 text-muted-foreground flex-shrink-0" />
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-muted-foreground leading-tight">Message Driver</p>
-                <p className="text-[10px] text-muted-foreground truncate">{booking.driver_name ? "No WhatsApp" : "No driver"}</p>
+            )}
+          </div>
+
+          {/* Driver confirmation to client — only once a driver is assigned */}
+          {booking.driver_id && (
+            clientWa ? (
+              <a
+                href={`https://wa.me/${clientWa}?text=${encodeURIComponent(buildDriverConfirmMessage())}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block"
+              >
+                <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-primary/10 border border-primary/30 hover:bg-primary/20 hover:border-primary/50 transition-all cursor-pointer">
+                  <Car className="w-4 h-4 text-primary flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-primary leading-tight">Send Driver Confirmation to Client</p>
+                    <p className="text-[10px] text-primary/60 truncate">
+                      {booking.driver_name ?? "Driver"}
+                      {(booking as any).driver_staff_no ? ` · ${(booking as any).driver_staff_no}` : ""}
+                      {booking.vehicle_type ? ` · ${booking.vehicle_type}` : ""}
+                    </p>
+                  </div>
+                </div>
+              </a>
+            ) : (
+              <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-muted/10 border border-border opacity-40">
+                <Car className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-muted-foreground leading-tight">Send Driver Confirmation to Client</p>
+                  <p className="text-[10px] text-muted-foreground">Client has no WhatsApp on file</p>
+                </div>
               </div>
-            </div>
+            )
           )}
         </div>
       )}
