@@ -191,38 +191,51 @@ export async function upsertCache(db: any, data: FlightData, date: string): Prom
 }
 
 /**
- * Poll flight status for Airport Transfer bookings — **strictly once per
- * flight**, at exactly 2 hours before scheduled arrival time. After that
- * single call lands in the cache, the system never re-polls that flight.
- * Operators can still trigger a manual lookup from the booking form any
- * time they want a fresh status.
+ * Poll flight status for Airport Transfer bookings at three checkpoints:
+ *   T‑3h  — early logistics view (pre-driver dispatch decision)
+ *   T‑1h  — last chance before driver leaves for the airport
+ *   T‑30m — sharpest status with driver already en route
  *
- * Implementation: we query for bookings whose scheduled time is within a
- * 10-minute window centred on T-2h (i.e. 2h05m → 1h55m from now). The
- * scheduler ticks every 60s, so exactly one tick will land in that window
- * per flight. The cache row itself acts as the "already polled" flag —
- * if any row exists for the flight+date, we skip.
+ * Each checkpoint is a ±5 min window; the 60s scheduler tick guarantees
+ * exactly one tick lands in each window per flight. Once a flight reaches
+ * a terminal status (Landed / Cancelled / Early) it is never re-polled.
+ *
+ * Debounce: if a cache row was written within the last 20 min (e.g. an
+ * operator triggered a manual refresh just before the auto-poll fires)
+ * we skip the auto-poll for that window to avoid burning a quota unit.
+ *
+ * Max API calls per flight: 3.  With Pro-plan unit costs of ≤60 units/call
+ * and 6,000 units/month budget, the system can comfortably track up to
+ * ~33 Airport Transfer flights per day before hitting the unit cap.
  */
-const POLL_OFFSET_MS    = 2 * 60 * 60 * 1000;  // T-2h before scheduled arrival
-const POLL_WINDOW_MS    = 5 * 60 * 1000;       // ±5 min around T-2h
-// Terminal statuses — once cached as one of these, never poll again.
-// "Early" is included because in the once-only model the status reflects
-// what was happening at T-2h, and we don't poll further regardless.
+
+// Three poll offsets before scheduled arrival / departure.
+const POLL_OFFSETS_MS: number[] = [
+  3 * 60 * 60 * 1000,   // T-3h
+  1 * 60 * 60 * 1000,   // T-1h
+  30 * 60 * 1000,        // T-30min
+];
+const POLL_WINDOW_HALF_MS = 5  * 60 * 1000;  // ±5 min each side of checkpoint
+const POLL_DEBOUNCE_MS    = 20 * 60 * 1000;  // skip if polled within last 20 min
+
+// Terminal statuses — once reached, no further polls for this flight.
 const TERMINAL_STATUSES = new Set(["Landed", "Cancelled", "Early"]);
 
 export async function pollUpcomingFlights(): Promise<void> {
-  // Hard short-circuit: if monthly quota is exhausted, don't even hit the DB
-  // for upcoming bookings. The poll resumes automatically on the configured
-  // resume date (start of next billing month).
+  // Hard short-circuit: if monthly quota is exhausted, don't even hit the DB.
+  // Resumes automatically at the start of the next billing month.
   if (Date.now() < quotaExceededUntil) return;
 
-  const db = getServiceRoleClient() ?? supabase;
+  const db  = getServiceRoleClient() ?? supabase;
+  const now = Date.now();
 
-  const now = new Date();
-  // Narrow window centred on T-2h before scheduled arrival. The 60s scheduler
-  // tick is guaranteed to land in this 10-min window exactly once per flight.
-  const windowStart = new Date(now.getTime() + POLL_OFFSET_MS - POLL_WINDOW_MS).toISOString();
-  const windowEnd   = new Date(now.getTime() + POLL_OFFSET_MS + POLL_WINDOW_MS).toISOString();
+  // Broad DB query: bookings whose scheduled time falls inside any of the
+  // three poll windows. We cover the full span from (nearest window − 5 min)
+  // to (furthest window + 5 min) so a single round-trip fetches all candidates.
+  const nearestMs  = Math.min(...POLL_OFFSETS_MS);
+  const farthestMs = Math.max(...POLL_OFFSETS_MS);
+  const queryStart = new Date(now + nearestMs  - POLL_WINDOW_HALF_MS).toISOString();
+  const queryEnd   = new Date(now + farthestMs + POLL_WINDOW_HALF_MS).toISOString();
 
   const { data: bookings, error } = await db
     .from("bookings")
@@ -230,8 +243,8 @@ export async function pollUpcomingFlights(): Promise<void> {
     .eq("service_type", "Airport Transfer")
     .not("flight_number", "is", null)
     .in("status", ["Confirmed", "Active"])
-    .gte("date_time", windowStart)
-    .lte("date_time", windowEnd);
+    .gte("date_time", queryStart)
+    .lte("date_time", queryEnd);
 
   if (error) {
     console.error("[FlightPoll] query error:", error.message);
@@ -239,19 +252,25 @@ export async function pollUpcomingFlights(): Promise<void> {
   }
   if (!bookings?.length) return;
 
-  console.info(`[FlightPoll] ${bookings.length} flight(s) at T-2h — performing single status check`);
+  // Filter to only those actually inside one of the three ±5-min windows.
+  const inWindow = (bookings as any[]).filter((b) => {
+    const dt = new Date(b.date_time).getTime();
+    return POLL_OFFSETS_MS.some(offset => Math.abs(dt - now - offset) <= POLL_WINDOW_HALF_MS);
+  });
+  if (!inWindow.length) return;
+
+  console.info(`[FlightPoll] ${inWindow.length} flight(s) in poll window — checking status`);
 
   await Promise.allSettled(
-    bookings.map(async (b: any) => {
+    inWindow.map(async (b: any) => {
       const flightDate = new Date(b.date_time).toISOString().split("T")[0];
 
       // Negative-cache: if this exact flight failed recently, skip for 30 min.
-      const negKey = `${b.flight_number}|${flightDate}`;
+      const negKey   = `${b.flight_number}|${flightDate}`;
       const negUntil = negativeCache.get(negKey);
       if (negUntil && Date.now() < negUntil) return;
 
-      // Read existing cached entry (status + delay) BEFORE fetching fresh data,
-      // so we can detect meaningful status changes and fire push notifications.
+      // Read existing cached entry BEFORE fetching so we can detect changes.
       const { data: cached } = await db
         .from("flight_status_cache")
         .select("last_updated, status, delay_minutes")
@@ -259,24 +278,28 @@ export async function pollUpcomingFlights(): Promise<void> {
         .eq("date", flightDate)
         .single();
 
-      // ── Once-only guard ────────────────────────────────────────────────
-      // The user wants exactly ONE API call per flight, at T-2h. If we
-      // already have a cache row for this flight+date (whether from this
-      // poll or from an earlier manual lookup), do not re-fetch.
-      if (cached?.last_updated) return;
-
-      // Belt-and-suspenders: terminal status from a manual lookup also
-      // means we never need to poll this flight again.
+      // ── Terminal guard ─────────────────────────────────────────────────
+      // Once a flight has Landed, been Cancelled, or arrived Early we have
+      // all the information we need — no further polling for this flight.
       if (cached?.status && TERMINAL_STATUSES.has(cached.status)) return;
+
+      // ── Debounce ───────────────────────────────────────────────────────
+      // If the cache was updated within the last 20 min (manual lookup or
+      // previous auto-poll) skip this tick to avoid burning a quota unit.
+      if (cached?.last_updated) {
+        const ageMs = Date.now() - new Date(cached.last_updated).getTime();
+        if (ageMs < POLL_DEBOUNCE_MS) return;
+      }
 
       const prevStatus    = cached?.status      ?? null;
       const prevDelayMins = cached?.delay_minutes ?? 0;
 
-      const dir = b.direction === "Departure" ? "Departure" : "Arrival" as const;
+      const dir    = b.direction === "Departure" ? "Departure" : "Arrival" as const;
       const result = await fetchFlightStatus(b.flight_number, flightDate, dir);
+
       if (result.ok) {
         await upsertCache(db, result.data, flightDate);
-        const d = result.data;
+        const d         = result.data;
         const delayNote = d.delay_minutes > 0
           ? `+${d.delay_minutes}m late`
           : d.delay_minutes < 0
@@ -284,13 +307,12 @@ export async function pollUpcomingFlights(): Promise<void> {
             : "on time";
         console.info(`[FlightPoll] ${b.flight_number} (${b.tvl_ref ?? ""}): ${d.status} — ${delayNote}`);
 
-        // ── Detect meaningful status changes → OS push + in-app notification ──
+        // ── Detect meaningful changes → push + in-app notification ───────
         const flightLabel = b.flight_number.toUpperCase();
         const ref         = b.tvl_ref ? ` (${b.tvl_ref})` : "";
         const link        = b.id ? `/bookings/${b.id}` : "/flights";
 
-        const statusChanged = d.status !== prevStatus;
-        // Delay increase of ≥5 min compared to previous value (even within same status label)
+        const statusChanged  = d.status !== prevStatus;
         const delayIncreased = d.status === "Delayed" && d.delay_minutes >= (prevDelayMins + 5);
 
         if (statusChanged || delayIncreased) {
@@ -321,7 +343,6 @@ export async function pollUpcomingFlights(): Promise<void> {
             notifType = "flight_delay";
             severity  = "warning";
           } else if (prevStatus && d.status !== prevStatus) {
-            // Generic status change (e.g. Scheduled → On Time, EnRoute, etc.)
             pushTitle = `✈️ ${flightLabel} — ${d.status}`;
             pushBody  = `${flightLabel}${ref} status updated to ${d.status}.`;
             notifType = "flight_delay";
@@ -329,13 +350,11 @@ export async function pollUpcomingFlights(): Promise<void> {
           }
 
           if (pushTitle && pushBody) {
-            // OS-level push notification to all subscribed devices
             sendWebPushToAll({ title: pushTitle, body: pushBody, link, tag: `flight-${b.flight_number}`, requireInteraction: true }).catch(() => {});
-            // In-app notification bell (for all staff)
             notifyByRoles(STAFF_ROLES, {
-              type:     notifType,
-              title:    pushTitle,
-              message:  pushBody,
+              type:      notifType,
+              title:     pushTitle,
+              message:   pushBody,
               link,
               severity,
               dedupeKey: `flight-${b.flight_number}-${d.status}-${d.delay_minutes}`,
@@ -343,9 +362,8 @@ export async function pollUpcomingFlights(): Promise<void> {
           }
         }
       } else {
-        // Park this specific flight in the negative cache so we don't retry
-        // every minute. Quota-exceeded errors are already handled by the
-        // global circuit breaker, so this only affects 404 / network errors.
+        // Park this flight in the negative cache; quota errors are handled
+        // globally by the circuit breaker above.
         negativeCache.set(negKey, Date.now() + NEG_CACHE_TTL_MS);
         console.warn(`[FlightPoll] ${b.flight_number} (${b.tvl_ref ?? ""}): ${result.reason} — ${result.message ?? ""}`);
       }
