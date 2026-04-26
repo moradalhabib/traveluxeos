@@ -1022,14 +1022,19 @@ export default function BookingDetail() {
     // costs) into editPrice on first render and clobber the stored price.
     // When the operator has no vehicle product, they edit Total Fare by hand.
     if (editVehicleQuoteTotal <= 0) return;
-    const total = editVehicleQuoteTotal + editSupplierCost;
-    if (Math.abs(editPrice - total) < 0.005) return;
-    setEditPrice(total);
-    // Keep Quoted Price in sync when the operator hasn't entered a discount —
-    // otherwise the Total Fare field would silently drift out of step with
-    // Quoted - Discount on save.
-    if (editDiscountAmount <= 0) setEditQuotedPrice(total);
-  }, [isEditOpen, booking?.service_type, editVehicleQuoteTotal, editSupplierCost]);
+    // Subtotal is the full client-facing total (vehicle + supplier products);
+    // Total Fare = subtotal − discount. Keeping Quoted Price aligned with the
+    // subtotal here means the Subtotal/Discount/Total breakdown shown on the
+    // booking page and the invoice always adds up — this is also what
+    // repairs legacy bookings on first open: opening one with a stale
+    // quoted_price (e.g. £160 when supplier products add £250) re-aligns it
+    // to £410 so Total Fare reads £400 instead of the stale £150.
+    const subtotal   = editVehicleQuoteTotal + editSupplierCost;
+    const finalPrice = Math.max(0, subtotal - (editDiscountAmount || 0));
+    if (Math.abs(editPrice - finalPrice) < 0.005 && Math.abs(editQuotedPrice - subtotal) < 0.005) return;
+    setEditPrice(finalPrice);
+    setEditQuotedPrice(subtotal);
+  }, [isEditOpen, booking?.service_type, editVehicleQuoteTotal, editSupplierCost, editDiscountAmount]);
 
   // Recompute nights for accommodation when dates change
   useEffect(() => {
@@ -2119,7 +2124,17 @@ export default function BookingDetail() {
                             setEditSupplierCost(newTotal);
                             if (delta !== 0) {
                               setEditPrice(p => Math.max(0, r2(p + delta)));
-                              if (editDiscountAmount <= 0) {
+                              // Mirror the delta into the Quoted subtotal whenever
+                              // the operator is using the Quoted/Discount breakdown
+                              // (quoted > 0 — even when a discount is applied).
+                              // Previously this was gated on `discount <= 0`, which
+                              // left the Quoted line stale when discount > 0:
+                              // the invoice would then show "Subtotal £160 −
+                              // Discount £10 = Total £400" with the supplier line
+                              // missing from the subtotal entirely. Bumping
+                              // unconditionally keeps Subtotal consistent with
+                              // Total Fare in every case.
+                              if (editQuotedPrice > 0) {
                                 setEditQuotedPrice(q => Math.max(0, r2(q + delta)));
                               }
                             }
@@ -2899,34 +2914,85 @@ export default function BookingDetail() {
           "Driver Receives" line is suppressed. Hotel commission is shown
           as "Commission Earned" (positive — money in) instead of the
           transport-style "TVL Commission". */}
-      {!isResidenceManager && (
+      {!isResidenceManager && (() => {
+        // Recover the true client-facing total when operators created the
+        // booking before the supplier-products picker started bumping both
+        // price + quoted_price. Symptom: the supplier card shows e.g.
+        // "VIP Silver £250" but Total Fare still reads £150 because the
+        // Quoted/Discount handlers computed `price = quoted − discount`
+        // and silently dropped the supplier line. We detect those legacy
+        // bookings and surface the missing amount so what the operator
+        // sees here matches the invoice.
+        const supplierItemsArr = Array.isArray((booking as any).supplier_items)
+          ? (booking as any).supplier_items
+          : [];
+        const supplierItemsTotal = supplierItemsArr.reduce((s: number, it: any) => {
+          if (it?.override_price != null) return s + Number(it.override_price);
+          const rate = it?.daily_rate != null ? Number(it.daily_rate)
+            : it?.hourly_rate != null ? Number(it.hourly_rate)
+            : 0;
+          return s + rate * Number(it?.qty || 0);
+        }, 0);
+        const quotedRaw     = Number((booking as any).quoted_price ?? 0);
+        const discountRaw   = Number((booking as any).discount_amount ?? 0);
+        const storedPrice   = Number(booking.price || 0);
+        // Detect the legacy bug WITHOUT false-positives on already-correct
+        // bookings. Two conditions must both hold:
+        //   1. Stored price equals quoted − discount (i.e. supplier wasn't
+        //      added when computing price), AND
+        //   2. Quoted is strictly less than the supplier-items total
+        //      (proof that supplier wasn't folded into the quoted subtotal
+        //      — if it were, quoted would have to be at least supplierItemsTotal).
+        // A correctly-saved booking with vehicle £160 + supplier £250 has
+        // quoted £410, which is ≥ £250 → condition 2 is false → not flagged.
+        // The user's screenshot has quoted £160 < supplier £250 → flagged.
+        const supplierMissingFromTotal =
+          supplierItemsTotal > 0 &&
+          quotedRaw > 0 &&
+          Math.abs(storedPrice - (quotedRaw - discountRaw)) < 0.01 &&
+          quotedRaw < supplierItemsTotal;
+        const displayedTotal = supplierMissingFromTotal
+          ? storedPrice + supplierItemsTotal
+          : storedPrice;
+      return (
         <Card className="border-primary/10 bg-card">
           <CardHeader className="pb-2"><CardTitle className="text-base">Financials</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             {/* Invoice breakdown — Subtotal + Discount lines render only
                 when the operator entered a quoted price + discount on this
                 booking. Mirrors what the client sees on the invoice PDF/email. */}
-            {Number((booking as any).quoted_price ?? 0) > 0 && Number((booking as any).discount_amount ?? 0) > 0 && (
+            {quotedRaw > 0 && discountRaw > 0 && (
               <>
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-muted-foreground">Subtotal (quoted)</span>
-                  <span className="font-medium">£{Number((booking as any).quoted_price || 0).toLocaleString()}</span>
+                  <span className="font-medium">£{quotedRaw.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between items-center text-sm">
                   <span className="text-muted-foreground">
                     Discount{(booking as any).discount_reason ? ` — ${(booking as any).discount_reason}` : ""}
                   </span>
                   <span className="font-medium text-green-400">
-                    −£{Number((booking as any).discount_amount || 0).toLocaleString()}
+                    −£{discountRaw.toLocaleString()}
                   </span>
                 </div>
               </>
+            )}
+            {supplierMissingFromTotal && (
+              <div className="flex justify-between items-center text-sm" data-testid="financials-supplier-products">
+                <span className="text-muted-foreground">
+                  Supplier Products
+                  <span className="text-[10px] text-muted-foreground/70 ml-1">
+                    ({supplierItemsArr.length} item{supplierItemsArr.length === 1 ? "" : "s"})
+                  </span>
+                </span>
+                <span className="font-medium">+£{supplierItemsTotal.toLocaleString()}</span>
+              </div>
             )}
             <div className="flex justify-between items-center pb-2 border-b border-border">
               <span className="text-muted-foreground">
                 {svc === "Hotel" || svc === "Apartment" ? "Total Charged to Client" : "Total Fare"}
               </span>
-              <span className="font-bold text-xl text-primary">£{(booking.price || 0).toLocaleString()}</span>
+              <span className="font-bold text-xl text-primary" data-testid="financials-total-fare">£{displayedTotal.toLocaleString()}</span>
             </div>
             {(booking.additional_charges || 0) > 0 && (
               <div className="flex justify-between items-center text-sm">
@@ -3132,7 +3198,8 @@ export default function BookingDetail() {
             )}
           </CardContent>
         </Card>
-      )}
+      );
+      })()}
 
       {/* Invoice — hidden from Residence Managers */}
       {!isResidenceManager && (

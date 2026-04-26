@@ -776,14 +776,33 @@ export default function NewBooking() {
   // commission works the same way for the vehicle side: it's TVL's slice
   // of the vehicle revenue, not extra charge to the client.
   const atSupplierCostWatch = Number(bookingForm.watch("supplier_cost" as any)) || 0;
+  const atDiscountWatch     = Number(bookingForm.watch("discount_amount" as any)) || 0;
   useEffect(() => {
     if (!isAirportTransfer) return;
-    const total = vehicleQuoteTotal + atSupplierCostWatch;
-    if (total <= 0) return;
-    const current = Number(bookingForm.getValues("price")) || 0;
-    if (Math.abs(current - total) < 0.005) return;
-    bookingForm.setValue("price", total, { shouldDirty: true });
-  }, [isAirportTransfer, vehicleQuoteTotal, atSupplierCostWatch]);
+    // Bail when the operator has no vehicle quote — mirrors the edit flow
+    // ([id].tsx) so the picker's manual-delta fallback can preserve a
+    // hand-typed Total Fare (e.g. TVL-0102: manual £100 + VIP Diamond £550
+    // → £650). Without this guard, the auto-quote effect would clobber the
+    // operator's typed price down to just the supplier subtotal.
+    if (vehicleQuoteTotal <= 0) return;
+    // Subtotal is the full client-facing total (vehicle + supplier products);
+    // Total Fare = subtotal − discount. Keeping Quoted Price aligned with the
+    // subtotal here means Subtotal/Discount/Total adds up consistently on the
+    // booking page and the invoice. Without this, picking a £250 supplier
+    // product with a £10 discount left Quoted at the vehicle subtotal alone,
+    // and the displayed Total Fare silently dropped the £250.
+    const subtotal = vehicleQuoteTotal + atSupplierCostWatch;
+    if (subtotal <= 0) return;
+    const finalPrice  = Math.max(0, subtotal - atDiscountWatch);
+    const currentPrice  = Number(bookingForm.getValues("price")) || 0;
+    const currentQuoted = Number(bookingForm.getValues("quoted_price" as any)) || 0;
+    if (
+      Math.abs(currentPrice - finalPrice) < 0.005 &&
+      Math.abs(currentQuoted - subtotal) < 0.005
+    ) return;
+    bookingForm.setValue("price", finalPrice, { shouldDirty: true });
+    bookingForm.setValue("quoted_price" as any, subtotal, { shouldDirty: true });
+  }, [isAirportTransfer, vehicleQuoteTotal, atSupplierCostWatch, atDiscountWatch]);
 
   // Reset the local vehicle subtotal whenever the operator switches away
   // from Airport Transfer so a stale value can't leak into another flow.
@@ -2222,14 +2241,32 @@ export default function NewBooking() {
                                 onChange={(items) => {
                                   bookingForm.setValue("supplier_items" as any, items, { shouldDirty: true });
                                   // Auto-sum supplier_cost from picked items
-                                  // (qty × daily_rate, falling back to hourly_rate).
-                                  const total = items.reduce((s, it) => {
-                                    const rate = it.daily_rate != null ? Number(it.daily_rate)
-                                      : it.hourly_rate != null ? Number(it.hourly_rate)
+                                  // (override_price wins, otherwise qty × daily_rate
+                                  // or hourly_rate). The Airport Transfer auto-quote
+                                  // useEffect picks up this change and pushes the
+                                  // matching delta into price + quoted_price; the
+                                  // manual delta bump below is a fallback for the
+                                  // edge case where no vehicle has been picked yet
+                                  // (vehicleQuoteTotal === 0 → useEffect bails).
+                                  const r2 = (n: number) => Math.round(n * 100) / 100;
+                                  const newTotal = items.reduce((s: number, it: any) => {
+                                    if (it?.override_price != null) return s + Number(it.override_price);
+                                    const rate = it?.daily_rate != null ? Number(it.daily_rate)
+                                      : it?.hourly_rate != null ? Number(it.hourly_rate)
                                       : 0;
-                                    return s + rate * Number(it.qty || 0);
+                                    return s + rate * Number(it?.qty || 0);
                                   }, 0);
-                                  bookingForm.setValue("supplier_cost" as any, total, { shouldDirty: true });
+                                  const prevSupplierCost = Number(bookingForm.getValues("supplier_cost" as any)) || 0;
+                                  const delta = r2(newTotal - prevSupplierCost);
+                                  bookingForm.setValue("supplier_cost" as any, newTotal, { shouldDirty: true });
+                                  if (delta !== 0 && vehicleQuoteTotal <= 0) {
+                                    const prevPrice  = Number(bookingForm.getValues("price")) || 0;
+                                    const prevQuoted = Number(bookingForm.getValues("quoted_price" as any)) || 0;
+                                    bookingForm.setValue("price", Math.max(0, r2(prevPrice + delta)), { shouldDirty: true });
+                                    if (prevQuoted > 0) {
+                                      bookingForm.setValue("quoted_price" as any, Math.max(0, r2(prevQuoted + delta)), { shouldDirty: true });
+                                    }
+                                  }
                                 }}
                               />
                             )}
