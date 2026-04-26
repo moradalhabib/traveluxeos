@@ -165,6 +165,37 @@ export default function InvoiceDetail() {
   const productsTotal = orderLines.reduce((s, l) => s + (l.total ?? (l.unit_price ?? 0) * (l.quantity ?? 0)), 0);
   const jobTotal = booking ? Number(booking.price || 0) : 0;
 
+  // Supplier products picked on the booking (e.g. "VIP Silver £250" via the
+  // Heathrow Meet & Greet supplier). These are stored in booking.supplier_items
+  // as a JSONB snapshot and need to surface as priced line items on the
+  // client invoice — without them, the operator's selection is invisible to
+  // the client and the booking total appears unsourced.
+  const supplierItems: Array<{
+    product_id?: string;
+    qty?: number;
+    name?: string;
+    product_name?: string;
+    daily_rate?: number | null;
+    hourly_rate?: number | null;
+    override_price?: number | null;
+  }> = Array.isArray((booking as any)?.supplier_items) ? (booking as any).supplier_items : [];
+  // Mirror the booking-side math (Number(it.qty || 0)) so the same picked
+  // items always price identically in the edit dialog and on the invoice.
+  // Drop zero-total lines so we never render a confusing "£0" row.
+  const supplierLines = supplierItems
+    .map((it) => {
+      const name = it.product_name || it.name || "Supplier service";
+      const qty = Number(it.qty || 0);
+      const rate = it.daily_rate != null ? Number(it.daily_rate)
+        : it.hourly_rate != null ? Number(it.hourly_rate)
+        : 0;
+      const total = it.override_price != null ? Number(it.override_price) : rate * qty;
+      const unit = qty > 0 ? total / qty : total;
+      return { name, qty, unit, total };
+    })
+    .filter((l) => l.total > 0);
+  const supplierLinesTotal = supplierLines.reduce((s, l) => s + l.total, 0);
+
   const handlePrint = () => window.print();
 
   const handleDownload = () => {
@@ -217,9 +248,25 @@ export default function InvoiceDetail() {
       }
       return st;
     };
-    const linesHtml = hasLines
+    // Main service rows (booking_products lines OR a single fallback row).
+    // In fallback mode (no booking_products) the headline price is reduced
+    // by the supplier subtotal so the table sums to TOTAL DUE — supplier
+    // products are then itemised below as their own rows.
+    // In hasLines mode we trust booking_products to already represent the
+    // full charged total and DO NOT re-render supplier_items, otherwise we
+    // would double-count if the operator already itemised them as order lines.
+    const fallbackHeadlinePrice = Math.max(0, Number(bk.price || 0) - supplierLinesTotal);
+    const headRowsHtml = hasLines
       ? lines.map(l => `<tr><td>${l.name}</td><td style="text-align:center">${l.quantity}</td><td style="text-align:right">£${Number(l.unit_price).toLocaleString()}</td><td style="text-align:right;font-weight:600">£${Number(l.total ?? l.unit_price * l.quantity).toLocaleString()}</td></tr>`).join("")
-      : `<tr><td>${buildFallbackDesc(bk)}</td><td style="text-align:center">1</td><td style="text-align:right">£${Number(bk.price || 0).toLocaleString()}</td><td style="text-align:right;font-weight:600">£${Number(bk.price || 0).toLocaleString()}</td></tr>`;
+      : `<tr><td>${buildFallbackDesc(bk)}</td><td style="text-align:center">1</td><td style="text-align:right">£${fallbackHeadlinePrice.toLocaleString()}</td><td style="text-align:right;font-weight:600">£${fallbackHeadlinePrice.toLocaleString()}</td></tr>`;
+    // Supplier-products rows (e.g. "VIP Silver £250" — Heathrow Meet & Greet).
+    // Only itemise in fallback mode — see note above.
+    const supplierRowsHtml = hasLines
+      ? ""
+      : supplierLines.map(l =>
+          `<tr><td>${l.name}</td><td style="text-align:center">${l.qty}</td><td style="text-align:right">£${l.unit.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td><td style="text-align:right;font-weight:600">£${l.total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</td></tr>`
+        ).join("");
+    const linesHtml = headRowsHtml + supplierRowsHtml;
 
     return `<!DOCTYPE html>
 <html lang="en">
@@ -755,10 +802,25 @@ export default function InvoiceDetail() {
                   )}
                 </div>
                 <div className="col-span-2 text-center text-muted-foreground">1</div>
-                <div className="col-span-2 text-right text-muted-foreground">£{Number(booking?.price || 0).toLocaleString()}</div>
-                <div className="col-span-2 text-right font-semibold text-foreground">£{Number(booking?.price || 0).toLocaleString()}</div>
+                <div className="col-span-2 text-right text-muted-foreground">£{Math.max(0, Number(booking?.price || 0) - supplierLinesTotal).toLocaleString()}</div>
+                <div className="col-span-2 text-right font-semibold text-foreground">£{Math.max(0, Number(booking?.price || 0) - supplierLinesTotal).toLocaleString()}</div>
               </div>
             )}
+
+            {/* Supplier products picked on the booking — surfaced as their
+                own priced rows so the client sees the VIP / Meet & Greet /
+                Lounge / Porter etc. they were charged for.
+                Only render in fallback mode (no booking_products) — when
+                order lines exist they already represent the full charged
+                total and re-rendering supplier_items would double-count. */}
+            {!hasLines && supplierLines.map((l, i) => (
+              <div key={`sup-${i}`} className="grid grid-cols-12 gap-2 py-3.5 border-b border-border/50 text-sm" data-testid="invoice-supplier-line">
+                <div className="col-span-6 font-medium text-foreground">{l.name}</div>
+                <div className="col-span-2 text-center text-muted-foreground">{l.qty}</div>
+                <div className="col-span-2 text-right text-muted-foreground">£{l.unit.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+                <div className="col-span-2 text-right font-semibold text-foreground">£{l.total.toLocaleString(undefined, { maximumFractionDigits: 2 })}</div>
+              </div>
+            ))}
 
             {/* Hotel booking details note */}
             {booking?.service_type === "Hotel" && (

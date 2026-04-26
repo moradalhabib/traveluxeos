@@ -2049,16 +2049,36 @@ export default function BookingDetail() {
                           supplierId={editSupplierId}
                           value={editSupplierItems}
                           onChange={(items) => {
-                            setEditSupplierItems(items);
                             // Auto-sum supplier_cost from picked items
-                            // (qty × daily_rate, falling back to hourly_rate).
-                            const total = items.reduce((s, it) => {
+                            // (qty × daily_rate, falling back to hourly_rate,
+                            // overridden by override_price when set).
+                            const newTotal = items.reduce((s, it: any) => {
+                              if (it.override_price != null) return s + Number(it.override_price);
                               const rate = it.daily_rate != null ? Number(it.daily_rate)
                                 : it.hourly_rate != null ? Number(it.hourly_rate)
                                 : 0;
                               return s + rate * Number(it.qty || 0);
                             }, 0);
-                            setEditSupplierCost(total);
+                            // Push the supplier-cost delta into Client Price
+                            // (and Quoted Price when no discount) so picking
+                            // a £250 product instantly bumps the Total Fare
+                            // by £250. This fires on every operator-initiated
+                            // pick — even on legacy bookings where
+                            // editVehicleQuoteTotal is 0 and the auto-quote
+                            // useEffect bails out to avoid clobbering a
+                            // manually-typed price. Without this, supplier
+                            // products were silently absent from the client
+                            // total and the invoice.
+                            const r2 = (n: number) => Math.round(n * 100) / 100;
+                            const delta = r2(newTotal - editSupplierCost);
+                            setEditSupplierItems(items);
+                            setEditSupplierCost(newTotal);
+                            if (delta !== 0) {
+                              setEditPrice(p => Math.max(0, r2(p + delta)));
+                              if (editDiscountAmount <= 0) {
+                                setEditQuotedPrice(q => Math.max(0, r2(q + delta)));
+                              }
+                            }
                           }}
                         />
                       )}
