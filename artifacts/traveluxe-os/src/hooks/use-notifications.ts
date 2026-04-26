@@ -68,16 +68,18 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return Uint8Array.from([...raw].map(c => c.charCodeAt(0)));
 }
 
-function isAdminOrSuperAdmin(): boolean {
+function isStaffMember(): boolean {
   try {
     const stored = localStorage.getItem("traveluxe_session");
     if (!stored) return false;
     const session = JSON.parse(stored);
-    return session?.role === "admin" || session?.role === "super_admin";
+    return ["operator", "admin", "super_admin"].includes(session?.role);
   } catch {
     return false;
   }
 }
+/** @deprecated use isStaffMember */
+const isAdminOrSuperAdmin = isStaffMember;
 
 // Compare two byte arrays (the browser's stored applicationServerKey vs the
 // current VAPID public key). Used to detect when a saved PushSubscription was

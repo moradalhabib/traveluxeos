@@ -5,11 +5,64 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, Plus, BellRing, Car, Plane } from "lucide-react";
+import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, BellRing, Car, Plane, Bell, X } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { getVipPillClass } from "@/lib/vip";
+import { requestPushPermission, getPushPermission } from "@/hooks/use-notifications";
+
+const PUSH_DISMISSED_KEY = "tvl_push_prompt_dismissed";
+
+function PushPromptBanner() {
+  const [perm, setPerm] = useState<string>(() => getPushPermission());
+  const [dismissed, setDismissed] = useState<boolean>(() => {
+    try { return localStorage.getItem(PUSH_DISMISSED_KEY) === "1"; } catch { return false; }
+  });
+  const [busy, setBusy] = useState(false);
+
+  if (perm === "granted" || perm === "unsupported" || dismissed) return null;
+
+  const handleEnable = async () => {
+    setBusy(true);
+    const result = await requestPushPermission();
+    setPerm(result);
+    setBusy(false);
+  };
+
+  const handleDismiss = () => {
+    setDismissed(true);
+    try { localStorage.setItem(PUSH_DISMISSED_KEY, "1"); } catch {}
+  };
+
+  return (
+    <div className="rounded-xl border border-primary/30 bg-primary/5 p-3 flex items-center gap-3">
+      <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center flex-shrink-0">
+        <Bell className="w-4 h-4 text-primary" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-semibold text-foreground leading-tight">Enable phone alerts</p>
+        <p className="text-[10px] text-muted-foreground mt-0.5">
+          {perm === "denied"
+            ? "Notifications blocked — allow them in your browser settings"
+            : "Get instant alerts for new bookings & requests, even when the app is closed"}
+        </p>
+      </div>
+      {perm !== "denied" && (
+        <Button size="sm" className="h-7 px-3 text-[11px] flex-shrink-0" onClick={handleEnable} disabled={busy}>
+          {busy ? "…" : "Enable"}
+        </Button>
+      )}
+      <button
+        className="p-1 rounded hover:bg-secondary/60 flex-shrink-0"
+        onClick={handleDismiss}
+        aria-label="Dismiss"
+      >
+        <X className="w-3.5 h-3.5 text-muted-foreground" />
+      </button>
+    </div>
+  );
+}
 
 function getFlightBadgeClass(status?: string) {
   switch (status) {
@@ -84,6 +137,9 @@ export default function Dashboard() {
           {new Date().toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' })}
         </p>
       </div>
+
+      {/* Push notification opt-in — shows once until dismissed or granted */}
+      <PushPromptBanner />
 
       {/* Starting-soon strip */}
       {startingSoon.length > 0 && (
