@@ -82,7 +82,14 @@ export default function InvoiceDetail() {
   };
 
   const [emailSending, setEmailSending] = useState(false);
+  // Synchronous reentrancy lock — see matching note in pages/bookings/[id].tsx.
+  // React's disabled prop only updates after a re-render, so a fast
+  // double-click can fire the handler twice. The ref blocks the second call
+  // immediately, preventing duplicate emails to the client.
+  const sendingEmailLock = useRef(false);
   const sendInvoiceEmail = async () => {
+    if (sendingEmailLock.current) return;
+    sendingEmailLock.current = true;
     setEmailSending(true);
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -111,6 +118,7 @@ export default function InvoiceDetail() {
       toast({ title: "Email failed", description: e.message, variant: "destructive" });
     } finally {
       setEmailSending(false);
+      sendingEmailLock.current = false;
     }
   };
 

@@ -445,12 +445,20 @@ export async function sendConfirmationEmail(
 ) {
   const vehicleLegs = await loadVehicleLegsForEmail(booking);
 
+  // When the booking has been amended (vehicle swap, date change, supplier
+  // products added, …) flag the email so the client knows it's an update
+  // rather than a duplicate confirmation.
+  const isAmended = booking.is_amended === true;
+  const subject = isAmended
+    ? `Booking Updated — ${booking.tvl_ref ?? ""} — ${booking.service_type}`
+    : `Booking Confirmed — ${booking.tvl_ref ?? ""} — ${booking.service_type}`;
+
   return sendBookingEmail({
     bookingId: booking.id,
     tvlRef: booking.tvl_ref ?? null,
     kind: "booking_confirmation",
     to: booking.client_email,
-    subject: `Booking Confirmed — ${booking.tvl_ref ?? ""} — ${booking.service_type}`,
+    subject,
     html: bookingConfirmationHtml(booking, invoiceNumber ?? undefined, vehicleLegs),
     triggeredBy: opts.triggeredBy ?? null,
     triggerSource: opts.triggerSource ?? "auto",

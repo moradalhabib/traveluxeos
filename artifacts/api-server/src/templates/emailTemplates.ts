@@ -303,16 +303,21 @@ export function bookingConfirmationHtml(
     }).join("")}
   ` : "";
 
+  // When the booking has been amended (vehicle swap, date change, supplier
+  // products added/removed, …) re-word the greeting so the client knows
+  // this email supersedes the previous confirmation rather than duplicating it.
+  const isAmended = booking.is_amended === true;
   const content = `
     <div class="greeting">Dear ${firstName},</div>
     <p class="intro">
-      Thank you for choosing Traveluxe London. Your booking has been confirmed and our team
-      is ready to ensure an exceptional experience for you.
+      ${isAmended
+        ? "Your booking with Traveluxe London has been <strong>updated</strong>. Please review the latest details below — they replace any earlier confirmation for this reference."
+        : "Thank you for choosing Traveluxe London. Your booking has been confirmed and our team is ready to ensure an exceptional experience for you."}
     </p>
 
     ${booking.tvl_ref ? `<div class="ref-badge">${esc(booking.tvl_ref)}</div>` : ""}
 
-    <div class="section-title">Booking Details</div>
+    <div class="section-title">${isAmended ? "Updated Booking Details" : "Booking Details"}</div>
     <table class="detail-grid">
       ${detailsRows}
     </table>

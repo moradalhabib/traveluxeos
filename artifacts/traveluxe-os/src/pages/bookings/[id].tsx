@@ -23,7 +23,7 @@ import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Textarea } from "@/components/ui/textarea";
 import { supabase } from "@/lib/supabase";
 import { BookingVehiclesRoster } from "@/components/booking/BookingVehiclesRoster";
@@ -539,6 +539,50 @@ export default function BookingDetail() {
   const cancelBooking = useCancelBooking();
   const addWaiting = useAddWaitingTime();
   const generateInvoice = useGenerateInvoice();
+
+  // Manual "send (amended) invoice" trigger from the booking detail page so
+  // the operator doesn't have to navigate to /invoices/<id> after editing.
+  // Uses the existing /api/bookings/:id/send-invoice-email endpoint which
+  // picks payment_receipt vs booking_confirmation by payment_status, and
+  // re-words the subject + greeting when booking.is_amended is true.
+  const [sendingInvoice, setSendingInvoice] = useState(false);
+  // Synchronous reentrancy lock — React state updates aren't applied
+  // synchronously, so a fast double-click can fire the handler twice
+  // before the disabled prop re-renders. The ref blocks the second call
+  // immediately, so the client never receives two emails for one click.
+  const sendingInvoiceLock = useRef(false);
+  const sendInvoiceFromBooking = async () => {
+    if (!id) return;
+    if (sendingInvoiceLock.current) return;
+    sendingInvoiceLock.current = true;
+    setSendingInvoice(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      const base = import.meta.env.BASE_URL?.replace(/\/$/, "") ?? "";
+      const res = await fetch(`${base}/api/bookings/${id}/send-invoice-email`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error ?? "Failed to send invoice email");
+      // Refresh the email-status badge on this booking and the global list.
+      qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
+      qc.invalidateQueries({ queryKey: getListBookingsQueryKey() });
+      toast({
+        title: (booking as any)?.is_amended ? "Amended invoice sent" : "Invoice sent",
+        description: `Emailed to ${body.sent_to ?? "the client"}.`,
+      });
+    } catch (e: any) {
+      toast({ title: "Email failed", description: e.message, variant: "destructive" });
+    } finally {
+      setSendingInvoice(false);
+      sendingInvoiceLock.current = false;
+    }
+  };
   const rateDriver = useRateDriver();
   const updateBooking = useUpdateBooking();
   const { data: drivers } = useListDrivers({}, { query: { queryKey: getListDriversQueryKey({}) } });
@@ -3094,16 +3138,41 @@ export default function BookingDetail() {
       {!isResidenceManager && (
         booking.invoice ? (
           <Card className="border-purple-500/30 bg-purple-500/5">
-            <CardContent className="p-4 flex justify-between items-center">
-              <div>
-                <div className="font-bold text-purple-400">Invoice {booking.invoice.invoice_number}</div>
+            <CardContent className="p-4 flex flex-wrap justify-between items-center gap-3">
+              <div className="min-w-0">
+                <div className="font-bold text-purple-400 flex items-center gap-2 flex-wrap">
+                  Invoice {booking.invoice.invoice_number}
+                  {(booking as any).is_amended && (
+                    <Badge variant="outline" className="bg-amber-500/20 text-amber-400 border-amber-500/50 text-[10px] px-1.5 py-0">
+                      Amended
+                    </Badge>
+                  )}
+                </div>
                 <div className="text-xs text-muted-foreground">{booking.invoice.status}</div>
               </div>
-              <Link href={`/invoices/${booking.invoice.id}`}>
-                <Button variant="ghost" size="icon" className="text-purple-400">
-                  <FileText className="w-5 h-5" />
+              <div className="flex items-center gap-1.5">
+                {/* One-click send (or re-send after an amendment) so the
+                    operator never has to leave the booking page just to
+                    push an updated invoice to the client. */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="text-purple-400 border-purple-500/30 hover:bg-purple-500/10"
+                  disabled={sendingInvoice}
+                  onClick={sendInvoiceFromBooking}
+                  data-testid="button-send-invoice-email"
+                >
+                  <Mail className="w-3.5 h-3.5 mr-1.5" />
+                  {sendingInvoice
+                    ? "Sending…"
+                    : ((booking as any).is_amended ? "Send Amended Invoice" : "Send Invoice")}
                 </Button>
-              </Link>
+                <Link href={`/invoices/${booking.invoice.id}`}>
+                  <Button variant="ghost" size="icon" className="text-purple-400" title="View invoice">
+                    <FileText className="w-5 h-5" />
+                  </Button>
+                </Link>
+              </div>
             </CardContent>
           </Card>
         ) : booking.status !== 'Cancelled' ? (
