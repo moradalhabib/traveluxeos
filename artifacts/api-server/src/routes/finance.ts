@@ -185,6 +185,7 @@ router.get("/summary", async (req, res) => {
     commission_outstanding: number; // Only outstanding ones
     driver_payout: number;          // Driver's net payout
     payout_pending: number;         // Pending payouts
+    has_incomplete_jobs: boolean;   // True if any job in period is not yet Completed
   }> = {};
 
   bookings.forEach(b => {
@@ -198,10 +199,12 @@ router.get("/summary", async (req, res) => {
         commission_outstanding: 0,
         driver_payout: 0,
         payout_pending: 0,
+        has_incomplete_jobs: false,
       };
     }
     const d = driverMap[b.driver_id];
     d.jobs++;
+    if (b.status !== "Completed") d.has_incomplete_jobs = true;
     d.commission_owed += b.tvl_commission ?? 0;
     // Realized-money rule: only Cash bookings can produce a "driver owes
     // TVL" debt — for Bank/Card jobs the client pays TVL directly, so even

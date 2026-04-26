@@ -428,7 +428,7 @@ export default function Finance() {
                         <div className="text-xs text-muted-foreground">{d.jobs} {d.jobs === 1 ? "job" : "jobs"}</div>
                       </div>
                     </div>
-                    <Link href={`/commissions?driver=${d.driver_id}`}>
+                    <Link href={`/drivers/${d.driver_id}`}>
                       <Button variant="ghost" size="sm" className="text-xs text-primary h-7 px-2">
                         View <ChevronRight className="w-3 h-3 ml-1" />
                       </Button>
@@ -442,6 +442,11 @@ export default function Finance() {
                         <div className="flex items-center gap-1 mt-1">
                           <Clock className="w-3 h-3 text-amber-500" />
                           <span className="text-[10px] text-amber-500">£{(d.commission_outstanding ?? 0).toLocaleString()} outstanding</span>
+                        </div>
+                      ) : (d as any).has_incomplete_jobs ? (
+                        <div className="flex items-center gap-1 mt-1">
+                          <Clock className="w-3 h-3 text-muted-foreground" />
+                          <span className="text-[10px] text-muted-foreground">Awaiting job completion</span>
                         </div>
                       ) : (
                         <div className="flex items-center gap-1 mt-1">
@@ -457,6 +462,11 @@ export default function Finance() {
                         <div className="flex items-center gap-1 mt-1">
                           <Clock className="w-3 h-3 text-amber-500" />
                           <span className="text-[10px] text-amber-500">£{(d.payout_pending ?? 0).toLocaleString()} pending</span>
+                        </div>
+                      ) : (d as any).has_incomplete_jobs ? (
+                        <div className="flex items-center gap-1 mt-1">
+                          <Clock className="w-3 h-3 text-muted-foreground" />
+                          <span className="text-[10px] text-muted-foreground">Awaiting job completion</span>
                         </div>
                       ) : (
                         <div className="flex items-center gap-1 mt-1">

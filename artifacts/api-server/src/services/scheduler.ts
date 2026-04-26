@@ -657,8 +657,10 @@ export async function notifyDriverDeclined(bookingId: string, driverName: string
 }
 
 // ─── No-driver alerts (3-hour & 24-hour windows) ────────────────────────────
-// Repeats every 30 min for the 3h alert (dedupe via 30-min bucket key),
-// and once per day for the 24h alert (dedupe per booking per day).
+// 3h  → push at most once per 2 hours per booking (was every 60 s — too noisy)
+// 24h → push once per day per booking
+// Both use audit_log gating identical to sendUpcomingAlerts so the push never
+// fires again within the same window even if the scheduler ticks mid-window.
 async function checkNoDriverAlerts() {
   const now = Date.now();
   const in3h = new Date(now + 3 * 60 * 60 * 1000).toISOString();
@@ -676,16 +678,29 @@ async function checkNoDriverAlerts() {
     .limit(50);
 
   if (urgent && urgent.length > 0) {
-    // 30-min dedupe bucket: alert renews every half-hour as spec says
-    const bucket = new Date();
-    bucket.setMinutes(bucket.getMinutes() < 30 ? 0 : 30, 0, 0);
-    const bucketKey = bucket.toISOString().slice(0, 16); // YYYY-MM-DDTHH:MM
+    // 2-hour bucket: push fires at most once per 2 h per booking
+    const twoHourBucket = Math.floor(now / (2 * 60 * 60 * 1000));
+    const bucketKey = String(twoHourBucket);
+
+    // Batch audit-log check — skip any booking already pushed this bucket
+    const ids3h = urgent.map(b => b.id);
+    const cutoff3h = new Date(now - 2 * 60 * 60 * 1000).toISOString();
+    const { data: alreadySent3h } = await schedDb()
+      .from("audit_log")
+      .select("entity_id")
+      .eq("action", "no_driver_3h_push")
+      .in("entity_id", ids3h)
+      .gte("created_at", cutoff3h);
+    const sent3hSet = new Set((alreadySent3h ?? []).map((r: any) => r.entity_id));
 
     for (const b of urgent) {
+      if (sent3hSet.has(b.id)) continue; // already pushed within this 2-h window
+
       const start = b.date_time ? new Date(b.date_time).getTime() : now;
       const minsLeft = Math.max(0, Math.round((start - now) / 60000));
       const hoursLeft = (minsLeft / 60).toFixed(1);
       const msg = `${b.tvl_ref ?? ""} has no driver assigned — job in ${hoursLeft}h`;
+
       notifyByRoles(STAFF_ROLES, {
         type: "no_driver_3h",
         title: "URGENT — No Driver",
@@ -696,13 +711,19 @@ async function checkNoDriverAlerts() {
         severity: "urgent",
         dedupeKey: `no_driver_3h:${b.id}:${bucketKey}`,
       }).catch(() => {});
-      sendWebPushToAll({
+
+      await sendWebPushToAll({
         title: "URGENT — No Driver",
         body:  msg,
         link:  `/bookings/${b.id}`,
-        tag:   `no-driver-3h-${b.id}-${bucketKey}`,
+        tag:   `no-driver-3h-${b.id}`,
         requireInteraction: true,
       }).catch(() => {});
+
+      await auditLog("no_driver_3h_push", "booking", b.id, null,
+        `No-driver 3h push sent for ${b.tvl_ref}`).catch(() => {});
+
+      console.info(`[Scheduler] no-driver 3h push: ${b.tvl_ref}`);
     }
   }
 
@@ -718,11 +739,26 @@ async function checkNoDriverAlerts() {
 
   if (tomorrow && tomorrow.length > 0) {
     const today = new Date().toISOString().slice(0, 10);
+    const todayStart = `${today}T00:00:00.000Z`;
+
+    // Batch audit-log check — skip any booking already pushed today
+    const ids24h = tomorrow.map(b => b.id);
+    const { data: alreadySent24h } = await schedDb()
+      .from("audit_log")
+      .select("entity_id")
+      .eq("action", "no_driver_24h_push")
+      .in("entity_id", ids24h)
+      .gte("created_at", todayStart);
+    const sent24hSet = new Set((alreadySent24h ?? []).map((r: any) => r.entity_id));
+
     for (const b of tomorrow) {
+      if (sent24hSet.has(b.id)) continue; // already pushed today
+
       const t = b.date_time
         ? new Date(b.date_time).toLocaleString("en-GB", { weekday: "short", hour: "2-digit", minute: "2-digit" })
         : "soon";
       const msg = `${b.tvl_ref ?? ""} has no driver assigned — ${t}`;
+
       notifyByRoles(STAFF_ROLES, {
         type: "no_driver_24h",
         title: "No Driver — Tomorrow",
@@ -733,12 +769,18 @@ async function checkNoDriverAlerts() {
         severity: "warning",
         dedupeKey: `no_driver_24h:${b.id}:${today}`,
       }).catch(() => {});
-      sendWebPushToAll({
+
+      await sendWebPushToAll({
         title: "No Driver — Tomorrow",
         body:  msg,
         link:  `/bookings/${b.id}`,
-        tag:   `no-driver-24h-${b.id}-${today}`,
+        tag:   `no-driver-24h-${b.id}`,
       }).catch(() => {});
+
+      await auditLog("no_driver_24h_push", "booking", b.id, null,
+        `No-driver 24h push sent for ${b.tvl_ref}`).catch(() => {});
+
+      console.info(`[Scheduler] no-driver 24h push: ${b.tvl_ref}`);
     }
   }
 }
