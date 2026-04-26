@@ -624,7 +624,13 @@ export default function BookingDetail() {
     const res = await fetch(url, {
       method: "PUT",
       headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      body: JSON.stringify({ driver_id: driverIdOrNull, driver_acceptance_status: "Assigned" }),
+      body: JSON.stringify({
+        driver_id: driverIdOrNull,
+        // Admin-assigned drivers are pre-confirmed by default.
+        // Unassigning resets acceptance back to awaiting.
+        driver_acceptance_status: driverIdOrNull ? "Driver Confirmed" : "Assigned",
+        ...(driverIdOrNull ? { driver_accepted_at: new Date().toISOString() } : {}),
+      }),
     });
     const body = await res.json().catch(() => ({}));
     if (res.status === 409 && body?.driver_conflict) return { ok: false, conflict: body.driver_conflict };
