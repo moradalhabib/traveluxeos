@@ -9,8 +9,14 @@ import {
 const router = Router();
 
 // ─── GET /api/flight/:flight_number ──────────────────────────────────────────
-// Returns live status for a single flight (5-min cache).
+// Single-flight lookup — used by FlightLookupCard when creating/editing a booking.
 // Optional query params: date (YYYY-MM-DD), direction (Arrival|Departure)
+//
+// AeroDataBox is called ONLY when there is no cache row at all for this
+// flight+date — i.e. a future booking that the background poller hasn't reached
+// yet. Once any cache entry exists (written by the poller or a previous lookup)
+// it is returned as-is; the poller is the sole updater at T-1h / T-30min / etc.
+// This guarantees AeroDataBox is consumed only at booking-creation time.
 router.get("/:flight_number", async (req, res) => {
   const { flight_number } = req.params;
   const { date, direction } = req.query;
@@ -19,7 +25,7 @@ router.get("/:flight_number", async (req, res) => {
 
   const db = getServiceRoleClient() ?? supabase;
 
-  // Cache check (5 min TTL)
+  // Always try cache first — if it exists, return it immediately (any age).
   const { data: cached } = await db
     .from("flight_status_cache")
     .select("*")
@@ -27,20 +33,16 @@ router.get("/:flight_number", async (req, res) => {
     .eq("date", flightDate)
     .single();
 
-  const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-  if (cached && cached.last_updated > fiveMinAgo) {
-    return res.json(buildCacheResponse(cached, flight_number));
-  }
+  if (cached) return res.json(buildCacheResponse(cached, flight_number));
 
+  // No cache at all → this is a brand-new booking lookup. Call AeroDataBox once
+  // and store the result so the poller can take over from here.
   const result = await fetchFlightStatus(flight_number.toUpperCase(), flightDate, dir);
 
   if (result.ok) {
     await upsertCache(db, result.data, flightDate);
     return res.json(result.data);
   }
-
-  // Return stale cache rather than an error if available
-  if (cached) return res.json(buildCacheResponse(cached, flight_number));
 
   const unavailableReason = (() => {
     switch (result.reason) {

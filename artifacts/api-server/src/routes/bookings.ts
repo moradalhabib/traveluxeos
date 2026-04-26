@@ -973,38 +973,24 @@ router.get("/:id", async (req, res) => {
     .eq("booking_id", req.params.id)
     .single();
 
-  // Get flight status if applicable (Arrival and Departure Airport Transfers).
-  // Always refresh if the cache is stale (>5 min old) so the detail page
-  // shows the latest delay/early-arrival data — not a stale snapshot.
+  // Get flight status if applicable (Airport Transfers only).
+  // CACHE-ONLY — never calls AeroDataBox from the booking detail endpoint.
+  // The background poller is the sole updater (T-1h / T-30min / post-arrival).
+  // This prevents browsing a booking from consuming AeroDataBox quota.
   let flightStatus = null;
   if (booking.flight_number && booking.service_type === "Airport Transfer") {
     const flightDate = booking.date_time ? new Date(booking.date_time).toISOString().split("T")[0] : null;
     if (flightDate) {
       const cacheDb = getServiceRoleClient() ?? supabase;
-      const fiveMinAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
-
       const { data: cachedFlight } = await cacheDb
         .from("flight_status_cache")
         .select("*")
         .eq("flight_number", booking.flight_number)
         .eq("date", flightDate)
         .single();
-
-      if (cachedFlight && cachedFlight.last_updated > fiveMinAgo) {
-        // Cache is fresh — use it directly.
-        flightStatus = cachedFlight;
-      } else {
-        // Cache is stale or absent — hit AeroDataBox and update the cache.
-        const { fetchFlightStatus, upsertCache, buildCacheResponse } = await import("../services/flightTracker");
-        const dir = booking.direction === "Departure" ? "Departure" : "Arrival" as const;
-        const live = await fetchFlightStatus(booking.flight_number, flightDate, dir);
-        if (live.ok) {
-          await upsertCache(cacheDb, live.data, flightDate);
-          flightStatus = live.data;
-        } else if (cachedFlight) {
-          // Live lookup failed — fall back to stale cache rather than returning nothing.
-          flightStatus = buildCacheResponse(cachedFlight, booking.flight_number);
-        }
+      if (cachedFlight) {
+        const { buildCacheResponse } = await import("../services/flightTracker");
+        flightStatus = buildCacheResponse(cachedFlight, booking.flight_number);
       }
     }
   }
