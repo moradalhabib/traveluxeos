@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { fmtLondon } from "@/lib/datetime";
+import { AmendmentDetailDialog } from "@/components/booking/AmendmentDetailDialog";
 
 type AuditEntry = {
   id: string;
@@ -76,7 +77,7 @@ const TONE_CLASSES: Record<Tone, string> = {
 const ACTION_META: Partial<Record<ActivityEntityType, Record<string, Meta>>> = {
   booking: {
     create_booking: { label: "Created booking", icon: <Plus className={ICON_CLASS} />, tone: "create" },
-    amend_booking: { label: "Amended booking", icon: <Pencil className={ICON_CLASS} />, tone: "update" },
+    amend_booking: { label: "amend booking", icon: <Pencil className={ICON_CLASS} />, tone: "update" },
     cancel_booking: { label: "Cancelled booking", icon: <XCircle className={ICON_CLASS} />, tone: "delete" },
     status_change: { label: "Status changed", icon: <Pencil className={ICON_CLASS} />, tone: "update" },
     auto_active: { label: "Auto-activated", icon: <CheckCircle2 className={ICON_CLASS} />, tone: "success" },
@@ -171,6 +172,9 @@ export function ActivityPanel({ entityType, entityId, title = "Activity", descri
   const [error, setError] = useState<string | null>(null);
   const [isOpen, setIsOpen] = useState(false);
 
+  const [detailOpen, setDetailOpen] = useState(false);
+  const [detailEntry, setDetailEntry] = useState<AuditEntry | null>(null);
+
   const fetchEntries = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -200,78 +204,101 @@ export function ActivityPanel({ entityType, entityId, title = "Activity", descri
   const count = list.length;
 
   return (
-    <Card className="border-primary/10 bg-card" data-testid={`activity-panel-${entityType}`}>
-      <CardHeader
-        className="pb-2 cursor-pointer select-none hover:bg-muted/30 transition-colors rounded-t-xl"
-        onClick={() => setIsOpen(o => !o)}
-      >
-        <CardTitle className="text-base flex items-center justify-between gap-2">
-          <span className="flex items-center gap-2">
-            <History className="w-4 h-4" /> {title}
-            {count > 0 && <Badge variant="outline" className="text-xs">{count}</Badge>}
-            {loading && entries === null && (
-              <span className="text-xs text-muted-foreground">Loading…</span>
+    <>
+      <Card className="border-primary/10 bg-card" data-testid={`activity-panel-${entityType}`}>
+        <CardHeader
+          className="pb-2 cursor-pointer select-none hover:bg-muted/30 transition-colors rounded-t-xl"
+          onClick={() => setIsOpen(o => !o)}
+        >
+          <CardTitle className="text-base flex items-center justify-between gap-2">
+            <span className="flex items-center gap-2">
+              <History className="w-4 h-4" /> {title}
+              {count > 0 && <Badge variant="outline" className="text-xs">{count}</Badge>}
+              {loading && entries === null && (
+                <span className="text-xs text-muted-foreground">Loading…</span>
+              )}
+            </span>
+            <span className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={(e) => { e.stopPropagation(); fetchEntries(); }}
+                data-testid={`btn-activity-refresh-${entityType}`}
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </Button>
+              {isOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+            </span>
+          </CardTitle>
+        </CardHeader>
+        {isOpen && (
+          <CardContent className="space-y-2 pt-2">
+            {error ? (
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-destructive">Couldn't load activity. {error}</p>
+                <Button size="sm" variant="outline" onClick={fetchEntries}>Retry</Button>
+              </div>
+            ) : loading && entries === null ? (
+              <p className="text-xs text-muted-foreground">Loading…</p>
+            ) : count === 0 ? (
+              <p className="text-xs text-muted-foreground italic">No activity recorded yet.</p>
+            ) : (
+              <>
+                {description && <p className="text-xs text-muted-foreground">{description}</p>}
+                <ul className="space-y-1.5" data-testid={`list-activity-${entityType}`}>
+                  {list.map((entry) => {
+                    const meta = metaFor(entityType, entry.action);
+                    const isAmend = entityType === "booking" && entry.action === "amend_booking";
+                    return (
+                      <li
+                        key={entry.id}
+                        className={`rounded-md border p-2 text-xs ${
+                          isAmend
+                            ? "border-blue-500/30 bg-blue-500/5 cursor-pointer hover:border-blue-500/60 hover:bg-blue-500/10 transition-colors active:scale-[0.99]"
+                            : "border-border/60 bg-background/40"
+                        }`}
+                        data-testid={`activity-${entry.action}`}
+                        onClick={isAmend ? () => { setDetailEntry(entry); setDetailOpen(true); } : undefined}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex items-center gap-1.5">
+                            <Badge variant="outline" className={`text-[10px] gap-1 ${TONE_CLASSES[meta.tone]}`}>
+                              {meta.icon}
+                              {meta.label}
+                            </Badge>
+                            {isAmend && (
+                              <span className="text-[10px] text-blue-400">tap to see changes</span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                            {fmtLondon(entry.created_at, "d MMM · HH:mm")}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex items-center justify-between gap-2">
+                          <span className="text-foreground/90">{entry.detail || "—"}</span>
+                          <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                            {entry.operator_name ?? "System"}
+                          </span>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
             )}
-          </span>
-          <span className="flex items-center gap-1">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={(e) => { e.stopPropagation(); fetchEntries(); }}
-              data-testid={`btn-activity-refresh-${entityType}`}
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-            </Button>
-            {isOpen ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
-          </span>
-        </CardTitle>
-      </CardHeader>
-      {isOpen && (
-        <CardContent className="space-y-2 pt-2">
-          {error ? (
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-xs text-destructive">Couldn't load activity. {error}</p>
-              <Button size="sm" variant="outline" onClick={fetchEntries}>Retry</Button>
-            </div>
-          ) : loading && entries === null ? (
-            <p className="text-xs text-muted-foreground">Loading…</p>
-          ) : count === 0 ? (
-            <p className="text-xs text-muted-foreground italic">No activity recorded yet.</p>
-          ) : (
-            <>
-              {description && <p className="text-xs text-muted-foreground">{description}</p>}
-              <ul className="space-y-1.5" data-testid={`list-activity-${entityType}`}>
-                {list.map((entry) => {
-                  const meta = metaFor(entityType, entry.action);
-                  return (
-                    <li
-                      key={entry.id}
-                      className="rounded-md border border-border/60 bg-background/40 p-2 text-xs"
-                      data-testid={`activity-${entry.action}`}
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <Badge variant="outline" className={`text-[10px] gap-1 ${TONE_CLASSES[meta.tone]}`}>
-                          {meta.icon}
-                          {meta.label}
-                        </Badge>
-                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                          {fmtLondon(entry.created_at, "d MMM · HH:mm")}
-                        </span>
-                      </div>
-                      <div className="mt-1 flex items-center justify-between gap-2">
-                        <span className="text-foreground/90">{entry.detail || "—"}</span>
-                        <span className="text-[10px] text-muted-foreground whitespace-nowrap">
-                          {entry.operator_name ?? "System"}
-                        </span>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </>
-          )}
-        </CardContent>
+          </CardContent>
+        )}
+      </Card>
+
+      {detailEntry && entityType === "booking" && (
+        <AmendmentDetailDialog
+          open={detailOpen}
+          onClose={() => { setDetailOpen(false); setDetailEntry(null); }}
+          bookingId={entityId}
+          auditCreatedAt={detailEntry.created_at}
+          operatorName={detailEntry.operator_name}
+        />
       )}
-    </Card>
+    </>
   );
 }
