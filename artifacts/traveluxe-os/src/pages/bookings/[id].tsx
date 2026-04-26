@@ -1570,16 +1570,16 @@ export default function BookingDetail() {
       ``,
       `Dear ${firstName},`,
       ``,
-      `Your chauffeur for *${booking.tvl_ref}* is confirmed:`,
+      `Your chauffeur for *${booking.tvl_ref}* is confirmed.`,
       ``,
-      `🚘 *Driver:* ${driverName}`,
+      `Driver: *${driverName}*`,
     ];
-    if (staffNo) lines.push(`   *Staff No.:* ${staffNo}`);
-    lines.push(`   *Vehicle:* ${vehicle}`);
+    if (staffNo) lines.push(`Staff No.: ${staffNo}`);
+    lines.push(`Vehicle: ${vehicle}`);
     lines.push(
       ``,
-      `See you soon — our team is here 24/7.`,
-      `— *Traveluxe London*`,
+      `We look forward to welcoming you.`,
+      `Traveluxe London`,
     );
     return lines.join('\n');
   };
