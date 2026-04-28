@@ -35,7 +35,7 @@ app.use(express.urlencoded({ extended: true }));
 // Global auth guard — reject any unauthenticated request to protected API routes.
 // Health and auth endpoints are public; everything else requires a valid, non-expired JWT.
 // Paths are relative to the /api mount point (req.path strips the /api prefix).
-const PUBLIC_PATHS = ["/health", "/auth", "/flight-tracker", "/flight-status"];
+const PUBLIC_PATHS = ["/health", "/auth"];
 
 function requireJwt(req: Request, res: Response, next: NextFunction): void {
   const path = req.path;

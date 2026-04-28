@@ -30,9 +30,10 @@ export function isFlightApiPaused(): { paused: boolean; resumeAt: string | null 
 // ── Daily global call counter ────────────────────────────────────────────────
 // Hard ceiling on total AeroDataBox calls per calendar day (UTC).
 // Covers ALL callers — the background poller + booking-creation lookups.
-// At 6,000 monthly units / 30 days ≈ 200 safe calls/day; we cap at 80 so
-// we never burn more than 40 % of the daily budget in one day.
-const DAILY_CALL_LIMIT = 80;
+// Capped conservatively so the full month stays well within a BASIC quota.
+// With MAX_CALLS_PER_FLIGHT = 6 per flight this comfortably handles
+// 3–4 concurrent tracked flights per day without risk of overrun.
+const DAILY_CALL_LIMIT = 20;
 let dailyCallCount = 0;
 let dailyCallResetDay = new Date().toISOString().slice(0, 10); // YYYY-MM-DD UTC
 
