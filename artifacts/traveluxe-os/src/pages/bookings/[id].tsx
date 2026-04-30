@@ -33,6 +33,7 @@ import { BookingActivityPanel } from "@/components/booking/BookingActivityPanel"
 import { AirportTransferProductPicker, type TransferExtra } from "@/components/booking/AirportTransferProductPicker";
 import { SupplierProductPicker } from "@/components/SupplierProductPicker";
 import { deriveServiceTypes } from "@/components/SupplierServiceTypes";
+import { isSupplierDrivenJob } from "@/lib/supplierDriven";
 import { Phone, MessageCircle, Mail, Pencil, Plus, Trash2, FileDown } from "lucide-react";
 import { getVipBadgeColor } from "@/lib/vip";
 import { Label } from "@/components/ui/label";
@@ -526,6 +527,14 @@ export default function BookingDetail() {
     }
   }, [qc, id]);
 
+  // Supplier record for supplier-driven bookings — fetched lazily once
+  // we know the booking's supplier_id. The detail page uses it to
+  // render the supplier name + WhatsApp link in the "Message Supplier"
+  // tile, the supplier-confirmation message body, and the supplier
+  // tile that replaces the driver dropdown. The SupplierAndCost
+  // sub-component runs its own fetch for the cost-breakdown card.
+  const [supplier, setSupplier] = useState<any>(null);
+
   const { data: booking, isLoading, refetch } = useGetBooking(id, {
     query: {
       enabled: !!id,
@@ -553,6 +562,23 @@ export default function BookingDetail() {
       .order("created_at")
       .then(({ data }) => setOrderLines(data ?? []));
   }, [id]);
+
+  // Hydrate the supplier record whenever the booking points at one.
+  // Used by the supplier-driven UX (Message Supplier tile, supplier
+  // confirmation message body, supplier name shown in place of the
+  // driver dropdown). Cleared when the booking has no supplier.
+  const supplierId = (booking as any)?.supplier_id ?? null;
+  useEffect(() => {
+    let active = true;
+    if (!supplierId) { setSupplier(null); return; }
+    supabase
+      .from("suppliers")
+      .select("id,name,whatsapp,phone,email")
+      .eq("id", supplierId)
+      .maybeSingle()
+      .then(({ data }) => { if (active) setSupplier(data ?? null); });
+    return () => { active = false; };
+  }, [supplierId]);
 
   const updateStatus = useUpdateBookingStatus();
   const cancelBooking = useCancelBooking();
@@ -1205,6 +1231,38 @@ export default function BookingDetail() {
       }
     }
 
+    // Auto-set the supplier-driven flag based on the POST-SAVE state.
+    // Driver assignment happens via the separate assignDriver path, so
+    // here we honour whatever driver_id is currently on the booking and
+    // pair it with whatever supplier_id will be persisted (the edit
+    // dialog only edits supplier_id for Airport Transfer; for the other
+    // vehicle service types we fall back to the existing supplier_id on
+    // the booking). The DB recalc trigger keys off this column, so
+    // keeping it accurate is what unifies the financials roll-up.
+    const nextSupplierId = payload.supplier_id !== undefined
+      ? payload.supplier_id
+      : (booking as any).supplier_id;
+    payload.as_directed_supplier_driver = isSupplierDrivenJob({
+      supplier_id: nextSupplierId,
+      driver_id: (booking as any).driver_id,
+      service_type: svcType,
+      // Don't pass the legacy flag — we want the rule, not the previous
+      // value, to drive the new value.
+      as_directed_supplier_driver: false,
+    });
+
+    // When the edit lands on a supplier-driven job there is no TVL
+    // driver payout and no TVL margin on top of the supplier bill, so
+    // any value the operator may have typed before the supplier was
+    // assigned is forcibly cleared. Mirrors the same behaviour in
+    // bookings/new.tsx submitCreate so the financials view, supplier
+    // KPI rollup (DB recalc trigger) and the "split totals" warning
+    // all stay consistent.
+    if (payload.as_directed_supplier_driver === true) {
+      payload.driver_cost = 0;
+      payload.tvl_commission = 0;
+    }
+
     updateBooking.mutate({ id, data: payload as any }, {
       onSuccess: () => {
         toast({ title: "Booking updated" });
@@ -1571,13 +1629,67 @@ export default function BookingDetail() {
     // Privacy: NEVER include client whatsapp
     return lines.join('\n');
   };
-  // Short driver-confirmation message to the client.
+
+  // Supplier-driven WhatsApp brief. Same body as the driver brief but
+  // addressed to the supplier instead of "Hi Driver" / "Hi <name>", and
+  // signed off with a supplier-tone "kindly confirm allocation". Used
+  // by the Message Supplier tile on supplier-driven bookings so we
+  // don't leak driver-framed copy ("Hi Driver…") to a third-party
+  // supplier inbox.
+  const buildSupplierMessage = () => {
+    const greeting = supplier?.name
+      ? `Hi ${supplier.name},`
+      : `Hi team,`;
+    const lines: string[] = [
+      greeting,
+      ``,
+      `Please confirm the allocation for the following job:`,
+      ``,
+      `Ref: *${booking.tvl_ref}*`,
+      `Service: ${svc}`,
+    ];
+    if (booking.client_name) lines.push(`Client: ${booking.client_name}`);
+    if (svc === "Airport Transfer") {
+      lines.push(`Date: ${dateStr}`, `Time: ${timeStr}`);
+      if ((booking as any).direction) lines.push(`Direction: ${(booking as any).direction}`);
+      if (booking.flight_number) lines.push(`Flight: ${booking.flight_number}`);
+      if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
+      if (booking.dropoff || (booking as any).destination) lines.push(`Drop-off: ${booking.dropoff || (booking as any).destination}`);
+      if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
+      if (booking.luggage) lines.push(`Luggage: ${booking.luggage}`);
+      if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
+      if (booking.nameboard) lines.push(`Name Board: *"${booking.nameboard}"*`);
+    } else if (svc === "Tour") {
+      lines.push(`Date: ${dateStr}`, `Time: ${timeStr}`);
+      if ((booking as any).tour_name) lines.push(`Tour: ${(booking as any).tour_name}`);
+      if ((booking as any).meeting_point) lines.push(`Meeting point: ${(booking as any).meeting_point}`);
+      if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
+      if ((booking as any).destination) lines.push(`Destination: ${(booking as any).destination}`);
+      if ((booking as any).itinerary) lines.push(`Itinerary:\n${(booking as any).itinerary}`);
+      if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
+      if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
+    } else if (svc === "As Directed") {
+      lines.push(`Date: ${dateStr}`, `Start time: ${timeStr}`);
+      if (booking.pickup) lines.push(`Pickup: ${booking.pickup}`);
+      if ((booking as any).duration) lines.push(`Duration: ${(booking as any).duration}`);
+      if (booking.passengers) lines.push(`Passengers: ${booking.passengers}`);
+      if (booking.vehicle_type) lines.push(`Vehicle: ${booking.vehicle_type}`);
+    } else {
+      lines.push(`Date: ${dateStr}`);
+    }
+    if (extras) lines.push(`Extras: ${extras}`);
+    if ((booking as any).special_requests) lines.push(`Notes: ${(booking as any).special_requests}`);
+    lines.push(``, `Kindly confirm allocation. Thank you.`, `Traveluxe London`);
+    return lines.join('\n');
+  };
+  // Short driver/supplier-confirmation message to the client.
   // Format: concise, luxury, reads instantly on a phone screen.
+  // Switches voice automatically based on whether the booking is
+  // supplier-driven (no TVL driver — supplier provides the vehicle).
   const buildDriverConfirmMessage = () => {
     const firstName = booking.client_name?.split(' ')[0] ?? booking.client_name ?? 'there';
-    const driverName   = booking.driver_name ?? '—';
-    const staffNo      = (booking as any).driver_staff_no ?? '';
-    const vehicle      = booking.vehicle_type ?? '—';
+    const supplierDriven = isSupplierDrivenJob(booking as any);
+    const vehicle = booking.vehicle_type ?? '—';
     const lines: string[] = [
       `*Traveluxe London*`,
       ``,
@@ -1585,9 +1697,18 @@ export default function BookingDetail() {
       ``,
       `Your chauffeur for *${booking.tvl_ref}* is confirmed.`,
       ``,
-      `Driver: *${driverName}*`,
     ];
-    if (staffNo) lines.push(`Staff No.: ${staffNo}`);
+    if (supplierDriven) {
+      // Supplier-driven jobs (e.g. RMS Europe Cars) — no TVL staff
+      // number, no internal driver name. Show the supplier brand
+      // instead so the client knows who to expect.
+      lines.push(`Supplier: *${supplier?.name ?? '—'}*`);
+    } else {
+      const driverName = booking.driver_name ?? '—';
+      const staffNo    = (booking as any).driver_staff_no ?? '';
+      lines.push(`Driver: *${driverName}*`);
+      if (staffNo) lines.push(`Staff No.: ${staffNo}`);
+    }
     lines.push(`Vehicle: ${vehicle}`);
     lines.push(
       ``,
@@ -1603,9 +1724,20 @@ export default function BookingDetail() {
   const clientWa = (booking as any).client_whatsapp?.replace(/\D/g, '') || '';
   const driverWa = (booking as any).driver_whatsapp?.replace(/\D/g, '') || '';
 
+  // Auto-detect supplier-driven jobs (no TVL driver — supplier provides
+  // the vehicle). Drives every label/icon/handler swap below so the
+  // operator never has to flip a manual toggle.
+  const supplierDriven = isSupplierDrivenJob(booking as any);
+  const supplierWa = (supplier?.whatsapp ?? '').toString().replace(/\D/g, '');
+
   const clientMsgUrl = `https://wa.me/${clientWa}?text=${encodeURIComponent(buildClientMessage())}`;
   const driverMsgUrl = driverWa
     ? `https://wa.me/${driverWa}?text=${encodeURIComponent(buildDriverMessage())}`
+    : null;
+  // For supplier-driven jobs the "Message Driver" tile becomes a
+  // "Message Supplier" tile that pings the supplier on WhatsApp.
+  const supplierMsgUrl = supplierWa
+    ? `https://wa.me/${supplierWa}?text=${encodeURIComponent(buildSupplierMessage())}`
     : null;
 
   return (
@@ -1703,7 +1835,30 @@ export default function BookingDetail() {
                 </div>
               </div>
             )}
-            {driverMsgUrl ? (
+            {/* Driver / Supplier message tile — auto-swaps to "Message
+                Supplier" with the supplier's WhatsApp + a building icon
+                whenever the booking is supplier-driven. */}
+            {supplierDriven ? (
+              supplierMsgUrl ? (
+                <a href={supplierMsgUrl} target="_blank" rel="noopener noreferrer" data-testid="link-message-supplier">
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-900/20 border border-blue-700/40 hover:bg-blue-900/35 hover:border-blue-600/60 transition-all cursor-pointer">
+                    <Building2 className="w-4 h-4 text-blue-400 flex-shrink-0" />
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-blue-400 leading-tight">Message Supplier</p>
+                      <p className="text-[10px] text-blue-600 truncate">{supplier?.name ?? "Supplier"}</p>
+                    </div>
+                  </div>
+                </a>
+              ) : (
+                <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-muted/20 border border-border opacity-40">
+                  <Building2 className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-muted-foreground leading-tight">Message Supplier</p>
+                    <p className="text-[10px] text-muted-foreground truncate">{supplier?.name ? "No WhatsApp on file" : "No supplier"}</p>
+                  </div>
+                </div>
+              )
+            ) : driverMsgUrl ? (
               <a href={driverMsgUrl} target="_blank" rel="noopener noreferrer">
                 <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-900/20 border border-blue-700/40 hover:bg-blue-900/35 hover:border-blue-600/60 transition-all cursor-pointer">
                   <Car className="w-4 h-4 text-blue-400 flex-shrink-0" />
@@ -1724,37 +1879,45 @@ export default function BookingDetail() {
             )}
           </div>
 
-          {/* Driver confirmation to client — only once a driver is assigned */}
-          {booking.driver_id && (
-            clientWa ? (
+          {/* Driver / Supplier confirmation to client — appears whenever
+              there's someone the operator can vouch for (a TVL driver
+              OR a third-party supplier providing the vehicle). The
+              button label, body text and icon all auto-swap for
+              supplier-driven jobs so the wording matches reality. */}
+          {(booking.driver_id || supplierDriven) && (() => {
+            const headline = supplierDriven
+              ? "Send Supplier Confirmation to Client"
+              : "Send Driver Confirmation to Client";
+            const body = supplierDriven
+              ? `${supplier?.name ?? "Supplier"}${booking.vehicle_type ? ` · ${booking.vehicle_type}` : ""}`
+              : `${booking.driver_name ?? "Driver"}${(booking as any).driver_staff_no ? ` · ${(booking as any).driver_staff_no}` : ""}${booking.vehicle_type ? ` · ${booking.vehicle_type}` : ""}`;
+            const Icon = supplierDriven ? Building2 : Car;
+            return clientWa ? (
               <a
                 href={`https://wa.me/${clientWa}?text=${encodeURIComponent(buildDriverConfirmMessage())}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="block"
+                data-testid={supplierDriven ? "link-send-supplier-confirmation" : "link-send-driver-confirmation"}
               >
                 <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-primary/10 border border-primary/30 hover:bg-primary/20 hover:border-primary/50 transition-all cursor-pointer">
-                  <Car className="w-4 h-4 text-primary flex-shrink-0" />
+                  <Icon className="w-4 h-4 text-primary flex-shrink-0" />
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-primary leading-tight">Send Driver Confirmation to Client</p>
-                    <p className="text-[10px] text-primary/60 truncate">
-                      {booking.driver_name ?? "Driver"}
-                      {(booking as any).driver_staff_no ? ` · ${(booking as any).driver_staff_no}` : ""}
-                      {booking.vehicle_type ? ` · ${booking.vehicle_type}` : ""}
-                    </p>
+                    <p className="text-xs font-semibold text-primary leading-tight">{headline}</p>
+                    <p className="text-[10px] text-primary/60 truncate">{body}</p>
                   </div>
                 </div>
               </a>
             ) : (
               <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-muted/10 border border-border opacity-40">
-                <Car className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                <Icon className="w-4 h-4 text-muted-foreground flex-shrink-0" />
                 <div className="min-w-0">
-                  <p className="text-xs font-semibold text-muted-foreground leading-tight">Send Driver Confirmation to Client</p>
+                  <p className="text-xs font-semibold text-muted-foreground leading-tight">{headline}</p>
                   <p className="text-[10px] text-muted-foreground">Client has no WhatsApp on file</p>
                 </div>
               </div>
-            )
-          )}
+            );
+          })()}
         </div>
       )}
 
@@ -2115,54 +2278,82 @@ export default function BookingDetail() {
                         Commission (owed to TVL, written to tvl_commission).
                         Together they should equal vehicle revenue — the
                         balance check below flags mistakes. */}
-                    <div className="rounded-md border border-border bg-secondary/20 p-3 space-y-2" data-testid="edit-at-driver-payout">
-                      <div className="flex items-baseline justify-between gap-3">
-                        <p className="text-xs uppercase tracking-wider text-muted-foreground">Driver Payout</p>
-                        {editVehicleQuoteTotal > 0 && (
-                          <span className="text-[10px] text-muted-foreground">Vehicle revenue · £{editVehicleQuoteTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                        )}
-                      </div>
-                      <div className="grid grid-cols-2 gap-3">
-                        <div className="space-y-1">
-                          <p className="text-[11px] text-muted-foreground">Driver Pay (£)</p>
-                          <Input
-                            type="number" step="0.01" min="0"
-                            placeholder="What driver keeps"
-                            value={editDriverCost || ""}
-                            onChange={e => setEditDriverCost(Number(e.target.value) || 0)}
-                            data-testid="edit-driver-cost-top"
-                          />
-                        </div>
-                        <div className="space-y-1">
-                          <p className="text-[11px] text-muted-foreground">Driver Commission (£) <span className="normal-case text-[10px] text-muted-foreground/80">— TVL profit</span></p>
-                          <Input
-                            type="number" step="0.01"
-                            placeholder="What driver owes TVL"
-                            value={editTvlCommission || ""}
-                            onChange={e => setEditTvlCommission(Number(e.target.value) || 0)}
-                            data-testid="edit-driver-commission-top"
-                          />
-                        </div>
-                      </div>
-                      {/* Live split summary — same pattern as the supplier
-                          subtotal line. Lets the operator confirm at a glance
-                          that Driver Pay + Driver Commission = vehicle revenue
-                          (£160 → £130 + £30 in the worked example). */}
-                      {(() => {
-                        if (editDriverCost <= 0 && editTvlCommission <= 0) return null;
-                        const split = editDriverCost + editTvlCommission;
-                        const ok = editVehicleQuoteTotal > 0 && Math.abs(split - editVehicleQuoteTotal) < 0.01;
-                        const warn = editVehicleQuoteTotal > 0 && !ok;
+                    {/* Driver Payout block — auto-collapses for supplier-
+                        driven jobs. The supplier handles transport, so
+                        there is no TVL driver to pay out. We render a
+                        zeroed read-only notice instead and skip the
+                        split-totals warning entirely. The supplier-driven
+                        rule mirrors what the booking submit will write
+                        to the DB (`as_directed_supplier_driver = true`),
+                        so the recalc trigger rolls everything into the
+                        supplier KPI — no double-counting. */}
+                    {(() => {
+                      const editSupplierDriven = isSupplierDrivenJob({
+                        supplier_id: editSupplierId,
+                        driver_id: (booking as any)?.driver_id,
+                        service_type: (booking as any)?.service_type,
+                        as_directed_supplier_driver: (booking as any)?.as_directed_supplier_driver,
+                      });
+                      if (editSupplierDriven) {
                         return (
-                          <p className={`text-[10px] ${warn ? "text-amber-400" : "text-muted-foreground"}`}>
-                            Driver keeps £{editDriverCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} · TVL keeps £{editTvlCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                            {editVehicleQuoteTotal > 0 && (
-                              <> · {ok ? "matches vehicle revenue ✓" : `split totals £${split.toLocaleString(undefined, { maximumFractionDigits: 2 })} vs vehicle £${editVehicleQuoteTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} ⚠`}</>
-                            )}
-                          </p>
+                          <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-primary" data-testid="edit-at-driver-payout-supplier">
+                            <p className="font-semibold uppercase tracking-wider text-[11px] mb-1">Driver Payout</p>
+                            <p>No TVL driver — supplier handles transport.</p>
+                            <p className="text-[10px] text-primary/70 mt-0.5">Driver Pay £0.00 · Driver Commission £0.00</p>
+                          </div>
                         );
-                      })()}
-                    </div>
+                      }
+                      return (
+                        <div className="rounded-md border border-border bg-secondary/20 p-3 space-y-2" data-testid="edit-at-driver-payout">
+                          <div className="flex items-baseline justify-between gap-3">
+                            <p className="text-xs uppercase tracking-wider text-muted-foreground">Driver Payout</p>
+                            {editVehicleQuoteTotal > 0 && (
+                              <span className="text-[10px] text-muted-foreground">Vehicle revenue · £{editVehicleQuoteTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <p className="text-[11px] text-muted-foreground">Driver Pay (£)</p>
+                              <Input
+                                type="number" step="0.01" min="0"
+                                placeholder="What driver keeps"
+                                value={editDriverCost || ""}
+                                onChange={e => setEditDriverCost(Number(e.target.value) || 0)}
+                                data-testid="edit-driver-cost-top"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <p className="text-[11px] text-muted-foreground">Driver Commission (£) <span className="normal-case text-[10px] text-muted-foreground/80">— TVL profit</span></p>
+                              <Input
+                                type="number" step="0.01"
+                                placeholder="What driver owes TVL"
+                                value={editTvlCommission || ""}
+                                onChange={e => setEditTvlCommission(Number(e.target.value) || 0)}
+                                data-testid="edit-driver-commission-top"
+                              />
+                            </div>
+                          </div>
+                          {/* Live split summary — same pattern as the supplier
+                              subtotal line. Lets the operator confirm at a glance
+                              that Driver Pay + Driver Commission = vehicle revenue
+                              (£160 → £130 + £30 in the worked example). */}
+                          {(() => {
+                            if (editDriverCost <= 0 && editTvlCommission <= 0) return null;
+                            const split = editDriverCost + editTvlCommission;
+                            const ok = editVehicleQuoteTotal > 0 && Math.abs(split - editVehicleQuoteTotal) < 0.01;
+                            const warn = editVehicleQuoteTotal > 0 && !ok;
+                            return (
+                              <p className={`text-[10px] ${warn ? "text-amber-400" : "text-muted-foreground"}`}>
+                                Driver keeps £{editDriverCost.toLocaleString(undefined, { maximumFractionDigits: 2 })} · TVL keeps £{editTvlCommission.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                {editVehicleQuoteTotal > 0 && (
+                                  <> · {ok ? "matches vehicle revenue ✓" : `split totals £${split.toLocaleString(undefined, { maximumFractionDigits: 2 })} vs vehicle £${editVehicleQuoteTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} ⚠`}</>
+                                )}
+                              </p>
+                            );
+                          })()}
+                        </div>
+                      );
+                    })()}
 
                     {/* Third-party supplier — sits next to the vehicle so the
                         operator amends the FULL quote in one place, exactly
@@ -2741,8 +2932,29 @@ export default function BookingDetail() {
             )}
           </div>
           <div>
-            <p className="text-xs text-muted-foreground uppercase mb-1 font-medium">Driver</p>
-            {!isResidenceManager ? (
+            {/* Section header swaps DRIVER ⇄ SUPPLIER automatically.
+                For supplier-driven jobs we show the supplier company in
+                a read-only tile (linkable to the supplier profile) with
+                the building icon, instead of the driver dropdown — there
+                is no TVL driver to assign. */}
+            <p className="text-xs text-muted-foreground uppercase mb-1 font-medium">
+              {supplierDriven ? "Supplier" : "Driver"}
+            </p>
+            {supplierDriven ? (
+              supplier ? (
+                <Link href={`/suppliers/${supplier.id}`}>
+                  <span
+                    className="flex items-center gap-1.5 font-semibold text-foreground hover:text-primary cursor-pointer"
+                    data-testid="supplier-driven-name"
+                  >
+                    <Building2 className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+                    {supplier.name}
+                  </span>
+                </Link>
+              ) : (
+                <span className="text-muted-foreground text-sm">Loading supplier…</span>
+              )
+            ) : !isResidenceManager ? (
               <Select
                 value={(booking as any).driver_id ?? "unassigned"}
                 onValueChange={assignDriver}
@@ -2793,31 +3005,41 @@ export default function BookingDetail() {
               <span className="text-destructive font-medium text-sm">Unassigned</span>
             )}
 
-            {/* Driver Acceptance status */}
-            {(booking as any).driver_id && (() => {
+            {/* Driver / Supplier acceptance status — same column under
+                the hood (driver_acceptance_status), but the labels swap
+                automatically for supplier-driven jobs so the operator
+                sees "Supplier Confirmation · Pending / Confirmed /
+                Cancelled" instead of driver-specific wording. */}
+            {((booking as any).driver_id || supplierDriven) && (() => {
               const acceptance = (booking as any).driver_acceptance_status ?? "Assigned";
+              const heading = supplierDriven ? "Supplier Confirmation" : "Driver Acceptance";
+              const labels = supplierDriven
+                ? { Assigned: "Pending", "Driver Confirmed": "Confirmed", "Driver Declined": "Cancelled" }
+                : { Assigned: "Assigned (Awaiting)", "Driver Confirmed": "Driver Confirmed", "Driver Declined": "Driver Declined" };
               return (
                 <div className="mt-1 space-y-1.5">
                   <div>
-                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide mb-1">Driver Acceptance</p>
+                    <p className="text-[10px] uppercase text-muted-foreground tracking-wide mb-1">{heading}</p>
                     <Select
                       value={acceptance}
                       onValueChange={(v) => setDriverAcceptance(v as any)}
                     >
-                      <SelectTrigger className="h-8 text-xs" data-testid="select-driver-acceptance">
+                      <SelectTrigger className="h-8 text-xs" data-testid={supplierDriven ? "select-supplier-confirmation" : "select-driver-acceptance"}>
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="Assigned">Assigned (Awaiting)</SelectItem>
-                        <SelectItem value="Driver Confirmed">Driver Confirmed</SelectItem>
-                        <SelectItem value="Driver Declined">Driver Declined</SelectItem>
+                        <SelectItem value="Assigned">{labels.Assigned}</SelectItem>
+                        <SelectItem value="Driver Confirmed">{labels["Driver Confirmed"]}</SelectItem>
+                        <SelectItem value="Driver Declined">{labels["Driver Declined"]}</SelectItem>
                       </SelectContent>
                     </Select>
                     {acceptance === "Driver Confirmed" && (booking as any).driver_accepted_at && (
                       <p className="text-[10px] text-green-500 mt-1">Confirmed {format(new Date((booking as any).driver_accepted_at), "dd MMM HH:mm")}</p>
                     )}
                     {acceptance === "Driver Declined" && (
-                      <p className="text-[10px] text-destructive mt-1">Declined — driver removed; admin alerted</p>
+                      <p className="text-[10px] text-destructive mt-1">
+                        {supplierDriven ? "Cancelled — supplier marked as not handling this job" : "Declined — driver removed; admin alerted"}
+                      </p>
                     )}
                   </div>
                 </div>

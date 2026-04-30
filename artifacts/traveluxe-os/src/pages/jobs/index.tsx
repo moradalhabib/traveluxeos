@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLocation, useSearch, Link } from "wouter";
 import { format, isToday, isTomorrow, startOfDay, endOfDay, addDays, isBefore, isAfter } from "date-fns";
-import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCircle, Plane, Trash2, CheckSquare } from "lucide-react";
+import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCircle, Plane, Trash2, CheckSquare, Building2 } from "lucide-react";
+import { isSupplierDrivenJob } from "@/lib/supplierDriven";
 import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { RecentActivityFeed } from "@/components/activity/RecentActivityFeed";
@@ -117,6 +118,27 @@ export default function Jobs() {
     (drivers as any[] | undefined)?.forEach((d) => m.set(d.id, d));
     return m;
   }, [drivers]);
+
+  // Fetch suppliers once for the whole job board so supplier-driven
+  // jobs can render company name + WhatsApp without a per-card request.
+  // No generated react-query hook exists for /api/suppliers, so we use
+  // a plain query keyed off the auth session like the rest of the page.
+  const { data: suppliers } = useQuery<any[]>({
+    queryKey: ["jobs-suppliers"],
+    queryFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch("/api/suppliers", {
+        headers: session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {},
+      });
+      if (!res.ok) return [];
+      return res.json();
+    },
+  });
+  const suppliersById = useMemo(() => {
+    const m = new Map<string, any>();
+    (suppliers as any[] | undefined)?.forEach((s) => m.set(s.id, s));
+    return m;
+  }, [suppliers]);
 
   // Multi-vehicle bookings: pull only the booking_vehicles rows for the
   // bookings currently visible on the board (avoids a full-table scan on
@@ -246,12 +268,14 @@ export default function Jobs() {
     return bookings.filter(b => {
       if (b.status === 'Cancelled') return false;
       if (unassignedOnly) {
-        if (b.driver_id) return false;
+        // Supplier-driven jobs are NOT "unassigned" — the supplier is
+        // providing the vehicle, so the operator shouldn't be chased.
+        if (b.driver_id || isSupplierDrivenJob(b as any)) return false;
         if (b.status === 'Completed') return false;
         return true;
       }
       if (customFilter === 'needs-driver') {
-        if (b.driver_id) return false;
+        if (b.driver_id || isSupplierDrivenJob(b as any)) return false;
         if (b.status !== 'Pending' && b.status !== 'Confirmed') return false;
         return true;
       }
@@ -280,7 +304,12 @@ export default function Jobs() {
   // the currently filtered view — so the count stays stable when the operator
   // applies time / status filters that would otherwise hide it.
   const urgentJobs = useMemo(
-    () => (bookings ?? []).filter(b => !b.driver_id && b.status !== 'Completed' && b.status !== 'Cancelled'),
+    () => (bookings ?? []).filter(b =>
+      !b.driver_id &&
+      !isSupplierDrivenJob(b as any) &&
+      b.status !== 'Completed' &&
+      b.status !== 'Cancelled'
+    ),
     [bookings]
   );
 
@@ -417,6 +446,12 @@ export default function Jobs() {
             {upcomingJobs.map(job => {
               const minsAway = Math.round((new Date(job.date_time!).getTime() - now.getTime()) / 60000);
               const driverName = (job as any).driver_name ?? (job as any).drivers?.name ?? null;
+              // Supplier-driven jobs show the supplier company instead
+              // of the missing-driver warning, so the operator isn't
+              // chased by a false "No driver" alert when the supplier
+              // is providing the vehicle.
+              const supplierDriven = isSupplierDrivenJob(job as any);
+              const sup = supplierDriven ? suppliersById.get((job as any).supplier_id) : null;
               return (
                 <Link key={job.id} href={`/bookings/${job.id}`}>
                   <div className="flex items-center gap-3 px-4 py-2.5 hover:bg-amber-500/5 transition-colors cursor-pointer">
@@ -430,9 +465,19 @@ export default function Jobs() {
                           </Badge>
                         )}
                       </div>
-                      <div className="text-[11px] text-muted-foreground mt-0.5">
-                        {driverName ?? <span className="text-destructive font-medium">No driver</span>}
-                        {driverName && job.vehicle_type ? ` · ${job.vehicle_type}` : ""}
+                      <div className="text-[11px] text-muted-foreground mt-0.5 flex items-center gap-1">
+                        {supplierDriven ? (
+                          <>
+                            <Building2 className="w-3 h-3 text-primary flex-shrink-0" />
+                            <span className="text-foreground">{sup?.name ?? "Supplier"}</span>
+                            {job.vehicle_type ? <span> · {job.vehicle_type}</span> : null}
+                          </>
+                        ) : (
+                          <>
+                            {driverName ?? <span className="text-destructive font-medium">No driver</span>}
+                            {driverName && job.vehicle_type ? ` · ${job.vehicle_type}` : ""}
+                          </>
+                        )}
                       </div>
                     </div>
                     <div className="text-right flex-shrink-0">
@@ -508,6 +553,12 @@ export default function Jobs() {
             </div>
             {group.jobs.map((job) => {
               const extras = (vehiclesByBooking.get(job.id) ?? []);
+              // Compute supplier-driven once per card. The "No Driver"
+              // warning, the WhatsApp link, and the staff-no chip all
+              // branch off this so a supplier-handled vehicle never
+              // looks like an unstaffed job to the operator.
+              const jobSupplierDriven = isSupplierDrivenJob(job as any);
+              const jobSupplier = jobSupplierDriven ? suppliersById.get((job as any).supplier_id) : null;
               return (
               <div key={job.id} className="space-y-1.5">
               <Card
@@ -620,11 +671,30 @@ export default function Jobs() {
                 </span>
               </div>
 
-              {/* Row 4: driver | price + payment */}
+              {/* Row 4: driver / supplier | price + payment.
+                  For supplier-driven jobs we show the supplier company
+                  + WhatsApp instead of the driver name + chip; the "No
+                  Driver" red warning is suppressed because no TVL
+                  driver is needed. */}
               <div className="flex items-center justify-between border-t border-border pt-2">
                 <div className="flex items-center gap-1.5 min-w-0">
-                  <Car className="w-3 h-3 text-muted-foreground flex-shrink-0" />
-                  {job.driver_name ? (
+                  {jobSupplierDriven ? (
+                    <Building2 className="w-3 h-3 text-primary flex-shrink-0" />
+                  ) : (
+                    <Car className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                  )}
+                  {jobSupplierDriven ? (
+                    <span
+                      className="text-xs font-medium text-primary hover:underline cursor-pointer flex items-center gap-1 truncate"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if ((job as any).supplier_id) setLocation(`/suppliers/${(job as any).supplier_id}`);
+                      }}
+                      data-testid={`supplier-driven-${job.id}`}
+                    >
+                      {jobSupplier?.name ?? "Supplier"}
+                    </span>
+                  ) : job.driver_name ? (
                     job.driver_id ? (
                       <span className="text-xs font-medium text-primary hover:underline cursor-pointer flex items-center gap-1 truncate"
                         onClick={(e) => { e.stopPropagation(); setLocation(`/drivers/${job.driver_id}`); }}>
@@ -643,7 +713,21 @@ export default function Jobs() {
                       <AlertTriangle className="w-3 h-3 flex-shrink-0" /> No Driver
                     </span>
                   )}
-                  {job.driver_id && (() => {
+                  {jobSupplierDriven ? (() => {
+                    // WhatsApp the supplier directly with a confirmation
+                    // nudge — same UX shape as the driver WA link, just
+                    // pointed at the supplier contact.
+                    const phone = (jobSupplier?.whatsapp || jobSupplier?.phone || "").replace(/[^0-9+]/g, "");
+                    if (!phone) return null;
+                    const msg = `Hi ${jobSupplier?.contact_name ?? jobSupplier?.name ?? ""}, just confirming booking ${job.tvl_ref}. Please reply to confirm. Thanks.`;
+                    return (
+                      <a href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`} target="_blank" rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()} className="text-green-500 hover:text-green-400 flex-shrink-0"
+                        data-testid={`link-wa-supplier-${job.id}`}>
+                        <MessageCircle className="w-3 h-3" />
+                      </a>
+                    );
+                  })() : job.driver_id && (() => {
                     const drv = driversById.get(job.driver_id);
                     const phone = (drv?.whatsapp || drv?.phone || "").replace(/[^0-9+]/g, "");
                     if (!phone) return null;

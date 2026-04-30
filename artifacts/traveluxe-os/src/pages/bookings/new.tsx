@@ -26,6 +26,7 @@ import { AirportTransferProductPicker, type TransferExtra } from "@/components/b
 import { NATIONALITIES, nationalityFlag } from "@/lib/nationalities";
 import { Switch } from "@/components/ui/switch";
 import { FlightLookupCard } from "@/components/booking/FlightLookupCard";
+import { isSupplierDrivenJob } from "@/lib/supplierDriven";
 
 type Phase = "lookup" | "found" | "register" | "booking";
 
@@ -1094,9 +1095,23 @@ export default function NewBooking() {
       base_daily_rate: (values as any).base_daily_rate,
       rental_days: (values as any).rental_days,
       fuel_cost: (values as any).fuel_cost,
+      // driver_cost / tvl_commission are zeroed below for supplier-driven
+      // jobs — see the post-payload override.
       driver_cost: (values as any).driver_cost,
       extra_charges: mergedExtras.length > 0 ? mergedExtras : undefined,
-      as_directed_supplier_driver: !!(values as any).as_directed_supplier_driver,
+      // Auto-set the supplier-driven flag from the form values. If the
+      // operator picked a third-party supplier and didn't assign a TVL
+      // driver on a vehicle service (AT/Car Rental/Tour/etc.), we flip
+      // the flag so the DB recalc trigger rolls all costs into the
+      // supplier KPI. Assigning a TVL driver clears it. The legacy
+      // toggle (still wired but visually hidden) wins if it was set
+      // explicitly.
+      as_directed_supplier_driver: isSupplierDrivenJob({
+        supplier_id: (values as any).supplier_id || null,
+        driver_id: values.driver_id && values.driver_id !== "unassigned" ? values.driver_id : null,
+        service_type: values.service_type,
+        as_directed_supplier_driver: !!(values as any).as_directed_supplier_driver,
+      }),
       // Airport Transfer matrix selections
       ...(values.service_type === "Airport Transfer" ? {
         vehicle_product_id: (values as any).vehicle_product_id || null,
@@ -1105,6 +1120,17 @@ export default function NewBooking() {
           : [],
       } : {}),
     };
+
+    // Supplier-driven jobs have NO TVL driver — there's no TVL driver
+    // payout and no TVL margin on top of a third-party transport bill,
+    // so any stale numbers the operator typed before flipping to a
+    // supplier are forcibly cleared. This keeps the financials view,
+    // the supplier KPI rollup (DB recalc trigger) and the "split totals"
+    // warning all consistent with the new supplier-driven UX.
+    if ((allowedPayload as any).as_directed_supplier_driver === true) {
+      (allowedPayload as any).driver_cost = 0;
+      (allowedPayload as any).tvl_commission = 0;
+    }
 
     // Fold service-specific details into notes so data is preserved.
     // (Multi-vehicle bookings now use the booking_vehicles table — POSTed in onSuccess below.)
@@ -2140,58 +2166,85 @@ export default function NewBooking() {
                           tvl_commission column). Together they should equal
                           the vehicle subtotal — the balance check below uses
                           this split to flag mistakes. */}
-                      <div className="rounded-md border border-border bg-secondary/20 p-3 space-y-2" data-testid="at-driver-payout">
-                        <div className="flex items-baseline justify-between gap-3">
-                          <Label className="text-xs uppercase tracking-wider text-muted-foreground">Driver Payout</Label>
-                          {vehicleQuoteTotal > 0 && (
-                            <span className="text-[10px] text-muted-foreground">Vehicle revenue · £{vehicleQuoteTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
-                          )}
-                        </div>
-                        <div className="grid grid-cols-2 gap-3">
-                          <div className="space-y-1">
-                            <Label className="text-[11px] text-muted-foreground">Driver Pay (£)</Label>
-                            <Input
-                              type="number" step="0.01" min="0"
-                              placeholder="What driver keeps"
-                              value={(bookingForm.watch("driver_cost" as any) as any) ?? ""}
-                              onChange={e => bookingForm.setValue("driver_cost" as any, e.target.value === "" ? undefined : Number(e.target.value), { shouldDirty: true })}
-                              data-testid="input-driver-pay-manual"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <Label className="text-[11px] text-muted-foreground">Driver Commission (£) <span className="normal-case text-[10px] text-muted-foreground/80">— TVL profit</span></Label>
-                            <Input
-                              type="number" step="0.01"
-                              placeholder="What driver owes TVL"
-                              value={(bookingForm.watch("tvl_commission") as any) ?? ""}
-                              onChange={e => bookingForm.setValue("tvl_commission", e.target.value === "" ? 0 : Number(e.target.value), { shouldDirty: true })}
-                              data-testid="input-driver-commission-manual"
-                            />
-                          </div>
-                        </div>
-                        {/* Live split summary — mirrors the supplier subtotal
-                            line ("Client charge £X · incl £Y TVL profit ·
-                            supplier receives £Z") so the operator can see at
-                            a glance that vehicle revenue = driver keeps + TVL
-                            keeps. Green ✓ when the split matches the vehicle
-                            quote, amber ⚠ when there's a mismatch. */}
-                        {(() => {
-                          const dp = Number(bookingForm.watch("driver_cost" as any)) || 0;
-                          const dc = Number(bookingForm.watch("tvl_commission")) || 0;
-                          if (dp <= 0 && dc <= 0) return null;
-                          const split = dp + dc;
-                          const ok = vehicleQuoteTotal > 0 && Math.abs(split - vehicleQuoteTotal) < 0.01;
-                          const warn = vehicleQuoteTotal > 0 && !ok;
+                      {/* Driver Payout — auto-collapses when the booking
+                          is supplier-driven (third-party supplier set,
+                          no TVL driver, vehicle service). The supplier
+                          handles transport, so there's no driver to pay
+                          out. We render a zeroed read-only notice and
+                          skip the split-totals warning entirely so the
+                          operator isn't asked to balance numbers that
+                          shouldn't exist. */}
+                      {(() => {
+                        const newSupplierDriven = isSupplierDrivenJob({
+                          supplier_id: String(bookingForm.watch("supplier_id" as any) ?? "") || null,
+                          driver_id: String(bookingForm.watch("driver_id") ?? "") || null,
+                          service_type: serviceType,
+                          as_directed_supplier_driver: !!bookingForm.watch("as_directed_supplier_driver" as any),
+                        });
+                        if (newSupplierDriven) {
                           return (
-                            <p className={`text-[10px] ${warn ? "text-amber-400" : "text-muted-foreground"}`}>
-                              Driver keeps £{dp.toLocaleString(undefined, { maximumFractionDigits: 2 })} · TVL keeps £{dc.toLocaleString(undefined, { maximumFractionDigits: 2 })}
-                              {vehicleQuoteTotal > 0 && (
-                                <> · {ok ? "matches vehicle revenue ✓" : `split totals £${split.toLocaleString(undefined, { maximumFractionDigits: 2 })} vs vehicle £${vehicleQuoteTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} ⚠`}</>
-                              )}
-                            </p>
+                            <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-primary" data-testid="at-driver-payout-supplier">
+                              <p className="font-semibold uppercase tracking-wider text-[11px] mb-1">Driver Payout</p>
+                              <p>No TVL driver — supplier handles transport.</p>
+                              <p className="text-[10px] text-primary/70 mt-0.5">Driver Pay £0.00 · Driver Commission £0.00</p>
+                            </div>
                           );
-                        })()}
-                      </div>
+                        }
+                        return (
+                          <div className="rounded-md border border-border bg-secondary/20 p-3 space-y-2" data-testid="at-driver-payout">
+                            <div className="flex items-baseline justify-between gap-3">
+                              <Label className="text-xs uppercase tracking-wider text-muted-foreground">Driver Payout</Label>
+                              {vehicleQuoteTotal > 0 && (
+                                <span className="text-[10px] text-muted-foreground">Vehicle revenue · £{vehicleQuoteTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })}</span>
+                              )}
+                            </div>
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="space-y-1">
+                                <Label className="text-[11px] text-muted-foreground">Driver Pay (£)</Label>
+                                <Input
+                                  type="number" step="0.01" min="0"
+                                  placeholder="What driver keeps"
+                                  value={(bookingForm.watch("driver_cost" as any) as any) ?? ""}
+                                  onChange={e => bookingForm.setValue("driver_cost" as any, e.target.value === "" ? undefined : Number(e.target.value), { shouldDirty: true })}
+                                  data-testid="input-driver-pay-manual"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-[11px] text-muted-foreground">Driver Commission (£) <span className="normal-case text-[10px] text-muted-foreground/80">— TVL profit</span></Label>
+                                <Input
+                                  type="number" step="0.01"
+                                  placeholder="What driver owes TVL"
+                                  value={(bookingForm.watch("tvl_commission") as any) ?? ""}
+                                  onChange={e => bookingForm.setValue("tvl_commission", e.target.value === "" ? 0 : Number(e.target.value), { shouldDirty: true })}
+                                  data-testid="input-driver-commission-manual"
+                                />
+                              </div>
+                            </div>
+                            {/* Live split summary — mirrors the supplier subtotal
+                                line ("Client charge £X · incl £Y TVL profit ·
+                                supplier receives £Z") so the operator can see at
+                                a glance that vehicle revenue = driver keeps + TVL
+                                keeps. Green ✓ when the split matches the vehicle
+                                quote, amber ⚠ when there's a mismatch. */}
+                            {(() => {
+                              const dp = Number(bookingForm.watch("driver_cost" as any)) || 0;
+                              const dc = Number(bookingForm.watch("tvl_commission")) || 0;
+                              if (dp <= 0 && dc <= 0) return null;
+                              const split = dp + dc;
+                              const ok = vehicleQuoteTotal > 0 && Math.abs(split - vehicleQuoteTotal) < 0.01;
+                              const warn = vehicleQuoteTotal > 0 && !ok;
+                              return (
+                                <p className={`text-[10px] ${warn ? "text-amber-400" : "text-muted-foreground"}`}>
+                                  Driver keeps £{dp.toLocaleString(undefined, { maximumFractionDigits: 2 })} · TVL keeps £{dc.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                                  {vehicleQuoteTotal > 0 && (
+                                    <> · {ok ? "matches vehicle revenue ✓" : `split totals £${split.toLocaleString(undefined, { maximumFractionDigits: 2 })} vs vehicle £${vehicleQuoteTotal.toLocaleString(undefined, { maximumFractionDigits: 2 })} ⚠`}</>
+                                  )}
+                                </p>
+                              );
+                            })()}
+                          </div>
+                        );
+                      })()}
 
                       {/* Third-party Supplier — sits next to the vehicle so
                           the operator builds the FULL quote in one place,
@@ -3537,14 +3590,33 @@ export default function NewBooking() {
                   </div>
 
                   {/* Driver & Vehicle — transport only, not for accommodation.
-                      Hidden when the supplier provides the driver too — in that
-                      case there is no TVL driver to assign. */}
-                  {!isAccommodation && !isHotel && bookingForm.watch("as_directed_supplier_driver" as any) && (
-                    <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-primary">
-                      Supplier is providing the driver — no TVL driver assignment needed.
-                    </div>
-                  )}
-                  {!isAccommodation && !isHotel && !bookingForm.watch("as_directed_supplier_driver" as any) && (
+                      Hidden when the booking is "supplier-driven": either the
+                      legacy as_directed_supplier_driver flag is set OR the
+                      auto-detection rule fires (supplier set + no driver +
+                      vehicle service). The same rule used everywhere else
+                      so the UI stays consistent end-to-end. */}
+                  {(() => {
+                    const hideDriver = !isAccommodation && !isHotel && isSupplierDrivenJob({
+                      supplier_id: String(bookingForm.watch("supplier_id" as any) ?? "") || null,
+                      driver_id: String(bookingForm.watch("driver_id") ?? "") || null,
+                      service_type: serviceType,
+                      as_directed_supplier_driver: !!bookingForm.watch("as_directed_supplier_driver" as any),
+                    });
+                    if (!hideDriver) return null;
+                    const supId = String(bookingForm.watch("supplier_id" as any) ?? "");
+                    const sup = supplierList.find((s: any) => s.id === supId);
+                    return (
+                      <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-xs text-primary" data-testid="new-supplier-driven-notice">
+                        Driver provided by supplier{sup?.name ? ` — ${sup.name}` : ""}.
+                      </div>
+                    );
+                  })()}
+                  {!isAccommodation && !isHotel && !isSupplierDrivenJob({
+                    supplier_id: String(bookingForm.watch("supplier_id" as any) ?? "") || null,
+                    driver_id: String(bookingForm.watch("driver_id") ?? "") || null,
+                    service_type: serviceType,
+                    as_directed_supplier_driver: !!bookingForm.watch("as_directed_supplier_driver" as any),
+                  }) && (
                     <>
                       <FormField control={bookingForm.control} name="driver_id" render={({ field }) => (
                         <FormItem>
