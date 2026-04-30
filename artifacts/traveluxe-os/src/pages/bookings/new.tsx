@@ -18,6 +18,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { supabase } from "@/lib/supabase";
 import { format } from "date-fns";
 import { isoToLondonInput, londonInputToIso } from "@/lib/datetime";
+import { deriveServiceTypes } from "@/components/SupplierServiceTypes";
 import { Label } from "@/components/ui/label";
 import ProductPicker, { type OrderLine } from "@/components/booking/ProductPicker";
 import { SupplierProductPicker } from "@/components/SupplierProductPicker";
@@ -1627,8 +1628,16 @@ export default function NewBooking() {
                         : isTourType ? "Tour Operator"
                         : isAirportTransfer ? "Airport Transfer"
                         : null;
+                      // ANY-match against the supplier's service_types[]
+                      // (falls back to legacy `category` for un-migrated rows
+                      // via deriveServiceTypes). Also keeps "Other" suppliers
+                      // visible because they explicitly opted into being a
+                      // catch-all.
                       const filtered = filterCat
-                        ? supplierList.filter((s: any) => s.category === filterCat || s.category === "Other")
+                        ? supplierList.filter((s: any) => {
+                            const { types } = deriveServiceTypes(s);
+                            return types.includes(filterCat) || types.includes("Other");
+                          })
                         : supplierList;
                       return (
                         <FormItem>
@@ -2208,20 +2217,50 @@ export default function NewBooking() {
                             <div className="grid grid-cols-2 gap-3">
                               <div className="space-y-1">
                                 <Label className="text-[11px] text-muted-foreground">Supplier</Label>
-                                <Select
-                                  value={supplierIdAt || "none"}
-                                  onValueChange={(v) => bookingForm.setValue("supplier_id" as any, v === "none" ? "" : v, { shouldDirty: true })}
-                                >
-                                  <SelectTrigger data-testid="select-at-supplier"><SelectValue placeholder="Select supplier…" /></SelectTrigger>
-                                  <SelectContent className="max-h-[55vh] overflow-y-auto">
-                                    <SelectItem value="none">— None —</SelectItem>
-                                    {supplierList.map((s: any) => (
-                                      <SelectItem key={s.id} value={s.id}>
-                                        {s.name}{s.city ? ` · ${s.city}` : ""}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                {(() => {
+                                  // This dropdown is inside the AT
+                                  // financial block, which only renders
+                                  // for Airport Transfer bookings — so
+                                  // filter the supplier list to those
+                                  // tagged "Airport Transfer" (with
+                                  // legacy `category` fallback via
+                                  // deriveServiceTypes). Suppliers
+                                  // tagged "Other" stay visible as
+                                  // catch-alls, mirroring the top-level
+                                  // supplier picker behaviour.
+                                  const filteredAt = supplierList.filter((s: any) => {
+                                    const { types } = deriveServiceTypes(s);
+                                    return types.includes("Airport Transfer") || types.includes("Other");
+                                  });
+                                  // Always include the currently-selected
+                                  // supplier so an existing assignment
+                                  // never silently disappears from the
+                                  // picker.
+                                  const selectedAt = supplierList.find((s: any) => s.id === supplierIdAt);
+                                  const showSelectedSeparately =
+                                    selectedAt && !filteredAt.some((s: any) => s.id === selectedAt.id);
+                                  return (
+                                    <Select
+                                      value={supplierIdAt || "none"}
+                                      onValueChange={(v) => bookingForm.setValue("supplier_id" as any, v === "none" ? "" : v, { shouldDirty: true })}
+                                    >
+                                      <SelectTrigger data-testid="select-at-supplier"><SelectValue placeholder="Select supplier…" /></SelectTrigger>
+                                      <SelectContent className="max-h-[55vh] overflow-y-auto">
+                                        <SelectItem value="none">— None —</SelectItem>
+                                        {showSelectedSeparately && selectedAt && (
+                                          <SelectItem key={selectedAt.id} value={selectedAt.id}>
+                                            {selectedAt.name}{selectedAt.city ? ` · ${selectedAt.city}` : ""} <span className="text-[10px] text-amber-400">(current — type mismatch)</span>
+                                          </SelectItem>
+                                        )}
+                                        {filteredAt.map((s: any) => (
+                                          <SelectItem key={s.id} value={s.id}>
+                                            {s.name}{s.city ? ` · ${s.city}` : ""}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  );
+                                })()}
                               </div>
                               <div className="space-y-1">
                                 <Label className="text-[11px] text-muted-foreground">Supplier Markup (£) <span className="normal-case text-[10px] text-muted-foreground/80">— TVL profit on supplier</span></Label>

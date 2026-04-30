@@ -17,11 +17,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { format } from "date-fns";
-
-const CATEGORIES = [
-  "Airport Transfer", "Car Rental", "Hotel", "Apartment", "Tour Operator",
-  "Restaurant", "Concierge", "Yacht", "Helicopter", "Other",
-];
+import { ServiceTypeMultiSelect, deriveServiceTypes } from "@/components/SupplierServiceTypes";
 
 async function authedFetch(path: string, init: RequestInit = {}) {
   const { data: { session } } = await supabase.auth.getSession();
@@ -50,6 +46,11 @@ export default function SupplierDetail() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [edit, setEdit] = useState<any>({});
+  // Service-type state lives outside `edit` so the multi-select component
+  // can drive both array + primary in one update without spreading a stale
+  // version on every change.
+  const [serviceTypes, setServiceTypes] = useState<string[]>([]);
+  const [primaryType, setPrimaryType] = useState<string>("");
 
   useEffect(() => {
     if (!id) return;
@@ -65,6 +66,10 @@ export default function SupplierDetail() {
         const data = await res.json();
         setSupplier(data);
         setEdit(data);
+        // Pre-load multi-select with currently saved types + primary star.
+        const derived = deriveServiceTypes(data);
+        setServiceTypes(derived.types);
+        setPrimaryType(derived.primary);
       } finally {
         setLoading(false);
       }
@@ -76,13 +81,20 @@ export default function SupplierDetail() {
       toast.error("Supplier name is required");
       return;
     }
+    if (serviceTypes.length === 0) {
+      toast.error("Select at least one service type before saving");
+      return;
+    }
     setSaving(true);
     try {
       const res = await authedFetch(`/api/suppliers/${id}`, {
         method: "PATCH",
         body: JSON.stringify({
           name: edit.name,
-          category: edit.category,
+          // Send both new fields. Backend mirrors primary → category for
+          // legacy compatibility and validates the array is non-empty.
+          service_types: serviceTypes,
+          primary_service_type: primaryType,
           contact_name: edit.contact_name,
           whatsapp: edit.whatsapp,
           phone: edit.phone,
@@ -150,7 +162,11 @@ export default function SupplierDetail() {
               </Button>
             </a>
           )}
-          <Button onClick={handleSave} disabled={saving}>
+          <Button
+            onClick={handleSave}
+            disabled={saving || serviceTypes.length === 0}
+            data-testid="btn-save-supplier"
+          >
             <Save className="w-4 h-4 mr-2" />
             {saving ? "Saving…" : "Save"}
           </Button>
@@ -171,13 +187,6 @@ export default function SupplierDetail() {
                 className="text-xl font-bold border-0 px-0 h-auto bg-transparent focus-visible:ring-0"
               />
               <div className="flex items-center gap-2 mt-1 flex-wrap">
-                <select
-                  value={edit.category ?? "Other"}
-                  onChange={e => setEdit({ ...edit, category: e.target.value })}
-                  className="text-xs bg-primary/5 border border-primary/30 text-primary rounded px-2 py-0.5"
-                >
-                  {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-                </select>
                 <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <input
                     type="checkbox"
@@ -188,6 +197,28 @@ export default function SupplierDetail() {
                 </label>
               </div>
             </div>
+          </div>
+
+          {/* Service Types — multi-select with Primary star. Replaces the
+              previous single-category dropdown. The backend validates ≥1
+              and mirrors Primary into the legacy `category` column. */}
+          <div className="pt-3 border-t border-border space-y-2">
+            <div className="flex items-center justify-between">
+              <Label className="text-[10px] uppercase tracking-wider text-muted-foreground">
+                Service Types
+              </Label>
+              <span className="text-[11px] text-muted-foreground">
+                Tick every service this supplier provides. Star one as Primary.
+              </span>
+            </div>
+            <ServiceTypeMultiSelect
+              value={serviceTypes}
+              primary={primaryType}
+              onChange={({ types, primary }) => {
+                setServiceTypes(types);
+                setPrimaryType(primary);
+              }}
+            />
           </div>
 
           {/* KPI strip */}

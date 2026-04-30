@@ -32,6 +32,7 @@ import { BookingRouteOverridesHint } from "@/components/booking/BookingRouteOver
 import { BookingActivityPanel } from "@/components/booking/BookingActivityPanel";
 import { AirportTransferProductPicker, type TransferExtra } from "@/components/booking/AirportTransferProductPicker";
 import { SupplierProductPicker } from "@/components/SupplierProductPicker";
+import { deriveServiceTypes } from "@/components/SupplierServiceTypes";
 import { Phone, MessageCircle, Mail, Pencil, Plus, Trash2, FileDown } from "lucide-react";
 import { getVipBadgeColor } from "@/lib/vip";
 import { Label } from "@/components/ui/label";
@@ -203,7 +204,10 @@ function SupplierCostCard({ booking, onSaved }: { booking: any; onSaved: () => v
                 <div className="text-xs text-muted-foreground">{supplier.contact_name}</div>
               )}
               <Badge variant="outline" className="mt-1 text-[10px] py-0 px-1.5 border-primary/30 text-primary bg-primary/5">
-                {supplier.category}
+                {/* Show the supplier's PRIMARY service type (used on job
+                    sheets, invoices, and reporting). Falls back to the
+                    legacy `category` for un-migrated rows. */}
+                {supplier.primary_service_type || supplier.category}
               </Badge>
             </div>
             <div className="flex gap-1.5 shrink-0">
@@ -971,7 +975,16 @@ export default function BookingDetail() {
   // editSupplierCost + editSupplierCommission to drive editPrice.
   const [editVehicleQuoteTotal, setEditVehicleQuoteTotal] = useState<number>(0);
   // Supplier list for the dropdown (loaded once when the dialog opens).
-  const [editSupplierList, setEditSupplierList] = useState<Array<{ id: string; name: string; city?: string | null }>>([]);
+  // Includes the new service_types[] + primary_service_type so we can
+  // filter the picker by the booking's service_type and warn on mismatch.
+  const [editSupplierList, setEditSupplierList] = useState<Array<{
+    id: string;
+    name: string;
+    city?: string | null;
+    category?: string | null;
+    service_types?: string[] | null;
+    primary_service_type?: string | null;
+  }>>([]);
 
   const openEdit = () => {
     if (!booking) return;
@@ -2168,29 +2181,76 @@ export default function BookingDetail() {
                       <div className="grid grid-cols-2 gap-3">
                         <div className="space-y-1">
                           <p className="text-[11px] text-muted-foreground">Supplier</p>
-                          <Select
-                            value={editSupplierId || "none"}
-                            onValueChange={(v) => {
-                              const next = v === "none" ? "" : v;
-                              setEditSupplierId(next);
-                              // Wipe items + cost when the operator clears the
-                              // supplier so a stale subtotal can't carry over.
-                              if (!next) {
-                                setEditSupplierItems([]);
-                                setEditSupplierCost(0);
-                              }
-                            }}
-                          >
-                            <SelectTrigger data-testid="edit-select-at-supplier"><SelectValue placeholder="Select supplier…" /></SelectTrigger>
-                            <SelectContent className="max-h-[55vh] overflow-y-auto">
-                              <SelectItem value="none">— None —</SelectItem>
-                              {editSupplierList.map((s) => (
-                                <SelectItem key={s.id} value={s.id}>
-                                  {s.name}{s.city ? ` · ${s.city}` : ""}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
+                          {(() => {
+                            // Filter the dropdown by the booking's
+                            // service_type using the supplier's full
+                            // service_types[] (with legacy `category`
+                            // fallback). Suppliers tagged "Other" remain
+                            // visible as a catch-all, mirroring the new
+                            // booking form behaviour.
+                            const svc = (booking as any).service_type as string | undefined;
+                            const filtered = svc
+                              ? editSupplierList.filter(s => {
+                                  const { types } = deriveServiceTypes(s);
+                                  return types.includes(svc) || types.includes("Other");
+                                })
+                              : editSupplierList;
+                            // Always include the currently-selected supplier
+                            // so an existing assignment never silently
+                            // disappears from the dropdown after a service-
+                            // type change. The mismatch banner below will
+                            // flag it to the operator.
+                            const selected = editSupplierList.find(s => s.id === editSupplierId);
+                            const showSelectedSeparately =
+                              selected && !filtered.some(s => s.id === selected.id);
+                            const supplierMismatch =
+                              !!selected && !!svc && (() => {
+                                const { types } = deriveServiceTypes(selected);
+                                return !types.includes(svc) && !types.includes("Other");
+                              })();
+                            return (
+                              <>
+                                <Select
+                                  value={editSupplierId || "none"}
+                                  onValueChange={(v) => {
+                                    const next = v === "none" ? "" : v;
+                                    setEditSupplierId(next);
+                                    // Wipe items + cost when the operator
+                                    // clears the supplier so a stale
+                                    // subtotal can't carry over.
+                                    if (!next) {
+                                      setEditSupplierItems([]);
+                                      setEditSupplierCost(0);
+                                    }
+                                  }}
+                                >
+                                  <SelectTrigger data-testid="edit-select-at-supplier"><SelectValue placeholder="Select supplier…" /></SelectTrigger>
+                                  <SelectContent className="max-h-[55vh] overflow-y-auto">
+                                    <SelectItem value="none">— None —</SelectItem>
+                                    {showSelectedSeparately && selected && (
+                                      <SelectItem key={selected.id} value={selected.id}>
+                                        {selected.name}{selected.city ? ` · ${selected.city}` : ""} <span className="text-[10px] text-amber-400">(current — type mismatch)</span>
+                                      </SelectItem>
+                                    )}
+                                    {filtered.map((s) => (
+                                      <SelectItem key={s.id} value={s.id}>
+                                        {s.name}{s.city ? ` · ${s.city}` : ""}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                {supplierMismatch && (
+                                  <p
+                                    className="text-[11px] text-amber-300 mt-1 flex items-start gap-1"
+                                    data-testid="supplier-mismatch-warning"
+                                  >
+                                    <AlertTriangle className="w-3 h-3 mt-[1px] shrink-0" />
+                                    The selected supplier may not cover this service type. Please confirm or change supplier.
+                                  </p>
+                                )}
+                              </>
+                            );
+                          })()}
                         </div>
                         <div className="space-y-1">
                           <p className="text-[11px] text-muted-foreground">Supplier Markup (£) <span className="normal-case text-[10px] text-muted-foreground/80">— TVL profit on supplier</span></p>

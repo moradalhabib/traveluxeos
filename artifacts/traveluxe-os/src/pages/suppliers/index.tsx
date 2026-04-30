@@ -18,16 +18,21 @@ import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
+import {
+  ServiceTypeMultiSelect, ServiceTypePills,
+  SUPPLIER_SERVICE_TYPES, deriveServiceTypes,
+} from "@/components/SupplierServiceTypes";
 
-const CATEGORIES = [
-  "Airport Transfer", "Car Rental", "Hotel", "Apartment", "Tour Operator",
-  "Restaurant", "Concierge", "Yacht", "Helicopter", "Other",
-];
+const CATEGORIES = [...SUPPLIER_SERVICE_TYPES];
 
 interface Supplier {
   id: string;
   name: string;
   category: string;
+  // New multi-type fields. Optional on the wire so pre-migration rows still
+  // deserialise. Falls back to `category` via deriveServiceTypes().
+  service_types?: string[];
+  primary_service_type?: string;
   contact_name?: string;
   whatsapp?: string;
   phone?: string;
@@ -72,7 +77,14 @@ export default function SuppliersList() {
   const showInactive = inactiveFlag === "1";
   const setShowInactive = (v: boolean) => setInactiveFlag(v ? "1" : "0");
   const [open, setOpen] = useState(false);
-  const [form, setForm] = useState<any>({ name: "", category: "Car Rental" });
+  // Default a brand-new supplier to "Car Rental" so the dialog isn't empty
+  // and the operator can immediately save without ticking anything (the
+  // most common path is "Car Rental — RMS Europe-style").
+  const [form, setForm] = useState<any>({
+    name: "",
+    service_types: ["Car Rental"],
+    primary_service_type: "Car Rental",
+  });
   const [saving, setSaving] = useState(false);
 
   const handleBulkDelete = async () => {
@@ -114,7 +126,11 @@ export default function SuppliersList() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (category !== "all") params.set("category", category);
+      // Use the new array-aware filter so suppliers covering this type as a
+      // SECONDARY service still surface (e.g. RMS Europe Cars under
+      // "Airport Transfer"). The backend still understands `category` for
+      // anyone calling it directly.
+      if (category !== "all") params.set("service_type", category);
       if (search) params.set("search", search);
       if (showInactive) params.set("include_inactive", "1");
       const res = await authedFetch(`/api/suppliers?${params.toString()}`);
@@ -139,6 +155,10 @@ export default function SuppliersList() {
       toast.error("Supplier name is required");
       return;
     }
+    if (!Array.isArray(form.service_types) || form.service_types.length === 0) {
+      toast.error("Select at least one service type");
+      return;
+    }
     setSaving(true);
     try {
       const res = await authedFetch("/api/suppliers", {
@@ -152,7 +172,11 @@ export default function SuppliersList() {
       const created = await res.json();
       toast.success(`Supplier "${created.name}" created`);
       setOpen(false);
-      setForm({ name: "", category: "Car Rental" });
+      setForm({
+        name: "",
+        service_types: ["Car Rental"],
+        primary_service_type: "Car Rental",
+      });
       setLocation(`/suppliers/${created.id}`);
     } catch (e: any) {
       toast.error(e.message ?? "Failed to create supplier");
@@ -287,9 +311,10 @@ export default function SuppliersList() {
                       </div>
                     </div>
                     <div className="flex flex-col items-end gap-1">
-                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 border-primary/30 text-primary bg-primary/5">
-                        {s.category}
-                      </Badge>
+                      {(() => {
+                        const { types, primary } = deriveServiceTypes(s);
+                        return <ServiceTypePills types={types} primary={primary} />;
+                      })()}
                       {!s.is_active && (
                         <Badge variant="outline" className="text-[9px] py-0 px-1.5 border-destructive/30 text-destructive bg-destructive/10">
                           Inactive
@@ -372,14 +397,19 @@ export default function SuppliersList() {
               <Input value={form.name ?? ""} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="e.g. London Chauffeurs Ltd" />
             </div>
             <div>
-              <Label>Category</Label>
-              <select
-                value={form.category}
-                onChange={e => setForm({ ...form, category: e.target.value })}
-                className="w-full h-10 px-3 rounded-md bg-background border border-input text-sm"
-              >
-                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
+              <Label>Service Types *</Label>
+              <p className="text-[11px] text-muted-foreground mb-2">
+                Tick every service this supplier provides, then star one as the
+                Primary type.
+              </p>
+              <ServiceTypeMultiSelect
+                compact
+                value={form.service_types ?? []}
+                primary={form.primary_service_type ?? ""}
+                onChange={({ types, primary }) =>
+                  setForm({ ...form, service_types: types, primary_service_type: primary })
+                }
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>

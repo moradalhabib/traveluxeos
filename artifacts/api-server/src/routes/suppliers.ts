@@ -7,21 +7,55 @@ const router = Router();
 // commission_rate was removed in migration-remove-supplier-commission.sql —
 // suppliers charge flat per-vehicle rates (held in supplier_products), not
 // a percentage commission, and the lingering column was breaking saves.
+//
+// service_types (text[]) + primary_service_type (text) were introduced in
+// migration-supplier-service-types.sql. The legacy `category` column is kept
+// and a DB trigger syncs it from primary_service_type, so any code path that
+// still reads `category` continues to work even after this migration.
 const SUPPLIER_COLUMNS = new Set([
-  "name", "category", "contact_name", "whatsapp", "phone", "email",
+  "name", "category", "service_types", "primary_service_type",
+  "contact_name", "whatsapp", "phone", "email",
   "address", "city", "country", "website", "notes", "rating", "is_active",
 ]);
 
+// PostgREST signals "column doesn't exist" two different ways depending on
+// schema cache state. The supplier route has the same dual pattern in the
+// bookings select below — match both and fall back to a legacy write/select.
+function isMissingColumn(err: { message?: string } | null | undefined, col: string) {
+  if (!err?.message) return false;
+  return (
+    /column .* does not exist/i.test(err.message) ||
+    /could not find the .* column/i.test(err.message) ||
+    err.message.toLowerCase().includes(col.toLowerCase())
+  );
+}
+
+// Strip the new array/primary fields from a payload so writes succeed against
+// a pre-migration database. Mutates a fresh copy and returns it.
+function stripServiceTypeColumns(payload: Record<string, any>) {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const { service_types, primary_service_type, ...rest } = payload;
+  return rest;
+}
+
 // ─── GET /suppliers — list with optional category + search filters ─────────
 router.get("/", async (req, res) => {
-  const { category, search, active, include_inactive } = req.query as Record<string, string>;
+  const { category, service_type, search, active, include_inactive } =
+    req.query as Record<string, string>;
 
   let q = supabase
     .from("suppliers")
     .select("*, bookings:bookings(id)")
     .order("name", { ascending: true });
 
-  if (category && category !== "all") q = q.eq("category", category);
+  // service_type wins over category — it's the new array-aware filter that
+  // also covers suppliers whose primary type is something else but who
+  // ALSO cover the requested type (e.g. RMS Europe Cars in Airport Transfer).
+  // Falls back to a legacy `category` eq if the new column doesn't exist yet.
+  const filterValue = service_type && service_type !== "all"
+    ? service_type
+    : (category && category !== "all" ? category : null);
+
   if (active === "true") q = q.eq("is_active", true);
   else if (active === "false") q = q.eq("is_active", false);
   else if (include_inactive !== "1" && include_inactive !== "true") {
@@ -31,7 +65,20 @@ router.get("/", async (req, res) => {
   const { data, error } = await q;
   if (error) return res.status(500).json({ error: error.message });
 
-  let suppliers = (data ?? []).map((s: any) => ({
+  // Apply the type filter client-side so we get true ANY-match across the
+  // new service_types[] column AND a graceful fallback to the legacy
+  // `category` column for rows that haven't been migrated yet.
+  let rows = data ?? [];
+  if (filterValue) {
+    rows = rows.filter((s: any) => {
+      const arr: string[] = Array.isArray(s.service_types) && s.service_types.length > 0
+        ? s.service_types
+        : (s.category ? [s.category] : []);
+      return arr.includes(filterValue);
+    });
+  }
+
+  let suppliers = rows.map((s: any) => ({
     ...s,
     bookings_count: Array.isArray(s.bookings) ? s.bookings.length : 0,
     bookings: undefined,
@@ -245,6 +292,101 @@ router.delete("/:id/products/:pid", async (req, res) => {
   return res.json({ ok: true });
 });
 
+// Normalise + validate the service-type fields on a write payload.
+// Returns either { ok: true, payload } (with the keys cleaned and
+// `category` mirrored from primary_service_type) or { ok: false, error }.
+function applyServiceTypeFields(
+  body: Record<string, any>,
+  existing?: { service_types?: string[] | null; primary_service_type?: string | null; category?: string | null },
+): { ok: true; payload: Record<string, any> } | { ok: false; error: string } {
+  const out = { ...body };
+
+  // Coerce service_types to a clean string[] if present in the request.
+  if (Array.isArray(out.service_types)) {
+    const cleaned = out.service_types
+      .map((x: any) => (typeof x === "string" ? x.trim() : ""))
+      .filter((x: string) => x.length > 0);
+    // Dedupe while preserving order.
+    out.service_types = Array.from(new Set(cleaned));
+  } else if ("service_types" in out) {
+    // Empty / null payload: drop it so we don't wipe the array unintentionally.
+    delete out.service_types;
+  }
+
+  // Pick the effective primary, validating it's actually in the array.
+  const arr: string[] | null = Array.isArray(out.service_types)
+    ? out.service_types
+    : (existing?.service_types && existing.service_types.length > 0
+        ? existing.service_types
+        : null);
+  let primary: string | null = typeof out.primary_service_type === "string"
+    ? out.primary_service_type.trim()
+    : (existing?.primary_service_type ?? null);
+
+  // If both array and primary are present, primary must belong to the array.
+  if (arr && primary && !arr.includes(primary)) {
+    primary = arr[0]; // auto-correct
+  }
+  // If we have an array but no primary, default to the first element.
+  if (arr && arr.length > 0 && !primary) primary = arr[0];
+
+  // Validation: at least one type must remain.
+  // Only enforce when the caller is touching service_types OR the supplier
+  // already had something. Leave legacy single-`category` writes alone.
+  if (Array.isArray(out.service_types)) {
+    if (out.service_types.length === 0) {
+      return { ok: false, error: "Select at least one service type" };
+    }
+    out.primary_service_type = primary;
+    // Mirror to legacy `category` so any older surface keeps working.
+    out.category = primary;
+  } else if (typeof out.primary_service_type === "string" && out.primary_service_type) {
+    // Caller updated only the primary — also mirror to category.
+    out.primary_service_type = primary;
+    out.category = primary;
+  }
+
+  return { ok: true, payload: out };
+}
+
+// Insert/update with graceful fallback for pre-migration databases. If
+// PostgREST returns "column not found" for service_types or
+// primary_service_type, retry once with those keys stripped.
+async function writeWithFallback(
+  op: "insert" | "update",
+  payload: Record<string, any>,
+  id?: string,
+) {
+  const baseQuery = () => {
+    const t = supabase.from("suppliers");
+    return op === "insert"
+      ? t.insert(payload).select().single()
+      : t.update(payload).eq("id", id!).select().single();
+  };
+  let resp = await baseQuery();
+  if (
+    resp.error &&
+    (isMissingColumn(resp.error, "service_types") ||
+     isMissingColumn(resp.error, "primary_service_type"))
+  ) {
+    console.warn(
+      `[suppliers] new columns missing on ${op}, retrying without service_types/primary_service_type: ${resp.error.message}`,
+    );
+    const stripped = stripServiceTypeColumns(payload);
+    const t = supabase.from("suppliers");
+    resp = (op === "insert"
+      ? await t.insert(stripped).select().single()
+      : await t.update(stripped).eq("id", id!).select().single()) as typeof resp;
+  }
+  return resp;
+}
+
+// Pretty-print a service-type set for the audit log.
+function fmtTypes(types: string[] | null | undefined, primary: string | null | undefined) {
+  if (!types || types.length === 0) return primary || "—";
+  return types.map(t => (t === primary ? `${t}*` : t)).join(", ");
+}
+
 // ─── POST /suppliers ────────────────────────────────────────────────────────
 router.post("/", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
@@ -252,20 +394,25 @@ router.post("/", async (req, res) => {
 
   const body: Record<string, any> = {};
   for (const [k, v] of Object.entries(req.body)) {
-    if (SUPPLIER_COLUMNS.has(k) && v !== "" && v !== undefined) body[k] = v;
+    if (!SUPPLIER_COLUMNS.has(k)) continue;
+    // Arrays must pass through even when "empty" so validation catches it.
+    if (Array.isArray(v)) { body[k] = v; continue; }
+    if (v === "" || v === undefined) continue;
+    body[k] = v;
   }
   if (!body.name) return res.status(400).json({ error: "Supplier name is required" });
-  if (!body.category) body.category = "Other";
 
-  const { data, error } = await supabase
-    .from("suppliers")
-    .insert(body)
-    .select()
-    .single();
+  // Default a single-type supplier to "Other" if no types/category supplied.
+  if (!body.category && !Array.isArray(body.service_types)) body.category = "Other";
+
+  const norm = applyServiceTypeFields(body);
+  if (!norm.ok) return res.status(400).json({ error: norm.error });
+
+  const { data, error } = await writeWithFallback("insert", norm.payload);
   if (error) return res.status(400).json({ error: error.message });
 
   await auditLog("create_supplier", "supplier", data.id, user.id,
-    `Created supplier ${data.name} (${data.category})`);
+    `Created supplier ${data.name} (${fmtTypes(data.service_types, data.primary_service_type ?? data.category)})`);
 
   return res.json(data);
 });
@@ -276,21 +423,42 @@ router.patch("/:id", async (req, res) => {
   if (!user) return res.status(401).json({ error: "Unauthorized" });
   const { id } = req.params;
 
+  // Pull the existing row so we can audit the diff and so applyServiceType
+  // can validate against the current array if the caller only sent primary.
+  const { data: existing, error: fetchErr } = await supabase
+    .from("suppliers")
+    .select("name, category, service_types, primary_service_type")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+  if (!existing) return res.status(404).json({ error: "Supplier not found" });
+
   const updates: Record<string, any> = {};
   for (const [k, v] of Object.entries(req.body)) {
-    if (SUPPLIER_COLUMNS.has(k)) updates[k] = v === "" ? null : v;
+    if (!SUPPLIER_COLUMNS.has(k)) continue;
+    if (Array.isArray(v)) { updates[k] = v; continue; }
+    updates[k] = v === "" ? null : v;
   }
 
-  const { data, error } = await supabase
-    .from("suppliers")
-    .update(updates)
-    .eq("id", id)
-    .select()
-    .single();
+  const norm = applyServiceTypeFields(updates, existing as any);
+  if (!norm.ok) return res.status(400).json({ error: norm.error });
+
+  const { data, error } = await writeWithFallback("update", norm.payload, id);
   if (error) return res.status(400).json({ error: error.message });
 
-  await auditLog("update_supplier", "supplier", id, user.id,
-    `Updated supplier ${data.name}`);
+  // Build a precise audit message — call out service-type changes
+  // explicitly because they're the most consequential edit a supplier can
+  // get and the new requirements call for full traceability.
+  const oldTypes = (existing as any).service_types as string[] | null;
+  const oldPrimary = (existing as any).primary_service_type ?? (existing as any).category;
+  const newTypes = data.service_types as string[] | null;
+  const newPrimary = data.primary_service_type ?? data.category;
+  const typesChanged =
+    fmtTypes(oldTypes, oldPrimary) !== fmtTypes(newTypes, newPrimary);
+  const message = typesChanged
+    ? `Updated supplier ${data.name} — service types: ${fmtTypes(oldTypes, oldPrimary)} → ${fmtTypes(newTypes, newPrimary)}`
+    : `Updated supplier ${data.name}`;
+  await auditLog("update_supplier", "supplier", id, user.id, message);
   return res.json(data);
 });
 
