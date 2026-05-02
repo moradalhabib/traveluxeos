@@ -100,7 +100,7 @@ const SEED = {
   drivers: [
     {
       id: "D1", name: "John Smith", staff_no: "S001", whatsapp: "+44111",
-      vehicle_type: "Executive Saloon", vehicle_model: "Mercedes E-Class",
+      vehicle_type: "Executive Saloon", vehicle_model: "Mercedes E-Class VIP",
       vehicle_year: 2023, plate: "AB12CDE", status: "active", avg_rating: [],
     },
     {
@@ -113,7 +113,7 @@ const SEED = {
   bookings: [
     {
       id: "B1", tvl_ref: "TVL-001", service_type: "Airport Transfer",
-      status: "Confirmed", pickup: "Heathrow T5", dropoff: "Mayfair",
+      status: "Confirmed", pickup: "Heathrow T5 VIP Lounge", dropoff: "Mayfair",
       flight_number: "BA123", date_time: "2026-05-10T10:00:00Z",
       price: 200, client_id: null, driver_id: "D1", clients: null,
     },
@@ -188,19 +188,25 @@ describe("GET /api/search — driver / plate lookups", () => {
     expect(bookingIds).toEqual(["B1", "B2"]);
   });
 
-  it("deduplicates bookings that match multiple passes", async () => {
-    // Heathrow matches B1 directly (pickup field) and also belongs to D1,
-    // but the third pass only fires if there's still room under `limit`
-    // and a driver matched. Here we use a query that surfaces the driver
-    // (so the third pass runs) AND matches a direct booking field.
-    // "Mercedes" matches drivers.vehicle_model (D1) and no booking direct
-    // field — but both B1 and B2 belong to D1, so they appear via pass 3.
-    // We then assert that the response has each booking exactly once.
-    const res = await request(app).get("/api/search").query({ q: "Mercedes" });
+  it("deduplicates bookings that match BOTH the direct pass AND the driver-id pass", async () => {
+    // The token "VIP" is deliberately seeded into TWO places that produce
+    // overlapping bookings:
+    //   • drivers.vehicle_model on D1 ("Mercedes E-Class VIP") → driver pass
+    //     surfaces every booking with driver_id=D1, i.e. B1 and B2.
+    //   • bookings.pickup on B1 ("Heathrow T5 VIP Lounge") → direct pass
+    //     surfaces B1 on its own.
+    // Without the de-dupe guard in src/routes/search.ts the response would
+    // contain B1 twice (once from each pass). This test pins that behaviour.
+    const res = await request(app).get("/api/search").query({ q: "VIP" });
 
     expect(res.status).toBe(200);
     const ids = res.body.bookings.map((b: { id: string }) => b.id);
-    expect(new Set(ids).size).toBe(ids.length);
+    // Both bookings present (B1 via direct pass, B2 via driver pass)…
+    expect(ids.sort()).toEqual(["B1", "B2"]);
+    // …and B1 appears exactly once even though it matched both passes.
+    expect(ids.filter((id: string) => id === "B1")).toHaveLength(1);
+    // Sanity-check the driver row is also returned (matched on vehicle_model).
+    expect(res.body.drivers.map((d: { id: string }) => d.id)).toEqual(["D1"]);
   });
 
   it("respects the per-group limit cap", async () => {
