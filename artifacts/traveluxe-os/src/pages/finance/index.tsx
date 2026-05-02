@@ -327,17 +327,20 @@ export default function Finance() {
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — horizontally scrollable so 6/7 tabs stay tappable on mobile.
+          The previous grid-cols-6/7 layout shrank each tab to ~14% of the
+          viewport, which broke the 44px touch-target rule and left labels
+          truncated on phones used in Egypt. */}
       <Tabs value={tab} onValueChange={setTab}>
-        <TabsList className={`w-full grid ${isSuperAdminOnly ? "grid-cols-7" : "grid-cols-6"} bg-card border border-border`}>
-          <TabsTrigger value="overview"   className="text-[10px] sm:text-xs">Overview</TabsTrigger>
-          <TabsTrigger value="services"   className="text-[10px] sm:text-xs">Services</TabsTrigger>
-          <TabsTrigger value="drivers"    className="text-[10px] sm:text-xs">Drivers</TabsTrigger>
-          <TabsTrigger value="suppliers"  className="text-[10px] sm:text-xs" data-testid="tab-finance-suppliers">Suppliers</TabsTrigger>
-          <TabsTrigger value="clients"    className="text-[10px] sm:text-xs">Clients</TabsTrigger>
-          <TabsTrigger value="analytics"  className="text-[10px] sm:text-xs">Analytics</TabsTrigger>
+        <TabsList className="w-full max-w-full overflow-x-auto flex gap-1 bg-card border border-border justify-start no-scrollbar">
+          <TabsTrigger value="overview"   className="text-xs px-3 py-2 flex-shrink-0">Overview</TabsTrigger>
+          <TabsTrigger value="services"   className="text-xs px-3 py-2 flex-shrink-0">Services</TabsTrigger>
+          <TabsTrigger value="drivers"    className="text-xs px-3 py-2 flex-shrink-0">Drivers</TabsTrigger>
+          <TabsTrigger value="suppliers"  className="text-xs px-3 py-2 flex-shrink-0" data-testid="tab-finance-suppliers">Suppliers</TabsTrigger>
+          <TabsTrigger value="clients"    className="text-xs px-3 py-2 flex-shrink-0">Clients</TabsTrigger>
+          <TabsTrigger value="analytics"  className="text-xs px-3 py-2 flex-shrink-0">Analytics</TabsTrigger>
           {isSuperAdminOnly && (
-            <TabsTrigger value="profit" className="text-[10px] sm:text-xs bg-primary/5 text-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+            <TabsTrigger value="profit" className="text-xs px-3 py-2 flex-shrink-0 bg-primary/5 text-primary data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
               Profit
             </TabsTrigger>
           )}

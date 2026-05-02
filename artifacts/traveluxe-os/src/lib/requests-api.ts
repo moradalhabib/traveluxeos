@@ -3,7 +3,23 @@ import { supabase } from "./supabase";
 
 const API_BASE = "/api";
 
-export type RequestStatus = "New" | "Following Up" | "Ready to Book" | "Converted" | "Declined" | "Expired";
+export type RequestStatus = "New" | "Following Up" | "Ready to Book" | "Converted" | "Declined" | "Expired" | "Cancelled";
+
+// Stock cancellation reasons offered in the cancel dialog. Operators can
+// also free-type a fuller note. Persisted on the request row so dashboard
+// drill-down + finance reporting can break down lost leads by cause.
+export const CANCELLATION_REASONS = [
+  "Price too high",
+  "Client changed mind",
+  "Booked elsewhere",
+  "Out of budget",
+  "Service unavailable",
+  "Trip postponed",
+  "No response from client",
+  "Duplicate request",
+  "Other",
+] as const;
+export type CancellationReason = (typeof CANCELLATION_REASONS)[number];
 export type RequestPriority = "Low" | "Medium" | "High" | "Urgent";
 export type RequestServiceType = "Airport Transfer" | "Tour" | "Car Rental" | "Apartment" | "Hotel" | "Other";
 
@@ -127,4 +143,23 @@ export const STATUS_STYLES: Record<RequestStatus, string> = {
   "Converted":      "bg-green-500/15 text-green-300 border-green-500/40",
   "Declined":       "bg-red-500/15 text-red-300 border-red-500/40",
   "Expired":        "bg-zinc-500/15 text-zinc-400 border-zinc-500/40",
+  "Cancelled":      "bg-rose-500/15 text-rose-300 border-rose-500/40",
 };
+
+// Helper exposed for the cancel dialog so the route can mark a request
+// Cancelled and capture the reason in one PUT — keeps the audit log
+// row consistent with the badge shown across the app.
+export function useCancelRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      authFetch(`/requests/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ status: "Cancelled", cancellation_reason: reason }),
+      }),
+    onSuccess: (_d, vars) => {
+      qc.invalidateQueries({ queryKey: ["requests"] });
+      qc.invalidateQueries({ queryKey: ["request", vars.id] });
+    },
+  });
+}

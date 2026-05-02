@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLocation, useSearch, Link } from "wouter";
 import { format, isToday, isTomorrow, startOfDay, endOfDay, addDays, isBefore, isAfter } from "date-fns";
-import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCircle, Plane, Trash2, CheckSquare, Building2 } from "lucide-react";
+import { AlertTriangle, MapPin, Plus, Car, Clock, Briefcase, X, Check, MessageCircle, Plane, Trash2, CheckSquare, Building2, Search, ChevronDown, ChevronRight, EyeOff, Eye, Rows3 } from "lucide-react";
+import { Input } from "@/components/ui/input";
 import { isSupplierDrivenJob } from "@/lib/supplierDriven";
 import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
@@ -262,11 +263,37 @@ export default function Jobs() {
   const unassignedOnly = unassignedFlag === "1";
   const setUnassignedOnly = (v: boolean) => setUnassignedFlag(v ? "1" : "0");
 
+  // Declutter additions — search across TVL ref / client / driver /
+  // pickup-dropoff / vehicle, plus an explicit "hide completed" default
+  // (operators rarely want to scroll past finished jobs), a compact-mode
+  // toggle for dense days, and per-day collapse state. All UI-local —
+  // intentionally not URL-persisted so they reset to a clean view on
+  // every visit.
+  const [searchQuery, setSearchQuery] = useState("");
+  const [hideCompleted, setHideCompleted] = useState(true);
+  const [compactMode, setCompactMode] = useState(false);
+  const [collapsedDays, setCollapsedDays] = useState<Record<string, boolean>>({});
+
   const filteredBookings = useMemo(() => {
     if (!bookings) return [];
     const now = new Date();
+    const q = searchQuery.trim().toLowerCase();
     return bookings.filter(b => {
       if (b.status === 'Cancelled') return false;
+      // Hide-completed default — flips off when operator explicitly
+      // filters by Completed (URL ?status=Completed) OR when there is
+      // an active search query (typing a TVL ref expects to find the
+      // job regardless of completion state — otherwise search results
+      // appear missing for no visible reason).
+      if (hideCompleted && !q && b.status === 'Completed' && statusFilter !== 'Completed') return false;
+      if (q) {
+        const hay = [
+          b.tvl_ref, (b as any).client_name, (b as any).driver_name,
+          b.pickup, (b as any).dropoff, (b as any).destination,
+          b.vehicle_type, (b as any).flight_number,
+        ].filter(Boolean).join(" ").toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
       if (unassignedOnly) {
         // Supplier-driven jobs are NOT "unassigned" — the supplier is
         // providing the vehicle, so the operator shouldn't be chased.
@@ -298,7 +325,7 @@ export default function Jobs() {
           return !isBefore(d, startOfDay(now));
       }
     });
-  }, [bookings, timeFilter, statusFilter, customFilter, unassignedOnly]);
+  }, [bookings, timeFilter, statusFilter, customFilter, unassignedOnly, searchQuery, hideCompleted]);
 
   // Urgent count is global across the visible (non-cancelled) bookings, not
   // the currently filtered view — so the count stays stable when the operator
@@ -494,6 +521,31 @@ export default function Jobs() {
         </div>
       )}
 
+      {/* Search bar — fast filter across ref / client / driver / route /
+          vehicle / flight. Kept on its own row so the touch target is
+          comfortable on mobile and visible at first glance. */}
+      <div className="relative">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          placeholder="Search TVL ref, client, driver, route, vehicle…"
+          className="pl-8 pr-8 h-9 text-sm bg-card border-border"
+          data-testid="input-jobs-search"
+        />
+        {searchQuery && (
+          <button
+            type="button"
+            onClick={() => setSearchQuery("")}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+            aria-label="Clear search"
+            data-testid="button-jobs-search-clear"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+
       {/* Filters + chips — single scrollable row */}
       <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
         {!statusFilter && (
@@ -522,6 +574,33 @@ export default function Jobs() {
             />
           </>
         )}
+        {/* Hide-completed + compact-mode toggles — small icon buttons so
+            they don't compete with the primary filters but still sit in
+            the same scrollable row for one-tap toggling. */}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setHideCompleted(v => !v)}
+          className={`h-8 px-2.5 text-[11px] flex-shrink-0 ${hideCompleted ? "border-border text-muted-foreground" : "border-primary/40 text-primary bg-primary/5"}`}
+          title={hideCompleted ? "Completed jobs hidden — click to show" : "Completed jobs visible — click to hide"}
+          data-testid="button-toggle-hide-completed"
+        >
+          {hideCompleted ? <EyeOff className="w-3 h-3 mr-1" /> : <Eye className="w-3 h-3 mr-1" />}
+          {hideCompleted ? "Completed hidden" : "Completed shown"}
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={() => setCompactMode(v => !v)}
+          className={`h-8 px-2.5 text-[11px] flex-shrink-0 ${compactMode ? "border-primary/40 text-primary bg-primary/5" : "border-border text-muted-foreground"}`}
+          title={compactMode ? "Compact rows" : "Standard rows"}
+          data-testid="button-toggle-compact"
+        >
+          <Rows3 className="w-3 h-3 mr-1" />
+          {compactMode ? "Compact" : "Standard"}
+        </Button>
         {(() => {
           const TIME_LABELS: Record<string, string> = { today: "Today", tomorrow: "Tomorrow", this_week: "This Week", all: "All Upcoming" };
           const chips: ActiveFilter[] = [];
@@ -542,16 +621,30 @@ export default function Jobs() {
       <div className="space-y-4">
         {isLoading ? (
           [...Array(4)].map((_, i) => <Skeleton key={i} className="h-28" />)
-        ) : filteredBookings.length > 0 ? groupedByDate.map((group) => (
+        ) : filteredBookings.length > 0 ? groupedByDate.map((group) => {
+          // Default-collapse rule: anything dated strictly before today
+          // (or "Date TBC") starts collapsed so the board opens on the
+          // operator's actionable horizon. Today, tomorrow, and future
+          // days expand by default. Operator override wins via state.
+          const isPast = group.sortKey !== "zzz" && group.sortKey < format(new Date(), "yyyy-MM-dd");
+          const defaultCollapsed = isPast || group.sortKey === "zzz";
+          const isCollapsed = collapsedDays[group.sortKey] ?? defaultCollapsed;
+          return (
           <div key={group.sortKey} className="space-y-1.5">
-            <div className="flex items-center gap-2 sticky top-0 bg-background/95 backdrop-blur-sm py-1 z-10">
-              <h2 className="text-[11px] font-bold text-primary uppercase tracking-widest">{group.label}</h2>
+            <button
+              type="button"
+              onClick={() => setCollapsedDays(prev => ({ ...prev, [group.sortKey]: !isCollapsed }))}
+              className="w-full flex items-center gap-2 sticky top-0 bg-background/95 backdrop-blur-sm py-1 z-10 hover:bg-secondary/20 rounded-md px-1 transition-colors"
+              data-testid={`day-toggle-${group.sortKey}`}
+            >
+              {isCollapsed ? <ChevronRight className="w-3 h-3 text-primary flex-shrink-0" /> : <ChevronDown className="w-3 h-3 text-primary flex-shrink-0" />}
+              <h2 className="text-[11px] font-bold text-primary uppercase tracking-widest text-left">{group.label}</h2>
               <div className="flex-1 h-px bg-border" />
               <Badge variant="outline" className="text-[10px] text-muted-foreground border-border">
                 {group.jobs.length}
               </Badge>
-            </div>
-            {group.jobs.map((job) => {
+            </button>
+            {!isCollapsed && group.jobs.map((job) => {
               const extras = (vehiclesByBooking.get(job.id) ?? []);
               // Compute supplier-driven once per card. The "No Driver"
               // warning, the WhatsApp link, and the staff-no chip all
@@ -892,7 +985,8 @@ export default function Jobs() {
               );
             })}
           </div>
-        )) : (
+          );
+        }) : (
           <div className="flex flex-col items-center justify-center py-16 text-center">
             <Briefcase className="w-12 h-12 text-muted-foreground/30 mb-4" />
             <p className="text-muted-foreground font-medium">No jobs for this period</p>

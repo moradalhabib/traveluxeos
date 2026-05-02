@@ -5,7 +5,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, BellRing, Car, Plane, Bell, X, Inbox } from "lucide-react";
+import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, BellRing, Car, Plane, Bell, X, Inbox, Building2 } from "lucide-react";
+import { isSupplierDrivenJob } from "@/lib/supplierDriven";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
@@ -167,9 +168,25 @@ export default function Dashboard() {
                       <span className="text-[10px] font-mono text-muted-foreground">{j.tvl_ref}</span>
                       <span className="text-xs font-semibold text-foreground truncate">{j.client_name ?? "—"}</span>
                     </div>
-                    {j.driver_name
-                      ? <p className="text-[10px] text-muted-foreground flex items-center gap-1"><Car className="w-3 h-3" />{j.driver_name}</p>
-                      : <p className="text-[10px] text-destructive font-medium">No driver assigned</p>}
+                    {(() => {
+                      // W1: when a third-party supplier is providing the
+                      // vehicle, show "Supplier · Vehicle" instead of the
+                      // "No driver" warning so the operator isn't chased
+                      // for a driver that was never expected.
+                      const supplierDriven = isSupplierDrivenJob(j as any);
+                      if (supplierDriven) {
+                        return (
+                          <p className="text-[10px] text-muted-foreground flex items-center gap-1">
+                            <Building2 className="w-3 h-3 text-primary" />
+                            {(j as any).supplier_name ?? "Supplier"}
+                            {(j as any).vehicle_type ? ` · ${(j as any).vehicle_type}` : ""}
+                          </p>
+                        );
+                      }
+                      return j.driver_name
+                        ? <p className="text-[10px] text-muted-foreground flex items-center gap-1"><Car className="w-3 h-3" />{j.driver_name}</p>
+                        : <p className="text-[10px] text-destructive font-medium">No driver assigned</p>;
+                    })()}
                   </div>
                   <ChevronRight className="w-3.5 h-3.5 text-amber-400/50 flex-shrink-0" />
                 </div>
@@ -367,6 +384,14 @@ export default function Dashboard() {
                           </span>
                           <BellRing className="w-3 h-3 text-green-400" />
                         </div>
+                      ) : isSupplierDrivenJob(j as any) ? (
+                        // W2: supplier-driven Today's Jobs cards show the
+                        // supplier company name instead of the missing-driver
+                        // warning — same rule as the Jobs board uses.
+                        <span className="text-[10px] text-foreground flex items-center gap-1">
+                          <Building2 className="w-3 h-3 text-primary" />
+                          <span className="truncate max-w-[110px]">{(j as any).supplier_name ?? "Supplier"}</span>
+                        </span>
                       ) : j.driver_name ? (
                         <span className="text-[10px] text-foreground flex items-center gap-1">
                           <Car className="w-3 h-3 text-muted-foreground" /> {j.driver_name}

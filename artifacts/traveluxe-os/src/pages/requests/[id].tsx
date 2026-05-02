@@ -3,8 +3,9 @@ import { useRoute, useLocation, Link } from "wouter";
 import { format, parseISO } from "date-fns";
 import {
   ArrowLeft, CalendarRange, Phone, Mail, Pencil, Save, X,
-  Trash2, ArrowRight, Loader2,
+  Trash2, ArrowRight, Loader2, Ban,
 } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
   useRequest, useUpdateRequest, useDeleteRequest, useConvertRequest,
+  useCancelRequest, CANCELLATION_REASONS,
   PRIORITY_STYLES, STATUS_STYLES,
 } from "@/lib/requests-api";
 import { ActivityPanel } from "@/components/activity/ActivityPanel";
@@ -36,10 +38,16 @@ export default function RequestDetail() {
   const update = useUpdateRequest();
   const remove = useDeleteRequest();
   const convert = useConvertRequest();
+  const cancel = useCancelRequest();
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<any>({});
   const [draftDetails, setDraftDetails] = useState<RequestDetails>({});
+  // Cancel dialog state — same shape as the follow-up cancel flow so the
+  // UX is identical regardless of which list the operator started from.
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelReason, setCancelReason] = useState<string>(CANCELLATION_REASONS[0]);
+  const [cancelNotes, setCancelNotes] = useState("");
 
   if (isLoading) return <Skeleton className="h-96" />;
   if (!r) return <div className="text-muted-foreground">Request not found.</div>;
@@ -79,6 +87,18 @@ export default function RequestDetail() {
     });
   };
 
+  const submitCancel = () => {
+    if (!id) return;
+    const reason = `${cancelReason}${cancelNotes.trim() ? ` — ${cancelNotes.trim()}` : ""}`;
+    cancel.mutate({ id, reason }, {
+      onSuccess: () => {
+        toast({ title: "Request cancelled", description: reason });
+        setCancelOpen(false);
+      },
+      onError: (e: any) => toast({ title: "Cancel failed", description: e?.message, variant: "destructive" }),
+    });
+  };
+
   const handleConvert = () => {
     if (!id) return;
     convert.mutate(id, {
@@ -114,6 +134,19 @@ export default function RequestDetail() {
               <Button variant="outline" onClick={startEdit}>
                 <Pencil className="w-4 h-4 mr-2" /> Edit
               </Button>
+              {/* Cancel button only on still-open requests — already-closed
+                  statuses (Converted, Declined, Expired, Cancelled) hide it
+                  to keep the action bar tidy. */}
+              {!["Converted", "Declined", "Expired", "Cancelled"].includes(r.status) && (
+                <Button
+                  variant="outline"
+                  onClick={() => { setCancelReason(CANCELLATION_REASONS[0]); setCancelNotes(""); setCancelOpen(true); }}
+                  className="text-rose-400 border-rose-500/30 hover:bg-rose-500/10"
+                  data-testid="button-cancel-request"
+                >
+                  <Ban className="w-4 h-4 mr-2" /> Cancel
+                </Button>
+              )}
               <Button variant="outline" onClick={handleDelete} className="text-red-400 border-red-500/30 hover:bg-red-500/10">
                 <Trash2 className="w-4 h-4 mr-2" /> Delete
               </Button>
@@ -206,6 +239,23 @@ export default function RequestDetail() {
                 </div>
               )}
 
+              {/* Cancellation reason banner — only when the request is
+                  Cancelled. Reads from the new column populated by the
+                  PUT /requests/:id route. */}
+              {r.status === "Cancelled" && (r as any).cancellation_reason && (
+                <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3">
+                  <div className="text-xs uppercase tracking-wider text-rose-300/80 mb-1 flex items-center gap-1.5">
+                    <Ban className="w-3 h-3" /> Cancellation reason
+                  </div>
+                  <p className="text-sm text-foreground whitespace-pre-wrap">{(r as any).cancellation_reason}</p>
+                  {(r as any).cancelled_at && (
+                    <p className="text-[11px] text-muted-foreground mt-1">
+                      Cancelled {format(parseISO((r as any).cancelled_at), "PPp")}
+                    </p>
+                  )}
+                </div>
+              )}
+
               {r.notes && (
                 <div>
                   <h4 className="text-xs uppercase tracking-wider text-muted-foreground mb-2">Notes</h4>
@@ -263,7 +313,7 @@ export default function RequestDetail() {
         </CardContent>
       </Card>
 
-      {!editing && r.status !== "Converted" && r.status !== "Declined" && (
+      {!editing && !["Converted", "Declined", "Cancelled", "Expired"].includes(r.status) && (
         <Card className="border-primary/30 bg-primary/5">
           <CardContent className="p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
@@ -291,6 +341,56 @@ export default function RequestDetail() {
           description="Status changes, edits, and conversions for this request."
         />
       )}
+
+      {/* Cancel dialog — required reason + optional free-text notes.
+          Server refuses without a reason so the radio always submits
+          something meaningful. */}
+      <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cancel Request</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <label className="text-sm font-medium text-foreground mb-2 block">Why is this request being cancelled?</label>
+              <div className="grid grid-cols-1 gap-1.5">
+                {CANCELLATION_REASONS.map(reason => (
+                  <button
+                    key={reason}
+                    onClick={() => setCancelReason(reason)}
+                    className={`text-left text-sm px-3 py-2 rounded-lg border transition-colors ${cancelReason === reason ? "bg-rose-500/10 border-rose-500/50 text-rose-300" : "border-border text-foreground hover:bg-secondary/30"}`}
+                    data-testid={`cancel-reason-${reason.replace(/\s+/g, "-").toLowerCase()}`}
+                  >
+                    {reason}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-foreground mb-2 block">Additional notes (optional)</label>
+              <Textarea
+                rows={3}
+                value={cancelNotes}
+                onChange={e => setCancelNotes(e.target.value)}
+                placeholder="Any extra context for the audit log…"
+                data-testid="input-cancel-notes"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setCancelOpen(false)}>Keep request</Button>
+            <Button
+              onClick={submitCancel}
+              disabled={cancel.isPending}
+              className="bg-rose-500 hover:bg-rose-600 text-white"
+              data-testid="button-confirm-cancel-request"
+            >
+              {cancel.isPending ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Ban className="w-4 h-4 mr-1.5" />}
+              Cancel request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -4,7 +4,7 @@ import { notifyByRoles, STAFF_ROLES } from "../services/notify";
 
 const router = Router();
 
-const VALID_STATUS = ["New","Following Up","Ready to Book","Converted","Declined","Expired"];
+const VALID_STATUS = ["New","Following Up","Ready to Book","Converted","Declined","Expired","Cancelled"];
 const VALID_PRIORITY = ["Low","Medium","High","Urgent"];
 const VALID_SERVICE = ["Airport Transfer","Tour","Car Rental","Apartment","Hotel","Other"];
 
@@ -145,6 +145,19 @@ router.put("/:id", async (req, res) => {
     return res.status(400).json({ error: "Invalid service_type" });
   }
 
+  // Cancelling a request requires a reason — same contract as follow-ups so
+  // the dashboard / finance reports can always surface the why behind a lost
+  // lead. Stamps cancelled_at + cancelled_by automatically.
+  if (body.status === "Cancelled") {
+    const reason = (body.cancellation_reason ?? "").toString().trim();
+    if (!reason) {
+      return res.status(400).json({ error: "cancellation_reason is required when cancelling a request" });
+    }
+    body.cancellation_reason = reason;
+    body.cancelled_at = new Date().toISOString();
+    body.cancelled_by = user?.id ?? null;
+  }
+
   const { data, error } = await supabase
     .from("requests")
     .update(body)
@@ -153,7 +166,12 @@ router.put("/:id", async (req, res) => {
     .single();
 
   if (error) return res.status(400).json({ error: error.message });
-  await auditLog("update_request", "request", req.params.id, user?.id ?? null, "Request updated");
+  await auditLog(
+    "update_request", "request", req.params.id, user?.id ?? null,
+    body.status === "Cancelled"
+      ? `Request cancelled — ${body.cancellation_reason}`
+      : "Request updated",
+  );
   return res.json({
     ...data,
     client_name: data.clients?.name ?? data.client_name,

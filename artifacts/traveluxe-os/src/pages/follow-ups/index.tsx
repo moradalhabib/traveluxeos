@@ -13,7 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   PhoneCall, MessageCircle, CheckCheck, RotateCcw, PhoneOff, Clock,
-  ChevronRight, AlertTriangle, X, ArrowLeft, TrendingUp, CalendarRange, Download, CheckSquare
+  ChevronRight, AlertTriangle, X, ArrowLeft, TrendingUp, CalendarRange, Download, CheckSquare, Ban
 } from "lucide-react";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
@@ -40,6 +40,7 @@ function statusColor(s: string) {
     case "done":          return "text-green-400 border-green-500/30 bg-green-500/10";
     case "booked_return": return "text-blue-400 border-blue-500/30 bg-blue-500/10";
     case "no_response":   return "text-muted-foreground border-border bg-secondary/30";
+    case "cancelled":     return "text-rose-400 border-rose-500/30 bg-rose-500/10";
     default:              return "text-muted-foreground border-border";
   }
 }
@@ -50,6 +51,7 @@ function statusLabel(s: string) {
     case "done":          return "Done";
     case "booked_return": return "Return Booked";
     case "no_response":   return "No Response";
+    case "cancelled":     return "Cancelled";
     default:              return s;
   }
 }
@@ -59,6 +61,20 @@ const DONE_REASONS = [
   "Extending stay",
   "Using another provider",
   "Client not contactable",
+  "Other",
+];
+
+// Cancellation reasons — kept consistent with the request-cancellation
+// taxonomy so dashboard reporting can roll up "lost lead reasons" across
+// requests and follow-ups in one query.
+const CANCEL_REASONS = [
+  "Client booked elsewhere",
+  "Client changed plans",
+  "Trip postponed",
+  "Pricing too high",
+  "No response after multiple attempts",
+  "Service unavailable",
+  "Duplicate follow-up",
   "Other",
 ];
 
@@ -90,6 +106,13 @@ export default function FollowUps() {
   const [doneReason, setDoneReason] = useState(DONE_REASONS[0]);
   const [doneNotes, setDoneNotes] = useState("");
   const [snoozeOpen, setSnoozeOpen] = useState<Record<string, boolean>>({});
+  // Cancel dialog mirrors the Done dialog — required reason + optional
+  // free-text. The PATCH route refuses without a reason so this state is
+  // always populated by the time submitCancel fires.
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelTarget, setCancelTarget] = useState<any>(null);
+  const [cancelReason, setCancelReason] = useState(CANCEL_REASONS[0]);
+  const [cancelNotes, setCancelNotes] = useState("");
 
   // The amber "X overdue · Y due today" banner is a read-only summary
   // driven by the API stats payload. Date filtering is done via the
@@ -206,6 +229,33 @@ export default function FollowUps() {
       { status: "done", notes: `Reason: ${doneReason}${doneNotes ? `\n${doneNotes}` : ""}` },
       "Follow-up marked done");
     setDoneOpen(false);
+  };
+
+  const openCancel = (fu: any) => {
+    setCancelTarget(fu);
+    setCancelReason(CANCEL_REASONS[0]);
+    setCancelNotes("");
+    setCancelOpen(true);
+  };
+
+  const submitCancel = async () => {
+    if (!cancelTarget) return;
+    const reason = `${cancelReason}${cancelNotes.trim() ? ` — ${cancelNotes.trim()}` : ""}`;
+    // Append to existing notes rather than overwriting — operator notes
+    // captured during the chase phase (price quotes, attempted dates,
+    // etc.) are valuable context and must never be destroyed by the
+    // cancel action. The cancellation_reason column is the source of
+    // truth for reporting; the notes-trail is for human context.
+    const existing = (cancelTarget.notes ?? "").toString().trim();
+    const stamp = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
+    const appended = `Cancelled (${stamp}): ${reason}`;
+    const mergedNotes = existing ? `${existing}\n\n${appended}` : appended;
+    await patchFollowUp(cancelTarget.id, {
+      status: "cancelled",
+      cancellation_reason: reason,
+      notes: mergedNotes,
+    }, "Follow-up cancelled");
+    setCancelOpen(false);
   };
 
   const handleBookReturn = async (fu: any) => {
@@ -405,6 +455,7 @@ export default function FollowUps() {
               { value: "done",          label: "Done" },
               { value: "booked_return", label: "Return Booked" },
               { value: "no_response",   label: "No Response" },
+              { value: "cancelled",     label: "Cancelled" },
             ]}
             widthClass="w-40"
             testId="filter-followups-status"
@@ -438,7 +489,7 @@ export default function FollowUps() {
         </div>
 
         {(() => {
-          const STATUS_LABELS: Record<string, string> = { pending: "Pending", all: "All", done: "Done", booked_return: "Return Booked", no_response: "No Response" };
+          const STATUS_LABELS: Record<string, string> = { pending: "Pending", all: "All", done: "Done", booked_return: "Return Booked", no_response: "No Response", cancelled: "Cancelled" };
           const DATE_LABELS: Record<string, string> = { all: "All dates", today: "Today", overdue: "Overdue", this_week: "This week" };
           const chips: ActiveFilter[] = [];
           if (statusFilter !== "pending") chips.push({ key: "status", label: "Status", value: STATUS_LABELS[statusFilter] ?? statusFilter, onClear: () => setStatusFilter("pending") });
@@ -633,6 +684,17 @@ export default function FollowUps() {
                           </div>
                         )}
                       </div>
+
+                      {/* Cancel — explicit lifecycle distinct from "No
+                          Response" / "Done". Captures a structured reason
+                          so finance can break down lost leads. */}
+                      <Button size="sm" variant="outline" disabled={busy}
+                        onClick={() => openCancel(fu)}
+                        className="h-8 px-2.5 text-[11px] text-rose-400 border-rose-500/30 hover:bg-rose-500/10"
+                        data-testid={`button-cancel-followup-${fu.id}`}>
+                        <Ban className="w-3 h-3 mr-1" />
+                        Cancel
+                      </Button>
                     </div>
                   ) : (
                     /* Completed state — show outcome + view booking link */
@@ -692,6 +754,50 @@ export default function FollowUps() {
             <Button variant="outline" onClick={() => setDoneOpen(false)}>Cancel</Button>
             <Button onClick={submitDone}>
               <CheckCheck className="w-4 h-4 mr-1.5" /> Save
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Cancel dialog — required reason + optional notes. Mirrors the
+          Done dialog so operators see one consistent pattern. */}
+      <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cancel Follow-Up</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <label className="text-sm font-medium text-foreground mb-2 block">Why is this follow-up being cancelled?</label>
+              <div className="grid grid-cols-1 gap-1.5">
+                {CANCEL_REASONS.map(r => (
+                  <button
+                    key={r}
+                    onClick={() => setCancelReason(r)}
+                    className={`text-left text-sm px-3 py-2 rounded-lg border transition-colors ${cancelReason === r ? "bg-rose-500/10 border-rose-500/50 text-rose-300" : "border-border text-foreground hover:bg-secondary/30"}`}
+                    data-testid={`cancel-reason-${r.replace(/\s+/g, "-").toLowerCase()}`}
+                  >
+                    {r}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-foreground mb-2 block">Additional notes (optional)</label>
+              <textarea
+                value={cancelNotes}
+                onChange={e => setCancelNotes(e.target.value)}
+                placeholder="Any extra context for the audit log…"
+                rows={3}
+                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-rose-500/30 resize-none"
+                data-testid="input-cancel-notes"
+              />
+            </div>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setCancelOpen(false)}>Keep follow-up</Button>
+            <Button onClick={submitCancel} className="bg-rose-500 hover:bg-rose-600 text-white" data-testid="button-confirm-cancel-followup">
+              <Ban className="w-4 h-4 mr-1.5" /> Cancel follow-up
             </Button>
           </DialogFooter>
         </DialogContent>

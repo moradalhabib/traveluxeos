@@ -188,7 +188,7 @@ async function sendUpcomingAlerts() {
 
   const { data: upcoming } = await schedDb()
     .from("bookings")
-    .select("id, tvl_ref, clients(name), service_type, date_time, driver_id, drivers(name)")
+    .select("id, tvl_ref, clients(name), service_type, date_time, driver_id, drivers(name), supplier_id, as_directed_supplier_driver, suppliers(name), vehicle_type")
     .in("status", ["Confirmed", "Pending"])
     .gte("date_time", lo)
     .lte("date_time", hi)
@@ -213,7 +213,18 @@ async function sendUpcomingAlerts() {
     const when = b.date_time
       ? new Date(b.date_time).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Europe/London" })
       : "—";
-    const driverLabel = driverName ? ` · ${driverName}` : " · Driver TBC";
+    // W4: supplier-driven jobs in the 1-hour push should show the supplier
+    // company instead of the misleading "Driver TBC" — the supplier is the
+    // one providing the vehicle, so chasing for a TVL driver is wrong.
+    const supplierDriven =
+      !!(b as any).as_directed_supplier_driver ||
+      (((b as any).supplier_id) && b.service_type === "Car Rental");
+    const supplierName = (b as any).suppliers?.name ?? null;
+    const driverLabel = supplierDriven && supplierName
+      ? ` · ${supplierName}${(b as any).vehicle_type ? ` (${(b as any).vehicle_type})` : ""}`
+      : driverName
+        ? ` · ${driverName}`
+        : " · Driver TBC";
     const clientName = (b as any).clients?.name ?? "—";
     const title = `Starting in ~1 hour — ${b.tvl_ref ?? ""}`;
     const body  = `${clientName} · ${b.service_type ?? "—"} at ${when}${driverLabel}`;
@@ -287,17 +298,25 @@ async function sendDailyDigest() {
 
   const { data: today } = await schedDb()
     .from("bookings")
-    .select("id, tvl_ref, clients(name), service_type, status, date_time, drivers(name)")
+    .select("id, tvl_ref, clients(name), service_type, status, date_time, drivers(name), supplier_id, as_directed_supplier_driver, suppliers(name), vehicle_type")
     .gte("date_time", startOfDay.toISOString())
     .lte("date_time", endOfDay.toISOString())
     .neq("status", "Cancelled")
     .order("date_time", { ascending: true });
 
+  // Unassigned digest excludes supplier-driven jobs — those are not waiting
+  // for a TVL driver and should never appear in the "needs assigning" list.
+  // The `as_directed_supplier_driver` column is new (May 2026 migration);
+  // legacy rows have NULL, so we use `.or(...is.null,...eq.false)` instead
+  // of `.eq(false)` to avoid silently dropping every pre-migration booking
+  // from the digest.
   const { data: unassigned } = await schedDb()
     .from("bookings")
-    .select("id, tvl_ref, clients(name), service_type, status, date_time, drivers(name)")
+    .select("id, tvl_ref, clients(name), service_type, status, date_time, drivers(name), supplier_id, as_directed_supplier_driver, suppliers(name), vehicle_type")
     .eq("status", "Confirmed")
     .is("driver_id", null)
+    .is("supplier_id", null)
+    .or("as_directed_supplier_driver.is.null,as_directed_supplier_driver.eq.false")
     .gte("date_time", new Date().toISOString())
     .order("date_time", { ascending: true })
     .limit(20);
@@ -311,7 +330,19 @@ async function sendDailyDigest() {
     .order("created_at", { ascending: true })
     .limit(20);
 
-  const todayRows = (today ?? []).map((b: any) => ({ ...b, driver_name: b.drivers?.name ?? null, client_name: b.clients?.name ?? null }));
+  // W5: digest table renders "Supplier · Vehicle" for supplier-driven jobs
+  // instead of an empty driver cell, so the morning email reads correctly
+  // without the operator chasing a phantom unassigned driver.
+  const supplierLabel = (b: any) => {
+    const sd = !!b.as_directed_supplier_driver || (b.supplier_id && b.service_type === "Car Rental");
+    if (!sd) return null;
+    const sn = b.suppliers?.name ?? "Supplier";
+    return `${sn}${b.vehicle_type ? ` (${b.vehicle_type})` : ""}`;
+  };
+  const todayRows = (today ?? []).map((b: any) => {
+    const sl = supplierLabel(b);
+    return { ...b, driver_name: sl ?? b.drivers?.name ?? null, client_name: b.clients?.name ?? null };
+  });
   const unassignedRows = (unassigned ?? []).map((b: any) => ({ ...b, driver_name: null, client_name: b.clients?.name ?? null }));
   const overdueRows = (overdueInv ?? []).map((i: any) => ({
     tvl_ref: i.invoice_number ?? i.bookings?.tvl_ref ?? "—",

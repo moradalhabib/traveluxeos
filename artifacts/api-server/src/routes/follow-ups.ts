@@ -309,6 +309,21 @@ router.patch("/:id", async (req, res) => {
     // Manual snooze — due_date passed in body
     updates.status = "pending";
     updates.due_date = due_date ?? addDays(1);
+  } else if (status === "cancelled") {
+    // Cancelling a follow-up always requires a reason. Mirrors the request
+    // cancel contract so the audit log + dashboard can break down lost
+    // leads consistently across both tables.
+    const reason = (req.body?.cancellation_reason ?? "").toString().trim();
+    if (!reason) {
+      return res.status(400).json({ error: "cancellation_reason is required when cancelling a follow-up" });
+    }
+    updates.status = "cancelled";
+    updates.cancellation_reason = reason;
+    updates.cancelled_at = new Date().toISOString();
+    updates.cancelled_by = user.id;
+    updates.completed_at = new Date().toISOString();
+    updates.completed_by = user.id;
+    if (notes !== undefined) updates.notes = notes;
   } else {
     if (status) updates.status = status;
     if (notes !== undefined) updates.notes = notes;

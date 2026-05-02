@@ -1176,7 +1176,12 @@ export default function BookingDetail() {
       payload.vehicle_type = editVehicle || undefined;
       payload.passengers = Number.isFinite(editPax) ? editPax : undefined;
       payload.luggage = Number.isFinite(editLuggage) ? editLuggage : undefined;
-      payload.tvl_commission = Number.isFinite(editTvlCommission) ? editTvlCommission : undefined;
+      // Round commission to 2dp at the wire so the Postgres NUMERIC column
+      // never stores £12.345 — finance reports and the per-driver pending
+      // total expect a clean penny value.
+      payload.tvl_commission = Number.isFinite(editTvlCommission)
+        ? Math.round(editTvlCommission * 100) / 100
+        : undefined;
       // Meet & Greet board + special requests apply to every transport-type
       // service (Airport Transfer, Tour, As Directed). Persist as null when
       // cleared so the column wipes cleanly instead of holding stale text.

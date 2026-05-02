@@ -27,7 +27,7 @@ import {
 } from "@/lib/requests-api";
 
 const STATUS_TABS: (RequestStatus | "All")[] = [
-  "All", "New", "Following Up", "Ready to Book", "Converted", "Declined", "Expired",
+  "All", "New", "Following Up", "Ready to Book", "Converted", "Declined", "Expired", "Cancelled",
 ];
 const PRIORITIES: (RequestPriority | "")[] = ["", "Urgent", "High", "Medium", "Low"];
 

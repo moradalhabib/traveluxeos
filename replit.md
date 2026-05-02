@@ -95,6 +95,23 @@ Then run `artifacts/traveluxe-os/migration-service-types.sql` and `artifacts/tra
 - `migration-booking-referral-split.sql` — adds `referral_partner_name`, `referral_commission_type`, `referral_commission_value` to `bookings` (Commission Split / TVL Net after referral).
 - `migration-supplier-balance.sql` — adds `supplier_paid_at`, `supplier_payment_ref` to `bookings` + partial index (Supplier Balance Tracker).
 
+**May 2026 batch — must run in Supabase SQL editor:**
+- `cancellation_status.sql` (in `artifacts/api-server/migrations/`) — adds `Cancelled` to `requests.status` + `follow_ups.status` enums and adds `cancellation_reason`, `cancelled_at`, `cancelled_by` columns. Required by the Cancel Request / Cancel Follow-Up flows (UI refuses to call without a structured reason).
+
+## Cancellation Lifecycle (May 2026)
+- **Requests** — `Cancelled` is now a first-class status alongside Declined / Expired. Cancel button on `/requests/:id` opens a dialog (radio reasons from `CANCELLATION_REASONS` + free-text). PUT `/api/requests/:id` validates that a reason is supplied; banner on the detail page surfaces `cancellation_reason` + `cancelled_at`.
+- **Follow-ups** — same shape: action row on each pending follow-up has a Cancel button → dialog with the same reason taxonomy → PATCH `/api/follow-ups/:id` writes `cancelled_at` / `cancelled_by` and refuses without a reason.
+- **Why a separate status, not just delete?** Deleting hides the lost lead from finance reporting. Cancelled rows stay queryable so we can roll up "lost lead reasons" across requests + follow-ups in one query.
+
+## Jobs Board Declutter (May 2026)
+- Search bar at top — fast text filter across TVL ref, client, driver, route, vehicle, flight number.
+- "Hide completed" toggle on by default (operators rarely scroll past finished jobs); auto-disables when the URL filters by `?status=Completed` so the completed view still works.
+- Compact / Standard row toggle.
+- Day-group headers are now collapsible buttons. Past days + "Date TBC" start collapsed so the board opens on the operator's actionable horizon.
+
+## Supplier-Driven Job Rendering (May 2026)
+- Dashboard "Starting soon" + "Today's Jobs", Services list, Jobs board upcoming strip, AND backend scheduler (1-hour push, 08:00 digest) now all read `supplier_id` + `as_directed_supplier_driver` and render the supplier company instead of "Driver TBC" / "No Driver" when the supplier is providing the vehicle. The "needs assigning" digest also excludes supplier-driven jobs so operators aren't chased for a phantom driver.
+
 For invite emails to deliver, configure SMTP in Supabase Dashboard → Auth → SMTP (or rely on Supabase's built-in email for low volume).
 
 Auto-features in schema:

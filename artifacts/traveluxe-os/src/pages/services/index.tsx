@@ -12,6 +12,7 @@ import {
   ArrowRight, PlaneTakeoff, Car, Map as MapIcon, Building2, Hotel,
   CalendarRange, Clock, CheckCircle2, Plus, Package, Tag, CheckSquare, Check
 } from "lucide-react";
+import { isSupplierDrivenJob } from "@/lib/supplierDriven";
 import { Link } from "wouter";
 import { useToast } from "@/hooks/use-toast";
 import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
@@ -88,6 +89,14 @@ interface Booking {
   payment_status: string | null;
   pickup: string | null;
   dropoff: string | null;
+  // W3: supplier-driven cards on the per-service drilldown should show the
+  // supplier name instead of an empty "🚘 —" line. These three columns
+  // power isSupplierDrivenJob() and the Building2 swap below.
+  supplier_id: string | null;
+  supplier_name: string | null;
+  as_directed_supplier_driver: boolean;
+  driver_id: string | null;
+  vehicle_type: string | null;
 }
 
 interface Product {
@@ -201,6 +210,12 @@ export default function Services() {
     payment_status: b.payment_status ?? null,
     pickup: b.pickup ?? null,
     dropoff: b.dropoff ?? null,
+    // Supplier-driven enrichment — see Booking interface for context.
+    supplier_id: b.supplier_id ?? null,
+    supplier_name: b.supplier_name ?? b.suppliers?.name ?? null,
+    as_directed_supplier_driver: !!b.as_directed_supplier_driver,
+    driver_id: b.driver_id ?? null,
+    vehicle_type: b.vehicle_type ?? null,
   });
 
   const bookings: Booking[] = useMemo(
@@ -619,9 +634,23 @@ export default function Services() {
                                     </span>
                                   )}
                                 </div>
-                                {booking.driver_name && (
-                                  <div className="text-xs text-muted-foreground mt-1">🚘 {booking.driver_name}</div>
-                                )}
+                                {(() => {
+                                  // W3: prefer the supplier company on
+                                  // supplier-driven jobs; fall back to the
+                                  // TVL driver line on driver-led jobs.
+                                  if (isSupplierDrivenJob(booking)) {
+                                    return (
+                                      <div className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                                        <Building2 className="w-3 h-3 text-primary" />
+                                        <span className="truncate">{booking.supplier_name ?? "Supplier"}</span>
+                                        {booking.vehicle_type ? <span> · {booking.vehicle_type}</span> : null}
+                                      </div>
+                                    );
+                                  }
+                                  return booking.driver_name
+                                    ? <div className="text-xs text-muted-foreground mt-1">🚘 {booking.driver_name}</div>
+                                    : null;
+                                })()}
                               </div>
                               <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
                                 <Badge variant="outline" className={`text-[10px] ${STATUS_COLORS[booking.status] ?? "border-border text-muted-foreground"}`}>

@@ -123,7 +123,7 @@ router.get("/summary", async (_req, res) => {
   todayEnd.setHours(23, 59, 59, 999);
   const { data: todaysJobsRaw } = await supabase
     .from("bookings")
-    .select("id, tvl_ref, service_type, direction, pickup, dropoff, date_time, status, driver_id, client_id, vehicle_type, flight_number")
+    .select("id, tvl_ref, service_type, direction, pickup, dropoff, date_time, status, driver_id, client_id, vehicle_type, flight_number, supplier_id, as_directed_supplier_driver, suppliers(name)")
     .gte("date_time", now.toISOString())
     .lte("date_time", todayEnd.toISOString())
     .neq("status", "Cancelled")
@@ -188,6 +188,13 @@ router.get("/summary", async (_req, res) => {
       client_vip_tier: todayJobClientMap[b.client_id]?.vip_tier ?? null,
       driver_name: todayJobDriverMap[b.driver_id]?.name ?? null,
       driver_id: b.driver_id,
+      // Supplier-driven context (W1-W5): the dashboard's Today's Jobs and
+      // Starting-Soon strips both need to show "Supplier · Vehicle" instead
+      // of "No driver" when a third-party supplier is providing the car.
+      // Without these fields the frontend can't run isSupplierDrivenJob().
+      supplier_id: b.supplier_id ?? null,
+      supplier_name: (b as any).suppliers?.name ?? null,
+      as_directed_supplier_driver: !!b.as_directed_supplier_driver,
     };
   });
 

@@ -1,6 +1,7 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
 import pinoHttp from "pino-http";
+import { jwtVerify } from "jose";
 import router from "./routes";
 import { logger } from "./lib/logger";
 import cookieParser from "cookie-parser";
@@ -37,7 +38,21 @@ app.use(express.urlencoded({ extended: true }));
 // Paths are relative to the /api mount point (req.path strips the /api prefix).
 const PUBLIC_PATHS = ["/health", "/auth"];
 
-function requireJwt(req: Request, res: Response, next: NextFunction): void {
+// HS256-shared-secret JWT verification against Supabase's signing key. The
+// secret lives in SUPABASE_JWT_SECRET (from the Supabase dashboard → Settings
+// → API → JWT Secret). When unset we still enforce the expiry check on the
+// decoded payload and log a one-shot warning on boot so the operator can fix
+// it; the per-request supabase client also re-validates the token via the
+// auth API for sensitive routes (getUserFromToken), so this layer is a fast
+// gate, not the only line of defence.
+const JWT_SECRET_RAW = (process.env.SUPABASE_JWT_SECRET || "").trim();
+const JWT_SECRET = JWT_SECRET_RAW ? new TextEncoder().encode(JWT_SECRET_RAW) : null;
+let warnedMissingJwtSecret = false;
+if (!JWT_SECRET) {
+  // Defer to first request so unit tests / build don't spam the log.
+}
+
+async function requireJwt(req: Request, res: Response, next: NextFunction): Promise<void> {
   const path = req.path;
   if (PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "/"))) {
     return next();
@@ -50,9 +65,30 @@ function requireJwt(req: Request, res: Response, next: NextFunction): void {
   }
 
   const token = authHeader.slice(7);
+
+  if (JWT_SECRET) {
+    try {
+      // Full HS256 signature + exp check via jose. Rejects forged tokens
+      // even if the upstream RLS rules are misconfigured.
+      await jwtVerify(token, JWT_SECRET, { algorithms: ["HS256"] });
+    } catch (err: any) {
+      const code = err?.code === "ERR_JWT_EXPIRED" ? "Token expired" : "Invalid token";
+      res.status(401).json({ error: code });
+      return;
+    }
+    return next();
+  }
+
+  // No secret configured — fall back to decode-only with an exp check.
+  if (!warnedMissingJwtSecret) {
+    warnedMissingJwtSecret = true;
+    logger.warn(
+      "SUPABASE_JWT_SECRET is not set — JWT signatures cannot be verified at " +
+      "the API edge. Set the secret from your Supabase dashboard for full " +
+      "verification.",
+    );
+  }
   try {
-    // Decode the JWT payload (without signature verification — Supabase RLS
-    // enforces row-level auth; here we simply reject obviously invalid tokens).
     const payloadB64 = token.split(".")[1];
     if (!payloadB64) throw new Error("Malformed token");
     const payload = JSON.parse(Buffer.from(payloadB64, "base64url").toString("utf8"));

@@ -23,6 +23,7 @@
     "drizzle-orm": "catalog:",
     "express": "^5",
     "google-auth-library": "^10.6.2",
+    "jose": "^6.2.3",
     "node-fetch": "^3.3.2",
     "nodemailer": "^8.0.5",
     "pdfkit": "^0.18.0",
