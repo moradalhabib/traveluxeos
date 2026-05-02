@@ -1394,6 +1394,45 @@ export const GlobalSearchResponse = zod.object({
       })
       .describe("Minimal supplier shape for the global search palette."),
   ),
+  requests: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        client_name: zod.string().nullish(),
+        service_type: zod.string().nullish(),
+        status: zod.string().nullish(),
+        priority: zod.string().nullish(),
+        follow_up_date: zod.string().nullish(),
+      })
+      .describe(
+        'Minimal request shape for the global search palette. The historical\n\"quotes\" entity was renamed to \"requests\"; this is what the palette\nsurfaces under the Requests heading.\n',
+      ),
+  ),
+  invoices: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        invoice_number: zod.string(),
+        booking_id: zod.string().nullish(),
+        tvl_ref: zod.string().nullish(),
+        client_name: zod.string().nullish(),
+        status: zod.string().nullish(),
+        total_amount: zod.number().nullish(),
+      })
+      .describe("Minimal invoice shape for the global search palette."),
+  ),
+  tasks: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        title: zod.string(),
+        priority: zod.string().nullish(),
+        completed: zod.boolean().nullish(),
+        due_date: zod.string().nullish(),
+        assigned_to_name: zod.string().nullish(),
+      })
+      .describe("Minimal task shape for the global search palette."),
+  ),
 });
 
 /**

@@ -4,8 +4,8 @@ import { supabase } from "../lib/supabase";
 const router = Router();
 
 // Global search endpoint backing two surfaces:
-//   1. The dedicated /search page (default `limit` of 10, three groups consumed).
-//   2. The Cmd/Ctrl+K command palette (passes ?limit=5, four groups consumed).
+//   1. The dedicated /search page (default `limit` of 10, all groups consumed).
+//   2. The Cmd/Ctrl+K command palette (passes ?limit=5, all groups consumed).
 //
 // Auth: this route inherits the per-request user JWT via authStorage in
 // ../lib/supabase, so every query runs under the operator's RLS policies —
@@ -20,7 +20,15 @@ router.get("/", async (req, res) => {
     ? Math.min(20, Math.max(1, Math.trunc(rawLimit)))
     : 5;
 
-  const empty = { clients: [], bookings: [], drivers: [], suppliers: [] };
+  const empty = {
+    clients: [],
+    bookings: [],
+    drivers: [],
+    suppliers: [],
+    requests: [],
+    invoices: [],
+    tasks: [],
+  };
   if (!q || q.length < 2) {
     return res.json(empty);
   }
@@ -36,6 +44,9 @@ router.get("/", async (req, res) => {
     bookingsAllRes,
     driversRes,
     suppliersRes,
+    requestsRes,
+    invoicesAllRes,
+    tasksRes,
   ] = await Promise.all([
     // Clients — server-side ilike + limit. Excludes merged duplicates.
     supabase
@@ -80,6 +91,39 @@ router.get("/", async (req, res) => {
       .eq("is_active", true)
       .ilike("name", ilike)
       .limit(limit),
+
+    // Requests — operator's working backlog (the legacy "quotes" entity was
+    // renamed to requests; this group is surfaced under the "Requests"
+    // heading in the palette / search page). Match on client_name or notes.
+    supabase
+      .from("requests")
+      .select(
+        "id, client_name, service_type, status, priority, follow_up_date, clients(name)"
+      )
+      .or(`client_name.ilike.${ilike},notes.ilike.${ilike}`)
+      .limit(limit),
+
+    // Invoices — invoice_number direct match (e.g. INV-0123). A second pass
+    // below resolves matches via the joined booking's tvl_ref so an operator
+    // can paste a TVL ref and still see the matching invoice.
+    supabase
+      .from("invoices")
+      .select(
+        "id, invoice_number, booking_id, status, total_amount, bookings(tvl_ref, client_id, clients(name))"
+      )
+      .ilike("invoice_number", ilike)
+      .limit(limit),
+
+    // Tasks — search by title. Tasks have no dedicated detail page yet; the
+    // palette item closes and routes to /admin as a sensible fallback (see
+    // the command-palette component for the navigation).
+    supabase
+      .from("tasks")
+      .select(
+        "id, title, priority, completed, due_date, assigned_to, users!tasks_assigned_to_fkey(name)"
+      )
+      .ilike("title", ilike)
+      .limit(limit),
   ]);
 
   const clients = clientsRes.data ?? [];
@@ -92,7 +136,7 @@ router.get("/", async (req, res) => {
   const bookingSelect =
     "id, tvl_ref, service_type, status, pickup, dropoff, flight_number, date_time, price, client_id, clients(name, vip_tier)";
 
-  let bookings = bookingsAllRes.data ?? [];
+  let bookings: any[] = bookingsAllRes.data ?? [];
   const seen = new Set(bookings.map((b: any) => b.id));
 
   // Second pass: bookings whose match lives on the joined client name.
@@ -154,7 +198,75 @@ router.get("/", async (req, res) => {
     contact_name: s.contact_name ?? null,
   }));
 
-  return res.json({ clients, bookings, drivers, suppliers });
+  const requests = (requestsRes.data ?? []).map((r: any) => ({
+    id: r.id,
+    client_name: r.clients?.name ?? r.client_name ?? null,
+    service_type: r.service_type ?? null,
+    status: r.status ?? null,
+    priority: r.priority ?? null,
+    follow_up_date: r.follow_up_date ?? null,
+  }));
+
+  // Invoice second pass: resolve INV rows whose match comes from the joined
+  // booking's tvl_ref (PostgREST can't OR a parent column with a foreign-
+  // table column in one query, same pattern as bookings above).
+  let invoices: any[] = invoicesAllRes.data ?? [];
+  const invSeen = new Set(invoices.map((i: any) => i.id));
+  if (invoices.length < limit) {
+    const { data: byTvl } = await supabase
+      .from("bookings")
+      .select("id, tvl_ref, client_id, clients(name)")
+      .ilike("tvl_ref", ilike)
+      .limit(limit);
+    const bookingIds = (byTvl ?? []).map((b: any) => b.id);
+    if (bookingIds.length > 0) {
+      const { data: byBooking } = await supabase
+        .from("invoices")
+        .select(
+          "id, invoice_number, booking_id, status, total_amount, bookings(tvl_ref, client_id, clients(name))"
+        )
+        .in("booking_id", bookingIds)
+        .limit(limit);
+      for (const inv of byBooking ?? []) {
+        if (!invSeen.has(inv.id) && invoices.length < limit) {
+          invoices.push(inv);
+          invSeen.add(inv.id);
+        }
+      }
+    }
+  }
+
+  invoices = invoices.slice(0, limit).map((inv: any) => ({
+    id: inv.id,
+    invoice_number: inv.invoice_number,
+    booking_id: inv.booking_id ?? null,
+    tvl_ref: inv.bookings?.tvl_ref ?? null,
+    client_name: inv.bookings?.clients?.name ?? null,
+    status: inv.status ?? null,
+    total_amount:
+      inv.total_amount !== null && inv.total_amount !== undefined
+        ? Number(inv.total_amount)
+        : null,
+  }));
+
+  const tasks = (tasksRes.data ?? []).map((t: any) => ({
+    id: t.id,
+    title: t.title,
+    priority: t.priority ?? null,
+    completed: t.completed ?? null,
+    due_date: t.due_date ?? null,
+    assigned_to_name: t.users?.name ?? null,
+  }));
+
+  return res.json({
+    clients,
+    bookings,
+    drivers,
+    suppliers,
+    requests,
+    invoices,
+    tasks,
+  });
 });
 
 export default router;

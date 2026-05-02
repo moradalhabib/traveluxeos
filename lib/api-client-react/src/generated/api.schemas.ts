@@ -432,11 +432,54 @@ export interface SearchSupplier {
   contact_name?: string | null;
 }
 
+/**
+ * Minimal request shape for the global search palette. The historical
+"quotes" entity was renamed to "requests"; this is what the palette
+surfaces under the Requests heading.
+
+ */
+export interface SearchRequest {
+  id: string;
+  client_name?: string | null;
+  service_type?: string | null;
+  status?: string | null;
+  priority?: string | null;
+  follow_up_date?: string | null;
+}
+
+/**
+ * Minimal invoice shape for the global search palette.
+ */
+export interface SearchInvoice {
+  id: string;
+  invoice_number: string;
+  booking_id?: string | null;
+  tvl_ref?: string | null;
+  client_name?: string | null;
+  status?: string | null;
+  total_amount?: number | null;
+}
+
+/**
+ * Minimal task shape for the global search palette.
+ */
+export interface SearchTask {
+  id: string;
+  title: string;
+  priority?: string | null;
+  completed?: boolean | null;
+  due_date?: string | null;
+  assigned_to_name?: string | null;
+}
+
 export interface SearchResults {
   clients: Client[];
   bookings: Booking[];
   drivers: Driver[];
   suppliers: SearchSupplier[];
+  requests: SearchRequest[];
+  invoices: SearchInvoice[];
+  tasks: SearchTask[];
 }
 
 export interface OperatorPerformance {

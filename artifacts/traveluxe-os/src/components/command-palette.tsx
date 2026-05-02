@@ -18,6 +18,9 @@ import {
   Users,
   Car,
   Building2,
+  ClipboardList,
+  Receipt,
+  CheckSquare,
   Loader2,
 } from "lucide-react";
 
@@ -92,7 +95,10 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     !data.bookings.length &&
     !data.clients.length &&
     !data.drivers.length &&
-    !data.suppliers.length;
+    !data.suppliers.length &&
+    !data.requests.length &&
+    !data.invoices.length &&
+    !data.tasks.length;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -115,7 +121,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               autoFocus
               value={q}
               onValueChange={setQ}
-              placeholder="Search bookings, clients, drivers, suppliers…"
+              placeholder="Search bookings, clients, drivers, suppliers, requests, invoices, tasks…"
               className="flex-1"
               data-testid="palette-input"
             />
@@ -135,7 +141,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           <CommandList className="max-h-[calc(100dvh-3.5rem)] sm:max-h-[60vh]">
             {!enabled && (
               <div className="px-4 py-10 text-center text-sm text-muted-foreground">
-                Type a TVL ref, client, driver, or supplier name
+                Type a TVL/INV ref, client, driver, supplier, request, or task
               </div>
             )}
 
@@ -251,6 +257,100 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                           <div className="text-xs text-muted-foreground truncate">
                             Supplier ·{" "}
                             {s.primary_service_type ?? s.contact_name ?? "—"}
+                          </div>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
+
+                {/* Requests — the legacy "quotes" entity was renamed to
+                    requests; this group is what an operator means when they
+                    say "find that quote". */}
+                {data.requests.length > 0 && (
+                  <CommandGroup heading="Requests">
+                    {data.requests.map((r) => (
+                      <CommandItem
+                        key={r.id}
+                        value={`request-${r.id}-${r.client_name ?? ""}`}
+                        onSelect={() => navigate(`/requests/${r.id}`)}
+                        data-testid={`palette-request-${r.id}`}
+                      >
+                        <ClipboardList className="text-muted-foreground" />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">
+                            {r.client_name ?? "Unassigned"}
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            Request ·{" "}
+                            {[r.service_type, r.status, r.priority]
+                              .filter(Boolean)
+                              .join(" · ") || "—"}
+                          </div>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
+
+                {data.invoices.length > 0 && (
+                  <CommandGroup heading="Invoices">
+                    {data.invoices.map((inv) => (
+                      <CommandItem
+                        key={inv.id}
+                        value={`invoice-${inv.id}-${inv.invoice_number}`}
+                        onSelect={() => navigate(`/invoices/${inv.id}`)}
+                        data-testid={`palette-invoice-${inv.id}`}
+                      >
+                        <Receipt className="text-muted-foreground" />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">
+                            {inv.invoice_number}
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            Invoice ·{" "}
+                            {[
+                              inv.tvl_ref,
+                              inv.client_name,
+                              inv.status,
+                              inv.total_amount != null
+                                ? `£${inv.total_amount}`
+                                : null,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ") || "—"}
+                          </div>
+                        </div>
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                )}
+
+                {/* Tasks — there is no dedicated /tasks board route in this
+                    app yet, so selecting a task closes the palette and lands
+                    the operator on the admin surface (closest place where
+                    operational follow-up lives). */}
+                {data.tasks.length > 0 && (
+                  <CommandGroup heading="Tasks">
+                    {data.tasks.map((t) => (
+                      <CommandItem
+                        key={t.id}
+                        value={`task-${t.id}-${t.title}`}
+                        onSelect={() => navigate(`/admin`)}
+                        data-testid={`palette-task-${t.id}`}
+                      >
+                        <CheckSquare className="text-muted-foreground" />
+                        <div className="flex-1 min-w-0">
+                          <div className="font-medium truncate">{t.title}</div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            Task ·{" "}
+                            {[
+                              t.completed ? "Completed" : "Open",
+                              t.priority,
+                              t.assigned_to_name,
+                            ]
+                              .filter(Boolean)
+                              .join(" · ") || "—"}
                           </div>
                         </div>
                       </CommandItem>

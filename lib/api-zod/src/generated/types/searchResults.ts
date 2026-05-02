@@ -8,11 +8,17 @@
 import type { Booking } from "./booking";
 import type { Client } from "./client";
 import type { Driver } from "./driver";
+import type { SearchInvoice } from "./searchInvoice";
+import type { SearchRequest } from "./searchRequest";
 import type { SearchSupplier } from "./searchSupplier";
+import type { SearchTask } from "./searchTask";
 
 export interface SearchResults {
   clients: Client[];
   bookings: Booking[];
   drivers: Driver[];
   suppliers: SearchSupplier[];
+  requests: SearchRequest[];
+  invoices: SearchInvoice[];
+  tasks: SearchTask[];
 }

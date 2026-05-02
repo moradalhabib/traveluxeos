@@ -1810,7 +1810,19 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/SearchSupplier"
-      required: [clients, bookings, drivers, suppliers]
+        requests:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchRequest"
+        invoices:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchInvoice"
+        tasks:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchTask"
+      required: [clients, bookings, drivers, suppliers, requests, invoices, tasks]
 
     SearchSupplier:
       type: object
@@ -1827,6 +1839,79 @@ components:
           type: string
           nullable: true
       required: [id, company_name]
+
+    SearchRequest:
+      type: object
+      description: |
+        Minimal request shape for the global search palette. The historical
+        "quotes" entity was renamed to "requests"; this is what the palette
+        surfaces under the Requests heading.
+      properties:
+        id:
+          type: string
+        client_name:
+          type: string
+          nullable: true
+        service_type:
+          type: string
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        priority:
+          type: string
+          nullable: true
+        follow_up_date:
+          type: string
+          nullable: true
+      required: [id]
+
+    SearchInvoice:
+      type: object
+      description: Minimal invoice shape for the global search palette.
+      properties:
+        id:
+          type: string
+        invoice_number:
+          type: string
+        booking_id:
+          type: string
+          nullable: true
+        tvl_ref:
+          type: string
+          nullable: true
+        client_name:
+          type: string
+          nullable: true
+        status:
+          type: string
+          nullable: true
+        total_amount:
+          type: number
+          nullable: true
+      required: [id, invoice_number]
+
+    SearchTask:
+      type: object
+      description: Minimal task shape for the global search palette.
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        priority:
+          type: string
+          nullable: true
+        completed:
+          type: boolean
+          nullable: true
+        due_date:
+          type: string
+          nullable: true
+        assigned_to_name:
+          type: string
+          nullable: true
+      required: [id, title]
 
     FinanceSummary:
       type: object
