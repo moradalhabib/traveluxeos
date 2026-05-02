@@ -214,3 +214,27 @@ export function useReopenRequest() {
     },
   });
 }
+
+// Same shape for follow-ups. The PATCH route detects cancelled→pending,
+// appends the audit line server-side, clears completed_at/_by, and
+// preserves cancellation_reason / cancelled_at. Lives here (alongside
+// useReopenRequest) so the cancellation-lifecycle helpers stay in one
+// place even though the follow-ups page otherwise uses a raw fetch helper.
+export function useReopenFollowUp() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      authFetch(`/follow-ups/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: "pending" }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lost-lead-stats"] });
+      // Broad invalidation for the follow-ups page (which doesn't use
+      // react-query for its list) is unnecessary — that page calls
+      // fetchData() after the mutation. The dashboard summary key is
+      // also invalidated by the page's own success path, so we only need
+      // the cross-page lost-lead rollup here.
+    },
+  });
+}
