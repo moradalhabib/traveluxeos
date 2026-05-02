@@ -271,10 +271,13 @@ export default function FollowUps() {
   // Server detects the cancelled→pending transition, appends a
   // "Re-opened (…) — was cancelled for: <reason>" audit line to notes,
   // and clears completed_at/_by so dashboard counters treat it as live
-  // again. cancellation_reason / cancelled_at stay on record.
+  // again. cancellation_reason / cancelled_at stay on record. We also
+  // invalidate the Analytics lost-lead rollup so the chart reflects the
+  // recovered lead immediately.
   const submitReopen = async () => {
     if (!reopenTarget) return;
     await patchFollowUp(reopenTarget.id, { status: "pending" }, "Follow-up re-opened");
+    qc.invalidateQueries({ queryKey: ["lost-lead-stats"] });
     setReopenOpen(false);
   };
 
