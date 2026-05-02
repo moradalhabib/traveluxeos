@@ -123,11 +123,34 @@ router.get("/:id", async (req, res) => {
     .single();
 
   if (error || !data) return res.status(404).json({ error: "Request not found" });
+
+  // Hydrate the cancelling operator's display name + email so the banner
+  // on /requests/:id can show "Cancelled by Sara A." with an email tooltip.
+  // Read-only, optional join — soft-deleted users already have name="[removed]"
+  // and a safe email placeholder (see routes/users.ts), so we never leak the
+  // original email of removed staff. Falls back to nulls when the actor row
+  // is missing (e.g. legacy cancellations from before cancelled_by existed).
+  let cancelled_by_name: string | null = null;
+  let cancelled_by_email: string | null = null;
+  if ((data as any).cancelled_by) {
+    const { data: actor } = await supabase
+      .from("users")
+      .select("name, email")
+      .eq("id", (data as any).cancelled_by)
+      .maybeSingle();
+    if (actor) {
+      cancelled_by_name = (actor as any).name ?? null;
+      cancelled_by_email = (actor as any).email ?? null;
+    }
+  }
+
   return res.json({
     ...data,
     client_name: data.clients?.name ?? data.client_name,
     client_whatsapp: data.clients?.whatsapp ?? null,
     client_email: data.clients?.email ?? null,
+    cancelled_by_name,
+    cancelled_by_email,
     clients: undefined,
   });
 });

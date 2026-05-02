@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   PhoneCall, MessageCircle, CheckCheck, RotateCcw, PhoneOff, Clock,
   ChevronRight, AlertTriangle, X, ArrowLeft, TrendingUp, CalendarRange, Download, CheckSquare, Ban
@@ -735,32 +736,79 @@ export default function FollowUps() {
                     /* Completed state — show outcome + view booking link.
                        Cancelled rows additionally surface a Re-open
                        affordance so operators can revive a lost lead
-                       without going via the database. */
-                    <div className="flex items-center justify-between pt-2 border-t border-border/50 gap-2">
-                      <span className="text-[11px] text-muted-foreground">
-                        {fu.completed_at
-                          ? `${statusLabel(fu.status)} · ${format(new Date(fu.completed_at), "dd MMM yyyy")}`
-                          : statusLabel(fu.status)}
-                      </span>
-                      <div className="flex items-center gap-2">
-                        {fu.status === "cancelled" && (
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            disabled={busy}
-                            onClick={() => openReopen(fu)}
-                            className="h-7 text-[11px] text-amber-300 border-amber-500/40 hover:bg-amber-500/10"
-                            data-testid={`button-reopen-followup-${fu.id}`}
-                          >
-                            <RotateCcw className="w-3 h-3 mr-1" /> Re-open
-                          </Button>
-                        )}
-                        <Link href={`/bookings/${fu.booking_id}`}>
-                          <Button size="sm" variant="outline" className="h-7 text-[11px]">
-                            View booking <ChevronRight className="w-3 h-3 ml-1" />
-                          </Button>
-                        </Link>
+                       without going via the database, plus a single-line
+                       audit attribution showing who pulled the trigger. */
+                    <div className="pt-2 border-t border-border/50 space-y-1.5">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-muted-foreground">
+                          {fu.completed_at
+                            ? `${statusLabel(fu.status)} · ${format(new Date(fu.completed_at), "dd MMM yyyy")}`
+                            : statusLabel(fu.status)}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          {fu.status === "cancelled" && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={busy}
+                              onClick={() => openReopen(fu)}
+                              className="h-7 text-[11px] text-amber-300 border-amber-500/40 hover:bg-amber-500/10"
+                              data-testid={`button-reopen-followup-${fu.id}`}
+                            >
+                              <RotateCcw className="w-3 h-3 mr-1" /> Re-open
+                            </Button>
+                          )}
+                          <Link href={`/bookings/${fu.booking_id}`}>
+                            <Button size="sm" variant="outline" className="h-7 text-[11px]">
+                              View booking <ChevronRight className="w-3 h-3 ml-1" />
+                            </Button>
+                          </Link>
+                        </div>
                       </div>
+                      {/* Cancellation audit line — actor (with email tooltip),
+                          timestamp (Europe/London), and the captured reason
+                          on a single wrapping line. Mirrors the request
+                          banner so two-admin teams can see at a glance who
+                          pulled the trigger and why. */}
+                      {fu.status === "cancelled" && (fu.cancelled_by_name || fu.cancelled_at || fu.cancellation_reason) && (
+                        <p className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-1.5">
+                          <span>{fu.cancelled_by_name ? "Cancelled by" : "Cancelled"}</span>
+                          {fu.cancelled_by_name && (
+                            fu.cancelled_by_email ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span
+                                    className="font-medium text-foreground/90 cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2"
+                                    data-testid={`text-cancelled-by-${fu.id}`}
+                                  >
+                                    {fu.cancelled_by_name}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">{fu.cancelled_by_email}</TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <span
+                                className="font-medium text-foreground/90"
+                                data-testid={`text-cancelled-by-${fu.id}`}
+                              >
+                                {fu.cancelled_by_name}
+                              </span>
+                            )
+                          )}
+                          {fu.cancelled_at && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span>{format(new Date(fu.cancelled_at), "d MMM HH:mm")}</span>
+                            </>
+                          )}
+                          {fu.cancellation_reason && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span>Reason: <span className="text-foreground/80">{fu.cancellation_reason}</span></span>
+                            </>
+                          )}
+                        </p>
+                      )}
                     </div>
                   )}
                 </CardContent>

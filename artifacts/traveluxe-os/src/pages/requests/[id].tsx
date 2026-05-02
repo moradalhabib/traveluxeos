@@ -15,6 +15,7 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useToast } from "@/hooks/use-toast";
 import {
   useRequest, useUpdateRequest, useDeleteRequest, useConvertRequest,
@@ -273,9 +274,39 @@ export default function RequestDetail() {
                       <p className="text-sm text-foreground whitespace-pre-wrap">
                         {(r as any).cancellation_reason || "Unspecified"}
                       </p>
-                      {(r as any).cancelled_at && (
-                        <p className="text-[11px] text-muted-foreground mt-1">
-                          Cancelled {format(parseISO((r as any).cancelled_at), "PPp")}
+                      {/* Audit attribution: who pulled the trigger + when (Europe/London).
+                          Renders flexibly so on narrow viewports it wraps cleanly with
+                          dot separators between segments. Falls back to the timestamp-only
+                          line if cancelled_by_name is null (deactivated user / legacy row). */}
+                      {((r as any).cancelled_at || (r as any).cancelled_by_name) && (
+                        <p className="text-[11px] text-muted-foreground mt-1 flex flex-wrap items-center gap-x-1.5">
+                          <span>
+                            {(r as any).cancelled_by_name ? "Cancelled by" : "Cancelled"}
+                          </span>
+                          {(r as any).cancelled_by_name && (
+                            (r as any).cancelled_by_email ? (
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <span className="font-medium text-foreground/90 cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2">
+                                    {(r as any).cancelled_by_name}
+                                  </span>
+                                </TooltipTrigger>
+                                <TooltipContent side="top">{(r as any).cancelled_by_email}</TooltipContent>
+                              </Tooltip>
+                            ) : (
+                              <span className="font-medium text-foreground/90">
+                                {(r as any).cancelled_by_name}
+                              </span>
+                            )
+                          )}
+                          {(r as any).cancelled_at && (
+                            <>
+                              <span aria-hidden="true">·</span>
+                              <span>
+                                {format(parseISO((r as any).cancelled_at), "d MMM HH:mm")}
+                              </span>
+                            </>
+                          )}
                         </p>
                       )}
                     </div>

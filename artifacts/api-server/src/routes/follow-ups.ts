@@ -129,20 +129,35 @@ router.get("/", async (req, res) => {
     });
   }
 
-  // Hydrate operator names
-  const operatorIds = [...new Set(results.map((f: any) => f.booking?.operator_id).filter(Boolean))];
-  let operatorMap: Record<string, string> = {};
-  if (operatorIds.length > 0) {
-    const { data: ops } = await supabase
+  // Hydrate operator + cancelled-by actor info in a single users lookup.
+  // We need just `name` for the booking operator label, but the cancelled
+  // banner on /follow-ups also wants an email tooltip — so the lookup pulls
+  // both columns and the page picks what it needs. Soft-deleted users already
+  // have name="[removed]" and a safe email placeholder (see routes/users.ts),
+  // so we never leak the original email of removed staff.
+  const userIds = [
+    ...new Set(
+      results
+        .flatMap((f: any) => [f.booking?.operator_id, f.cancelled_by])
+        .filter(Boolean),
+    ),
+  ];
+  let userMap: Record<string, { name: string | null; email: string | null }> = {};
+  if (userIds.length > 0) {
+    const { data: us } = await supabase
       .from("users")
-      .select("id, name")
-      .in("id", operatorIds);
-    operatorMap = Object.fromEntries((ops ?? []).map((u: any) => [u.id, u.name]));
+      .select("id, name, email")
+      .in("id", userIds);
+    userMap = Object.fromEntries(
+      (us ?? []).map((u: any) => [u.id, { name: u.name ?? null, email: u.email ?? null }]),
+    );
   }
 
   results = results.map((f: any) => ({
     ...f,
-    operator_name: operatorMap[f.booking?.operator_id] ?? null,
+    operator_name: userMap[f.booking?.operator_id]?.name ?? null,
+    cancelled_by_name: f.cancelled_by ? userMap[f.cancelled_by]?.name ?? null : null,
+    cancelled_by_email: f.cancelled_by ? userMap[f.cancelled_by]?.email ?? null : null,
     days_since_arrival: f.booking?.date_time
       ? Math.floor((Date.now() - new Date(f.booking.date_time).getTime()) / 86400000)
       : null,
