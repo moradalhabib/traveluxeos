@@ -52,7 +52,11 @@ export default function Jobs() {
   // URL-backed filters so a refresh / shared link restores the same view.
   // `status` and `filter` were already URL-driven; we now also persist
   // `time` and `unassigned` so every dropdown survives a reload.
-  const [timeFilter, setTimeFilter] = useFilterState("time", "all");
+  // Default is "past" per operator preference — most lookups are about
+  // recent history (paid runs, audit, "what did we do last week") rather
+  // than the next-7-days planning view. The dropdown still offers
+  // Today / Tomorrow / This Week / All Upcoming for forward planning.
+  const [timeFilter, setTimeFilter] = useFilterState("time", "past");
   const search = useSearch();
   const statusFilter = new URLSearchParams(search).get("status") ?? "";
   const customFilter = new URLSearchParams(search).get("filter") ?? "";
@@ -617,13 +621,13 @@ export default function Jobs() {
           const TIME_LABELS: Record<string, string> = { today: "Today", tomorrow: "Tomorrow", this_week: "This Week", all: "All Upcoming", past: "Past Jobs" };
           const chips: ActiveFilter[] = [];
           if (statusFilter) chips.push({ key: "status", label: "Status", value: statusFilter, onClear: () => setLocation("/jobs") });
-          if (timeFilter !== "all") chips.push({ key: "time", label: "Time", value: TIME_LABELS[timeFilter] ?? timeFilter, onClear: () => setTimeFilter("all") });
+          if (timeFilter !== "past") chips.push({ key: "time", label: "Time", value: TIME_LABELS[timeFilter] ?? timeFilter, onClear: () => setTimeFilter("past") });
           if (unassignedOnly) chips.push({ key: "unassigned", label: "Show", value: "Unassigned only", onClear: () => setUnassignedOnly(false) });
           if (chips.length === 0) return null;
           return (
             <ActiveFilterChips
               filters={chips}
-              onClearAll={() => { setTimeFilter("all"); setUnassignedOnly(false); if (statusFilter) setLocation("/jobs"); }}
+              onClearAll={() => { setTimeFilter("past"); setUnassignedOnly(false); if (statusFilter) setLocation("/jobs"); }}
             />
           );
         })()}
@@ -1006,11 +1010,11 @@ export default function Jobs() {
           // "Create your first booking" CTA and panics that data is gone.
           const hasAnyBookings = (bookings?.length ?? 0) > 0;
           const hasActiveFilters =
-            !!statusFilter || timeFilter !== "all" || unassignedOnly ||
+            !!statusFilter || timeFilter !== "past" || unassignedOnly ||
             !!searchQuery.trim() || hideCompleted;
           const resetFilters = () => {
             setSearchQuery("");
-            setTimeFilter("all");
+            setTimeFilter("past");
             setUnassignedOnly(false);
             setHideCompleted(false);
             if (statusFilter) setLocation("/jobs");
@@ -1030,8 +1034,8 @@ export default function Jobs() {
                     <X className="w-4 h-4 mr-2" />
                     Clear filters
                   </Button>
-                  <Button variant="outline" onClick={() => setTimeFilter("past")} data-testid="button-show-past">
-                    Show past jobs
+                  <Button variant="outline" onClick={() => setTimeFilter("all")} data-testid="button-show-upcoming">
+                    Show upcoming jobs
                   </Button>
                 </div>
               </div>
