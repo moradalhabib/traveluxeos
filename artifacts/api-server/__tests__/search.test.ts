@@ -2,32 +2,15 @@ import { describe, it, expect, vi, beforeAll } from "vitest";
 import express from "express";
 import request from "supertest";
 
-// ────────────────────────────────────────────────────────────────────────────
-// Fake Supabase query builder
-// ────────────────────────────────────────────────────────────────────────────
-// Replaces the Supabase Proxy from src/lib/supabase with an in-memory store.
-// Implements only the chainable methods that src/routes/search.ts actually
-// calls: .select / .is / .or / .ilike / .eq / .in / .limit, with a thenable
-// that resolves to { data, error } so `await supabase.from(t)...` works.
-//
-// The builder is intentionally minimal — it does not aim to be a complete
-// PostgREST emulator. It only needs to make the search route's three-pass
-// algorithm (direct → by-client → by-driver) observable from the outside.
-// ────────────────────────────────────────────────────────────────────────────
-
 type Row = Record<string, unknown>;
 
 function ilikePatternToRegex(pattern: string): RegExp {
-  // Supabase ilike uses % as wildcard, _ as single-char wildcard.
   const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const re = escaped.replace(/%/g, ".*").replace(/_/g, ".");
   return new RegExp(`^${re}$`, "i");
 }
 
 function parseOrExpression(expr: string): Array<(row: Row) => boolean> {
-  // Format per branch: "<col>.<op>.<value>" where value may contain commas
-  // wrapped in % wildcards. Our route never injects commas, so a plain split
-  // is safe and matches what PostgREST receives.
   return expr.split(",").map((branch) => {
     const m = branch.trim().match(/^([^.]+)\.([^.]+)\.(.+)$/);
     if (!m) return () => false;
@@ -88,14 +71,6 @@ class FakeBuilder implements PromiseLike<{ data: Row[]; error: null }> {
   }
 }
 
-// ────────────────────────────────────────────────────────────────────────────
-// Seeded dataset
-// ────────────────────────────────────────────────────────────────────────────
-// Two drivers, three bookings. None of the bookings has a direct-field
-// match against the driver's name or plate — so any booking that comes
-// back when searching by driver name/plate proves the driver-id second
-// pass is wired up correctly.
-// ────────────────────────────────────────────────────────────────────────────
 const SEED = {
   drivers: [
     {
@@ -136,8 +111,6 @@ const SEED = {
   tasks: [] as Row[],
 };
 
-// Mock the supabase module BEFORE importing the route. vi.mock is hoisted,
-// so this runs before any `import` in this file is resolved.
 vi.mock("../src/lib/supabase", () => ({
   supabase: {
     from(table: string) {
@@ -147,12 +120,6 @@ vi.mock("../src/lib/supabase", () => ({
   },
 }));
 
-// ────────────────────────────────────────────────────────────────────────────
-// Test harness — mount the search router on a fresh Express app. We bypass
-// the JWT middleware entirely because the route's behaviour-under-test is
-// purely the search algorithm; auth is enforced by app.ts's requireJwt and
-// is exercised by integration tests of that middleware (out of scope here).
-// ────────────────────────────────────────────────────────────────────────────
 let app: express.Express;
 beforeAll(async () => {
   const { default: searchRouter } = await import("../src/routes/search");
@@ -165,12 +132,10 @@ describe("GET /api/search — driver / plate lookups", () => {
     const res = await request(app).get("/api/search").query({ q: "John" });
 
     expect(res.status).toBe(200);
-    // Driver matched directly on the `drivers.name` ilike.
     expect(res.body.drivers).toHaveLength(1);
     expect(res.body.drivers[0]).toMatchObject({ id: "D1", name: "John Smith", plate: "AB12CDE" });
-    // Bookings come back via the THIRD pass (driver_id IN [D1]) — without
-    // that pass, this assertion fails because no booking has "John" in any
-    // direct field. This is the regression the task explicitly guards.
+    // Bookings only surface via the driver_id second pass — no booking row
+    // contains "John" in any direct field.
     const bookingIds = res.body.bookings.map((b: { id: string }) => b.id).sort();
     expect(bookingIds).toEqual(["B1", "B2"]);
   });
@@ -179,33 +144,21 @@ describe("GET /api/search — driver / plate lookups", () => {
     const res = await request(app).get("/api/search").query({ q: "AB12" });
 
     expect(res.status).toBe(200);
-    // Driver matched on `drivers.plate` (one of the OR branches).
     expect(res.body.drivers).toHaveLength(1);
     expect(res.body.drivers[0].plate).toBe("AB12CDE");
-    // Same third-pass guarantee as above — searching a plate must surface
-    // the related jobs, not just the driver row.
     const bookingIds = res.body.bookings.map((b: { id: string }) => b.id).sort();
     expect(bookingIds).toEqual(["B1", "B2"]);
   });
 
   it("deduplicates bookings that match BOTH the direct pass AND the driver-id pass", async () => {
-    // The token "VIP" is deliberately seeded into TWO places that produce
-    // overlapping bookings:
-    //   • drivers.vehicle_model on D1 ("Mercedes E-Class VIP") → driver pass
-    //     surfaces every booking with driver_id=D1, i.e. B1 and B2.
-    //   • bookings.pickup on B1 ("Heathrow T5 VIP Lounge") → direct pass
-    //     surfaces B1 on its own.
-    // Without the de-dupe guard in src/routes/search.ts the response would
-    // contain B1 twice (once from each pass). This test pins that behaviour.
+    // "VIP" matches D1.vehicle_model (driver pass surfaces B1+B2) AND
+    // B1.pickup (direct pass surfaces B1) — B1 must appear exactly once.
     const res = await request(app).get("/api/search").query({ q: "VIP" });
 
     expect(res.status).toBe(200);
     const ids = res.body.bookings.map((b: { id: string }) => b.id);
-    // Both bookings present (B1 via direct pass, B2 via driver pass)…
     expect(ids.sort()).toEqual(["B1", "B2"]);
-    // …and B1 appears exactly once even though it matched both passes.
     expect(ids.filter((id: string) => id === "B1")).toHaveLength(1);
-    // Sanity-check the driver row is also returned (matched on vehicle_model).
     expect(res.body.drivers.map((d: { id: string }) => d.id)).toEqual(["D1"]);
   });
 
