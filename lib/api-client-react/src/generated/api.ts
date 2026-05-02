@@ -3490,7 +3490,7 @@ export function useListAuditLog<
 }
 
 /**
- * @summary Global search across clients, bookings, drivers
+ * @summary Global search across clients, bookings, drivers, suppliers
  */
 export const getGlobalSearchUrl = (params: GlobalSearchParams) => {
   const normalizedParams = new URLSearchParams();
@@ -3557,7 +3557,7 @@ export type GlobalSearchQueryResult = NonNullable<
 export type GlobalSearchQueryError = ErrorType<unknown>;
 
 /**
- * @summary Global search across clients, bookings, drivers
+ * @summary Global search across clients, bookings, drivers, suppliers
  */
 
 export function useGlobalSearch<

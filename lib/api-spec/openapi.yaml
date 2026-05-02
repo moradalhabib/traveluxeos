@@ -875,13 +875,21 @@ paths:
     get:
       operationId: globalSearch
       tags: [search]
-      summary: Global search across clients, bookings, drivers
+      summary: Global search across clients, bookings, drivers, suppliers
       parameters:
         - name: q
           in: query
           required: true
           schema:
             type: string
+        - name: limit
+          in: query
+          required: false
+          description: Max results per group (1-20). Defaults to 5 for the global Cmd/K palette.
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 20
       responses:
         "200":
           description: Search results
@@ -1798,7 +1806,27 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/Driver"
-      required: [clients, bookings, drivers]
+        suppliers:
+          type: array
+          items:
+            $ref: "#/components/schemas/SearchSupplier"
+      required: [clients, bookings, drivers, suppliers]
+
+    SearchSupplier:
+      type: object
+      description: Minimal supplier shape for the global search palette.
+      properties:
+        id:
+          type: string
+        company_name:
+          type: string
+        primary_service_type:
+          type: string
+          nullable: true
+        contact_name:
+          type: string
+          nullable: true
+      required: [id, company_name]
 
     FinanceSummary:
       type: object

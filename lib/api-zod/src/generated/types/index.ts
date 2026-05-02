@@ -56,6 +56,7 @@ export * from "./payout";
 export * from "./quote";
 export * from "./rateDriverBody";
 export * from "./searchResults";
+export * from "./searchSupplier";
 export * from "./sendMessageBody";
 export * from "./settlement";
 export * from "./task";

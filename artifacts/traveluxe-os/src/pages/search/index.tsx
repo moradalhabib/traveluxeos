@@ -16,9 +16,13 @@ export default function Search() {
     return () => clearTimeout(timer);
   }, [q]);
 
+  // The dedicated /search page renders cards in a 2-col grid and was sized
+  // for ten results per group; the global Cmd/K palette uses the new server
+  // default of 5. Pass limit=10 explicitly here to keep this page's behaviour
+  // unchanged.
   const { data: results, isLoading } = useGlobalSearch(
-    { q: debouncedQ }, 
-    { query: { enabled: debouncedQ.length > 2, queryKey: getGlobalSearchQueryKey({ q: debouncedQ }) } }
+    { q: debouncedQ, limit: 10 },
+    { query: { enabled: debouncedQ.length > 2, queryKey: getGlobalSearchQueryKey({ q: debouncedQ, limit: 10 }) } }
   );
 
   return (

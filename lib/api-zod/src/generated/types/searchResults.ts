@@ -8,9 +8,11 @@
 import type { Booking } from "./booking";
 import type { Client } from "./client";
 import type { Driver } from "./driver";
+import type { SearchSupplier } from "./searchSupplier";
 
 export interface SearchResults {
   clients: Client[];
   bookings: Booking[];
   drivers: Driver[];
+  suppliers: SearchSupplier[];
 }

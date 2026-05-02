@@ -422,10 +422,21 @@ export interface User {
   created_at?: string;
 }
 
+/**
+ * Minimal supplier shape for the global search palette.
+ */
+export interface SearchSupplier {
+  id: string;
+  company_name: string;
+  primary_service_type?: string | null;
+  contact_name?: string | null;
+}
+
 export interface SearchResults {
   clients: Client[];
   bookings: Booking[];
   drivers: Driver[];
+  suppliers: SearchSupplier[];
 }
 
 export interface OperatorPerformance {
@@ -524,6 +535,12 @@ export type ListAuditLogParams = {
 
 export type GlobalSearchParams = {
   q: string;
+  /**
+   * Max results per group (1-20). Defaults to 5 for the global Cmd/K palette.
+   * @minimum 1
+   * @maximum 20
+   */
+  limit?: number;
 };
 
 export type GetFinanceSummaryParams = {

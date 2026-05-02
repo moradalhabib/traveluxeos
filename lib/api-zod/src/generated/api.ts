@@ -1284,10 +1284,20 @@ export const ListAuditLogResponseItem = zod.object({
 export const ListAuditLogResponse = zod.array(ListAuditLogResponseItem);
 
 /**
- * @summary Global search across clients, bookings, drivers
+ * @summary Global search across clients, bookings, drivers, suppliers
  */
+export const globalSearchQueryLimitMax = 20;
+
 export const GlobalSearchQueryParams = zod.object({
   q: zod.coerce.string(),
+  limit: zod.coerce
+    .number()
+    .min(1)
+    .max(globalSearchQueryLimitMax)
+    .optional()
+    .describe(
+      "Max results per group (1-20). Defaults to 5 for the global Cmd\/K palette.",
+    ),
 });
 
 export const GlobalSearchResponse = zod.object({
@@ -1373,6 +1383,16 @@ export const GlobalSearchResponse = zod.object({
       total_jobs: zod.number().optional(),
       created_at: zod.string().optional(),
     }),
+  ),
+  suppliers: zod.array(
+    zod
+      .object({
+        id: zod.string(),
+        company_name: zod.string(),
+        primary_service_type: zod.string().nullish(),
+        contact_name: zod.string().nullish(),
+      })
+      .describe("Minimal supplier shape for the global search palette."),
   ),
 });
 

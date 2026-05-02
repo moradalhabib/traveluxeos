@@ -1,4 +1,4 @@
-import { ReactNode, useState } from "react";
+import { ReactNode, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import {
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { supabase } from "@/lib/supabase";
 import { NotificationBell } from "@/components/notifications/NotificationBell";
+import { CommandPalette } from "@/components/command-palette";
 import { useFollowUpBadge } from "@/hooks/use-follow-up-badge";
 import { useListBookings, getListBookingsQueryKey } from "@workspace/api-client-react";
 
@@ -177,7 +178,26 @@ export function Shell({ children }: { children: ReactNode }) {
   const { user, logout, isLocked } = useAuth();
   const [location, setLocation] = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   const followUpBadge = useFollowUpBadge();
+
+  // Global Cmd/Ctrl+K shortcut. Mounted at the shell level so it's available
+  // on every authenticated page. Skipped when there's no user, when the
+  // session is locked, or for residence_manager (whose nav is intentionally
+  // limited to apartments + clients — palette would surface out-of-scope rows).
+  useEffect(() => {
+    if (!user || isLocked) return;
+    if (user.role === "residence_manager") return;
+    const onKey = (e: KeyboardEvent) => {
+      const isK = e.key === "k" || e.key === "K";
+      if (isK && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [user, isLocked]);
 
   // Live count of unassigned-driver bookings for the Jobs tab badge.
   // Cheap because the bookings list is already cached by other pages.
@@ -311,7 +331,23 @@ export function Shell({ children }: { children: ReactNode }) {
             {isResidenceManager ? "Apartments" : "Traveluxe OS"}
           </span>
         </div>
-        <NotificationBell />
+        <div className="flex items-center gap-1">
+          {/* Mobile entry point for the global Cmd/K palette — keyboard
+              shortcuts don't apply on phones, so the topbar icon is the
+              only discoverable way for mobile operators to open it. */}
+          {!isResidenceManager && (
+            <button
+              type="button"
+              onClick={() => setPaletteOpen(true)}
+              className="w-9 h-9 rounded-md text-muted-foreground hover:text-foreground hover:bg-secondary flex items-center justify-center transition-colors"
+              aria-label="Open global search"
+              data-testid="button-open-palette"
+            >
+              <Search className="w-5 h-5" />
+            </button>
+          )}
+          <NotificationBell />
+        </div>
       </div>
 
       {/* Main Content */}
@@ -504,6 +540,13 @@ export function Shell({ children }: { children: ReactNode }) {
             </>
           )}
         </>
+      )}
+
+      {/* Global Cmd/Ctrl+K command palette. Always mounted (cheap when
+          closed) so the keyboard shortcut and the mobile search button can
+          flip a single piece of state. Hidden for residence_manager. */}
+      {!isResidenceManager && (
+        <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       )}
     </div>
   );

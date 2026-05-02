@@ -8,4 +8,10 @@
 
 export type GlobalSearchParams = {
   q: string;
+  /**
+   * Max results per group (1-20). Defaults to 5 for the global Cmd/K palette.
+   * @minimum 1
+   * @maximum 20
+   */
+  limit?: number;
 };
