@@ -281,11 +281,15 @@ export default function Jobs() {
     return bookings.filter(b => {
       if (b.status === 'Cancelled') return false;
       // Hide-completed default — flips off when operator explicitly
-      // filters by Completed (URL ?status=Completed) OR when there is
-      // an active search query (typing a TVL ref expects to find the
-      // job regardless of completion state — otherwise search results
-      // appear missing for no visible reason).
-      if (hideCompleted && !q && b.status === 'Completed' && statusFilter !== 'Completed') return false;
+      // filters by Completed (URL ?status=Completed), is actively
+      // searching (typing a TVL ref expects to find the job regardless
+      // of state), OR is viewing the "Past" time window (where seeing
+      // completed history is the whole point — otherwise the option
+      // would silently return zero results).
+      if (
+        hideCompleted && !q && timeFilter !== 'past' &&
+        b.status === 'Completed' && statusFilter !== 'Completed'
+      ) return false;
       if (q) {
         const hay = [
           b.tvl_ref, (b as any).client_name, (b as any).driver_name,
@@ -317,6 +321,10 @@ export default function Jobs() {
           const weekEnd = endOfDay(addDays(now, 7));
           return !isBefore(d, startOfDay(now)) && !isAfter(d, weekEnd);
         }
+        case 'past':
+          // History view — anything strictly before today, regardless of
+          // status (Completed history is the main reason to look here).
+          return isBefore(d, startOfDay(now));
         case 'all':
         default:
           // Keep recently-completed jobs visible for 14 days so they don't
@@ -562,6 +570,7 @@ export default function Jobs() {
                 { value: "tomorrow", label: "Tomorrow" },
                 { value: "this_week", label: "This Week" },
                 { value: "all", label: "All Upcoming" },
+                { value: "past", label: "Past Jobs" },
               ]}
               testId="filter-jobs-time"
             />
@@ -605,7 +614,7 @@ export default function Jobs() {
           {compactMode ? "Compact" : "Standard"}
         </Button>
         {(() => {
-          const TIME_LABELS: Record<string, string> = { today: "Today", tomorrow: "Tomorrow", this_week: "This Week", all: "All Upcoming" };
+          const TIME_LABELS: Record<string, string> = { today: "Today", tomorrow: "Tomorrow", this_week: "This Week", all: "All Upcoming", past: "Past Jobs" };
           const chips: ActiveFilter[] = [];
           if (statusFilter) chips.push({ key: "status", label: "Status", value: statusFilter, onClear: () => setLocation("/jobs") });
           if (timeFilter !== "all") chips.push({ key: "time", label: "Time", value: TIME_LABELS[timeFilter] ?? timeFilter, onClear: () => setTimeFilter("all") });
@@ -989,17 +998,57 @@ export default function Jobs() {
             })}
           </div>
           );
-        }) : (
-          <div className="flex flex-col items-center justify-center py-16 text-center">
-            <Briefcase className="w-12 h-12 text-muted-foreground/30 mb-4" />
-            <p className="text-muted-foreground font-medium">No jobs for this period</p>
-            <p className="text-sm text-muted-foreground/70 mt-1 mb-6">Create your first booking to get started</p>
-            <Button onClick={() => setLocation("/bookings/new")}>
-              <Plus className="w-4 h-4 mr-2" />
-              New Booking
-            </Button>
-          </div>
-        )}
+        }) : (() => {
+          // Context-aware empty state: distinguish a truly empty database
+          // ("create your first booking") from a filtered-to-zero view
+          // ("you have N jobs but the current filters hide them"). Without
+          // this, an operator with 5 active jobs in the past sees a
+          // "Create your first booking" CTA and panics that data is gone.
+          const hasAnyBookings = (bookings?.length ?? 0) > 0;
+          const hasActiveFilters =
+            !!statusFilter || timeFilter !== "all" || unassignedOnly ||
+            !!searchQuery.trim() || hideCompleted;
+          const resetFilters = () => {
+            setSearchQuery("");
+            setTimeFilter("all");
+            setUnassignedOnly(false);
+            setHideCompleted(false);
+            if (statusFilter) setLocation("/jobs");
+          };
+          if (hasAnyBookings && hasActiveFilters) {
+            return (
+              <div className="flex flex-col items-center justify-center py-16 text-center" data-testid="empty-jobs-filtered">
+                <Briefcase className="w-12 h-12 text-muted-foreground/30 mb-4" />
+                <p className="text-muted-foreground font-medium">
+                  No jobs match the current filters
+                </p>
+                <p className="text-sm text-muted-foreground/70 mt-1 mb-6">
+                  You have {activeJobs.length} active job{activeJobs.length !== 1 ? "s" : ""} on file — try widening the filters or look in <Link href="/bookings" className="underline text-primary hover:text-primary/80">All Bookings</Link>.
+                </p>
+                <div className="flex flex-wrap gap-2 justify-center">
+                  <Button variant="outline" onClick={resetFilters} data-testid="button-reset-filters">
+                    <X className="w-4 h-4 mr-2" />
+                    Clear filters
+                  </Button>
+                  <Button variant="outline" onClick={() => setTimeFilter("past")} data-testid="button-show-past">
+                    Show past jobs
+                  </Button>
+                </div>
+              </div>
+            );
+          }
+          return (
+            <div className="flex flex-col items-center justify-center py-16 text-center" data-testid="empty-jobs-fresh">
+              <Briefcase className="w-12 h-12 text-muted-foreground/30 mb-4" />
+              <p className="text-muted-foreground font-medium">No jobs for this period</p>
+              <p className="text-sm text-muted-foreground/70 mt-1 mb-6">Create your first booking to get started</p>
+              <Button onClick={() => setLocation("/bookings/new")}>
+                <Plus className="w-4 h-4 mr-2" />
+                New Booking
+              </Button>
+            </div>
+          );
+        })()}
       </div>
 
       {/* Quick status menu (long-press / right-click) */}
