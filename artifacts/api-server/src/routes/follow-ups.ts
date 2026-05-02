@@ -424,6 +424,132 @@ router.patch("/:id", async (req, res) => {
   return res.json(data);
 });
 
+// ─── POST /follow-ups/bulk-cancel ───────────────────────────────────────────
+// Bulk-cancel a list of follow-ups with one shared reason. Loops the same
+// per-row cancel logic as PATCH /:id (status='cancelled' branch) so the
+// stored shape is identical to a single cancel — including the per-row
+// notes append (existing chase notes are preserved, not overwritten).
+//
+// Already-cancelled rows in the selection are silently skipped instead of
+// failing the whole batch — operators acting on a stale selection should
+// see "10 cancelled, 2 already cancelled" in the toast, not a hard error.
+//
+// Returns { cancelled: number, skipped: number, failed: number, ids: { ... } }
+// so the client can surface a precise summary. The route is intentionally
+// not wrapped in a single DB transaction — Supabase's HTTP client can't
+// open a multi-statement transaction here, and the per-row update is
+// itself atomic. A partial failure leaves the partially-cancelled rows
+// in the cancelled state, which is the safest outcome (operator can
+// re-try the remaining ids without losing work already done).
+router.post("/bulk-cancel", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user) return res.status(401).json({ error: "Unauthorized" });
+
+  const { ids, cancellation_reason } = (req.body ?? {}) as {
+    ids?: unknown;
+    cancellation_reason?: unknown;
+  };
+
+  // Mirror the per-row guard so callers can't sneak past the reason
+  // requirement by hitting the bulk path.
+  const reason = (cancellation_reason ?? "").toString().trim();
+  if (!reason) {
+    return res.status(400).json({
+      error: "cancellation_reason is required when cancelling follow-ups",
+    });
+  }
+
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "ids must be a non-empty array" });
+  }
+  const cleanIds = ids
+    .map(v => (typeof v === "string" ? v.trim() : ""))
+    .filter(Boolean);
+  if (cleanIds.length === 0) {
+    return res.status(400).json({ error: "ids must contain at least one id" });
+  }
+
+  // Fetch all rows up-front so we can decide skip-vs-cancel per row and
+  // build the per-row appended notes string from the existing notes.
+  const { data: rows, error: fetchErr } = await supabase
+    .from("follow_ups")
+    .select("id, status, notes")
+    .in("id", cleanIds);
+  if (fetchErr) return res.status(400).json({ error: fetchErr.message });
+
+  const rowMap = new Map<string, any>((rows ?? []).map((r: any) => [r.id, r]));
+
+  const cancelledIds: string[] = [];
+  const skippedIds: string[] = [];
+  const failedIds: string[] = [];
+  const missingIds: string[] = [];
+
+  // Use one timestamp + audit stamp for the whole batch so the appended
+  // notes line is consistent across all rows in the operator's view.
+  const nowIso = new Date().toISOString();
+  const stamp = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
+
+  for (const id of cleanIds) {
+    const fu = rowMap.get(id);
+    if (!fu) {
+      missingIds.push(id);
+      continue;
+    }
+    if (fu.status === "cancelled") {
+      // Already cancelled — silently skip so a stale selection doesn't
+      // blow up the whole batch.
+      skippedIds.push(id);
+      continue;
+    }
+
+    // Append, never overwrite. The per-row Cancel action does this same
+    // merge client-side; we replicate it here so the bulk path produces
+    // an identical persisted shape.
+    const existing = (fu.notes ?? "").toString().trim();
+    const appended = `Cancelled (${stamp}): ${reason}`;
+    const mergedNotes = existing ? `${existing}\n\n${appended}` : appended;
+
+    const { error: updErr } = await supabase
+      .from("follow_ups")
+      .update({
+        status: "cancelled",
+        cancellation_reason: reason,
+        cancelled_at: nowIso,
+        cancelled_by: user.id,
+        completed_at: nowIso,
+        completed_by: user.id,
+        notes: mergedNotes,
+      })
+      .eq("id", id);
+
+    if (updErr) {
+      failedIds.push(id);
+      continue;
+    }
+    cancelledIds.push(id);
+    await auditLog(
+      "update_followup",
+      "follow_up",
+      id,
+      user.id,
+      `Follow-up ${id} → cancelled (bulk: ${reason})`,
+    );
+  }
+
+  return res.json({
+    cancelled: cancelledIds.length,
+    skipped: skippedIds.length,
+    failed: failedIds.length,
+    missing: missingIds.length,
+    ids: {
+      cancelled: cancelledIds,
+      skipped: skippedIds,
+      failed: failedIds,
+      missing: missingIds,
+    },
+  });
+});
+
 // DELETE /follow-ups/:id — admin-only, used by bulk-select. Audit-logged.
 router.delete("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);

@@ -215,6 +215,44 @@ export function useReopenRequest() {
   });
 }
 
+// Bulk-cancel a batch of follow-ups with one shared reason. Hits the
+// dedicated POST /follow-ups/bulk-cancel route which loops the same
+// per-row cancel logic server-side (notes appended, never overwritten;
+// already-cancelled rows silently skipped). The response carries a
+// summary so the caller can show "12 cancelled, 2 already cancelled" in
+// the toast. Lives next to useReopenFollowUp so the cancellation-
+// lifecycle helpers stay in one place.
+export interface BulkCancelFollowUpsResult {
+  cancelled: number;
+  skipped: number;
+  failed: number;
+  missing: number;
+  ids: {
+    cancelled: string[];
+    skipped: string[];
+    failed: string[];
+    missing: string[];
+  };
+}
+
+export function useBulkCancelFollowUps() {
+  const qc = useQueryClient();
+  return useMutation<BulkCancelFollowUpsResult, Error, { ids: string[]; cancellation_reason: string }>({
+    mutationFn: ({ ids, cancellation_reason }) =>
+      authFetch("/follow-ups/bulk-cancel", {
+        method: "POST",
+        body: JSON.stringify({ ids, cancellation_reason }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["lost-lead-stats"] });
+      // The follow-ups page itself doesn't use react-query for its list,
+      // so it triggers fetchData() on success. Other consumers that DO
+      // use react-query keys for follow-ups will pick up the change via
+      // the page's broader qc.invalidateQueries() call.
+    },
+  });
+}
+
 // Same shape for follow-ups. The PATCH route detects cancelled→pending,
 // appends the audit line server-side, clears completed_at/_by, and
 // preserves cancellation_reason / cancelled_at. Lives here (alongside

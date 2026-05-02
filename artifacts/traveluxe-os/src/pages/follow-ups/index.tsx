@@ -5,7 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetDashboardSummaryQueryKey } from "@workspace/api-client-react";
 import { supabase } from "@/lib/supabase";
-import { useReopenFollowUp } from "@/lib/requests-api";
+import { useReopenFollowUp, useBulkCancelFollowUps } from "@/lib/requests-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
+import { CancelFollowUpDialog } from "@/components/cancel-follow-up-dialog";
 import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { RecentActivityFeed } from "@/components/activity/RecentActivityFeed";
@@ -67,20 +68,6 @@ const DONE_REASONS = [
   "Other",
 ];
 
-// Cancellation reasons — kept consistent with the request-cancellation
-// taxonomy so dashboard reporting can roll up "lost lead reasons" across
-// requests and follow-ups in one query.
-const CANCEL_REASONS = [
-  "Client booked elsewhere",
-  "Client changed plans",
-  "Trip postponed",
-  "Pricing too high",
-  "No response after multiple attempts",
-  "Service unavailable",
-  "Duplicate follow-up",
-  "Other",
-];
-
 export default function FollowUps() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -89,6 +76,7 @@ export default function FollowUps() {
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const bulk = useBulkSelect();
   const reopen = useReopenFollowUp();
+  const bulkCancel = useBulkCancelFollowUps();
 
   // ── Filters ───────────────────────────────────────────────────────────────
   // URL-backed so a refresh / shared link restores the same view.
@@ -110,13 +98,13 @@ export default function FollowUps() {
   const [doneReason, setDoneReason] = useState(DONE_REASONS[0]);
   const [doneNotes, setDoneNotes] = useState("");
   const [snoozeOpen, setSnoozeOpen] = useState<Record<string, boolean>>({});
-  // Cancel dialog mirrors the Done dialog — required reason + optional
-  // free-text. The PATCH route refuses without a reason so this state is
-  // always populated by the time submitCancel fires.
+  // Cancel dialog state. The reason + notes are owned by the shared
+  // CancelFollowUpDialog component now (so the bulk variant uses the
+  // exact same visual language). The page only tracks "which target?"
+  // — a single follow-up id, or null when the bulk dialog is open.
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<any>(null);
-  const [cancelReason, setCancelReason] = useState(CANCEL_REASONS[0]);
-  const [cancelNotes, setCancelNotes] = useState("");
+  const [bulkCancelOpen, setBulkCancelOpen] = useState(false);
   // Re-open confirm dialog for cancelled follow-ups. Single per-row prompt
   // — the server appends an audit line to notes referencing the original
   // cancellation reason so history is preserved.
@@ -242,12 +230,10 @@ export default function FollowUps() {
 
   const openCancel = (fu: any) => {
     setCancelTarget(fu);
-    setCancelReason(CANCEL_REASONS[0]);
-    setCancelNotes("");
     setCancelOpen(true);
   };
 
-  const submitCancel = async () => {
+  const submitCancel = async (cancelReason: string, cancelNotes: string) => {
     if (!cancelTarget) return;
     const reason = `${cancelReason}${cancelNotes.trim() ? ` — ${cancelNotes.trim()}` : ""}`;
     // Append to existing notes rather than overwriting — operator notes
@@ -265,6 +251,55 @@ export default function FollowUps() {
       notes: mergedNotes,
     }, "Follow-up cancelled");
     setCancelOpen(false);
+  };
+
+  // ── Bulk cancel ──────────────────────────────────────────────────────────
+  // Hits POST /follow-ups/bulk-cancel which loops the same per-row cancel
+  // logic server-side (notes appended, never overwritten; already-cancelled
+  // rows silently skipped). The toast surfaces the precise summary so an
+  // operator acting on a stale selection ("10 cancelled, 2 already
+  // cancelled") sees what actually happened instead of a generic count.
+  const submitBulkCancel = (cancelReason: string, cancelNotes: string) => {
+    const ids = bulk.ids;
+    if (ids.length === 0) {
+      setBulkCancelOpen(false);
+      return;
+    }
+    const reason = `${cancelReason}${cancelNotes.trim() ? ` — ${cancelNotes.trim()}` : ""}`;
+    // Show an in-flight toast so a 12-row loop doesn't look frozen — the
+    // success / error toast below replaces the user's mental "is anything
+    // happening?" question with a concrete number.
+    toast({ title: `Cancelling ${ids.length} follow-up${ids.length === 1 ? "" : "s"}…` });
+    bulkCancel.mutate(
+      { ids, cancellation_reason: reason },
+      {
+        onSuccess: result => {
+          const parts: string[] = [];
+          parts.push(`${result.cancelled} cancelled`);
+          if (result.skipped > 0) parts.push(`${result.skipped} already cancelled`);
+          if (result.failed > 0) parts.push(`${result.failed} failed`);
+          if (result.missing > 0) parts.push(`${result.missing} not found`);
+          toast({
+            title: parts.join(", "),
+            variant: result.failed > 0 ? "destructive" : "default",
+          });
+          setBulkCancelOpen(false);
+          bulk.exitSelectMode();
+          fetchData();
+          // Broad invalidation so every page that shows a follow-up
+          // count (dashboard, jobs, lost-leads chart) reflects the new
+          // state immediately.
+          qc.invalidateQueries();
+        },
+        onError: (e: any) => {
+          toast({
+            title: "Bulk cancel failed",
+            description: e?.message,
+            variant: "destructive",
+          });
+        },
+      },
+    );
   };
 
   const openReopen = (fu: any) => {
@@ -853,49 +888,30 @@ export default function FollowUps() {
         </DialogContent>
       </Dialog>
 
-      {/* Cancel dialog — required reason + optional notes. Mirrors the
-          Done dialog so operators see one consistent pattern. */}
-      <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>Cancel Follow-Up</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 py-2">
-            <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">Why is this follow-up being cancelled?</label>
-              <div className="grid grid-cols-1 gap-1.5">
-                {CANCEL_REASONS.map(r => (
-                  <button
-                    key={r}
-                    onClick={() => setCancelReason(r)}
-                    className={`text-left text-sm px-3 py-2 rounded-lg border transition-colors ${cancelReason === r ? "bg-rose-500/10 border-rose-500/50 text-rose-300" : "border-border text-foreground hover:bg-secondary/30"}`}
-                    data-testid={`cancel-reason-${r.replace(/\s+/g, "-").toLowerCase()}`}
-                  >
-                    {r}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-foreground mb-2 block">Additional notes (optional)</label>
-              <textarea
-                value={cancelNotes}
-                onChange={e => setCancelNotes(e.target.value)}
-                placeholder="Any extra context for the audit log…"
-                rows={3}
-                className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-rose-500/30 resize-none"
-                data-testid="input-cancel-notes"
-              />
-            </div>
-          </div>
-          <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setCancelOpen(false)}>Keep follow-up</Button>
-            <Button onClick={submitCancel} className="bg-rose-500 hover:bg-rose-600 text-white" data-testid="button-confirm-cancel-followup">
-              <Ban className="w-4 h-4 mr-1.5" /> Cancel follow-up
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {/* Per-row Cancel dialog — required reason + optional notes. The
+          dialog UI is shared with the bulk-cancel variant below so the
+          two flows always look identical. */}
+      <CancelFollowUpDialog
+        open={cancelOpen}
+        onOpenChange={setCancelOpen}
+        title="Cancel Follow-Up"
+        confirmLabel="Cancel follow-up"
+        onConfirm={submitCancel}
+        busy={!!busyId && busyId === cancelTarget?.id}
+      />
+
+      {/* Bulk Cancel dialog — same shape, applies one shared reason to
+          every selected row server-side. Already-cancelled rows in the
+          selection are silently skipped. */}
+      <CancelFollowUpDialog
+        open={bulkCancelOpen}
+        onOpenChange={setBulkCancelOpen}
+        title={`Cancel ${bulk.count} follow-up${bulk.count === 1 ? "" : "s"}`}
+        description={`The same reason will be applied to all ${bulk.count} selected follow-up${bulk.count === 1 ? "" : "s"}. Existing notes are preserved — the cancellation line is appended.`}
+        confirmLabel={`Cancel ${bulk.count}`}
+        onConfirm={submitBulkCancel}
+        busy={bulkCancel.isPending}
+      />
 
       {/* Re-open confirm dialog — single deliberate prompt before flipping
           a cancelled follow-up back to pending. Cancellation history is
@@ -940,6 +956,8 @@ export default function FollowUps() {
         noun="follow-up"
         onClear={bulk.exitSelectMode}
         onDelete={handleBulkDelete}
+        onCancelSelected={() => setBulkCancelOpen(true)}
+        cancelSelectedLabel={`Cancel ${bulk.count}`}
       />
     </div>
   );

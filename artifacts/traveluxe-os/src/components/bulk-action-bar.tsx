@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Trash2, X, Loader2 } from "lucide-react";
+import { Trash2, X, Loader2, Ban } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -13,6 +13,16 @@ interface BulkActionBarProps {
   onDelete: () => Promise<void> | void;
   /** Optional extra confirm copy. */
   warning?: string;
+  /**
+   * Optional secondary "Cancel selected" action, rendered to the LEFT of
+   * the destructive Delete button. Used by the Follow-Ups page to bulk-
+   * cancel rows with a shared reason. The handler should open the page-
+   * owned reason dialog — this component only surfaces the trigger.
+   */
+  onCancelSelected?: () => void;
+  cancelSelectedLabel?: string;
+  /** Optional slot for additional left-aligned controls (rare). */
+  extraActions?: ReactNode;
 }
 
 /**
@@ -22,7 +32,10 @@ interface BulkActionBarProps {
  * fan-out via `onDelete` (typically Promise.all of the resource's existing
  * single-delete mutation).
  */
-export function BulkActionBar({ count, noun, onClear, onDelete, warning }: BulkActionBarProps) {
+export function BulkActionBar({
+  count, noun, onClear, onDelete, warning,
+  onCancelSelected, cancelSelectedLabel, extraActions,
+}: BulkActionBarProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [running, setRunning] = useState(false);
   if (count === 0) return null;
@@ -60,6 +73,20 @@ export function BulkActionBar({ count, noun, onClear, onDelete, warning }: BulkA
         >
           <X className="w-4 h-4 mr-1" /> Clear
         </Button>
+        {extraActions}
+        {onCancelSelected && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onCancelSelected}
+            disabled={running}
+            className="h-9 text-rose-400 border-rose-500/40 hover:bg-rose-500/10"
+            data-testid="button-bulk-cancel-selected"
+          >
+            <Ban className="w-4 h-4 mr-1" />
+            {cancelSelectedLabel ?? `Cancel ${count}`}
+          </Button>
+        )}
         <Button
           variant="destructive"
           size="sm"
