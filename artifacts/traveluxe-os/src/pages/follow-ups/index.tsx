@@ -5,6 +5,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useQueryClient } from "@tanstack/react-query";
 import { getGetDashboardSummaryQueryKey } from "@workspace/api-client-react";
 import { supabase } from "@/lib/supabase";
+import { useReopenFollowUp } from "@/lib/requests-api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,6 +86,7 @@ export default function FollowUps() {
   const [, navigate] = useLocation();
   const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const bulk = useBulkSelect();
+  const reopen = useReopenFollowUp();
 
   // ── Filters ───────────────────────────────────────────────────────────────
   // URL-backed so a refresh / shared link restores the same view.
@@ -268,17 +270,27 @@ export default function FollowUps() {
     setReopenOpen(true);
   };
 
-  // Server detects the cancelled→pending transition, appends a
-  // "Re-opened (…) — was cancelled for: <reason>" audit line to notes,
-  // and clears completed_at/_by so dashboard counters treat it as live
-  // again. cancellation_reason / cancelled_at stay on record. We also
-  // invalidate the Analytics lost-lead rollup so the chart reflects the
-  // recovered lead immediately.
-  const submitReopen = async () => {
+  // Re-open uses the dedicated useReopenFollowUp hook so the mutation
+  // is shaped the same as useReopenRequest. The hook handles the PATCH
+  // + lost-lead-stats invalidation; the page still calls fetchData() to
+  // refresh its (non-react-query) list and invalidates the dashboard
+  // summary so the bell counters update. Server detects cancelled→pending
+  // and appends the audit line server-side.
+  const submitReopen = () => {
     if (!reopenTarget) return;
-    await patchFollowUp(reopenTarget.id, { status: "pending" }, "Follow-up re-opened");
-    qc.invalidateQueries({ queryKey: ["lost-lead-stats"] });
-    setReopenOpen(false);
+    setBusyId(reopenTarget.id);
+    reopen.mutate(reopenTarget.id, {
+      onSuccess: () => {
+        toast({ title: "Follow-up re-opened" });
+        fetchData();
+        qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+        setReopenOpen(false);
+      },
+      onError: (e: any) => {
+        toast({ title: "Could not re-open", description: e?.message, variant: "destructive" });
+      },
+      onSettled: () => setBusyId(null),
+    });
   };
 
   const handleBookReturn = async (fu: any) => {
@@ -869,7 +881,7 @@ export default function FollowUps() {
             <Button variant="outline" onClick={() => setReopenOpen(false)}>Keep cancelled</Button>
             <Button
               onClick={submitReopen}
-              disabled={busyId === reopenTarget?.id}
+              disabled={reopen.isPending}
               className="bg-amber-500 hover:bg-amber-600 text-white"
               data-testid="button-confirm-reopen-followup"
             >
