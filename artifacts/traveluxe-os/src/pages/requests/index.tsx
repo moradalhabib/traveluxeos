@@ -25,6 +25,8 @@ import {
   type RequestStatus, type RequestPriority, type RequestServiceType,
   type ClientRequest,
 } from "@/lib/requests-api";
+import { getSlaState } from "@/lib/sla";
+import { SlaPill, SlaLegend } from "@/components/sla-pill";
 
 const STATUS_TABS: (RequestStatus | "All")[] = [
   "All", "New", "Following Up", "Ready to Book", "Converted", "Declined", "Expired", "Cancelled",
@@ -116,6 +118,8 @@ export default function Requests() {
           )}
         </div>
       </div>
+
+      <SlaLegend />
 
       {/* Filters */}
       <div className="space-y-3">
@@ -250,6 +254,9 @@ function RequestCard({ r, today, selectMode, selected, onToggle }: {
   const daysUntil = differenceInCalendarDays(followUp, today);
   const isOverdue = daysUntil < 0 && !["Converted","Declined","Expired"].includes(r.status);
   const isToday = daysUntil === 0;
+  // SLA pill — only renders for actionable statuses (New / Following Up).
+  // Terminal rows (Cancelled / Converted / Declined / Expired) get null.
+  const sla = getSlaState({ createdAt: r.created_at, status: r.status });
   // null when number is missing/too-short — let the JSX fall through to the
   // "Add WhatsApp" hint so operators see why the action is unavailable.
   const whatsAppHref = buildWhatsAppLink(r);
@@ -307,9 +314,12 @@ function RequestCard({ r, today, selectMode, selected, onToggle }: {
                 )}
               </div>
             </div>
-            <Badge variant="outline" className={PRIORITY_STYLES[r.priority]}>
-              {r.priority}
-            </Badge>
+            <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
+              <Badge variant="outline" className={PRIORITY_STYLES[r.priority]}>
+                {r.priority}
+              </Badge>
+              <SlaPill state={sla} testId={`sla-pill-request-${r.id}`} />
+            </div>
           </div>
 
           <div className="flex items-center gap-2 text-sm">

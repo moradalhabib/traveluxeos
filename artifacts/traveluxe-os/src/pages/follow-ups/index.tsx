@@ -26,6 +26,8 @@ import { RecentActivityFeed } from "@/components/activity/RecentActivityFeed";
 import { format, formatDistanceToNow } from "date-fns";
 import { fmtLondon } from "@/lib/datetime";
 import { getVipPillClass } from "@/lib/vip";
+import { getSlaState } from "@/lib/sla";
+import { SlaPill, SlaLegend } from "@/components/sla-pill";
 import * as XLSX from "xlsx";
 
 const API_BASE = `${import.meta.env.VITE_API_URL ?? ""}/api`;
@@ -469,6 +471,8 @@ export default function FollowUps() {
         </div>
       </div>
 
+      <SlaLegend />
+
       {/* Daily digest summary — informational; use the Date filter below */}
       {stats && stats.pending > 0 && (
         <div
@@ -679,7 +683,15 @@ export default function FollowUps() {
                     </div>
 
                     {/* Due date pill */}
-                    <div className="text-right flex-shrink-0 space-y-1">
+                    <div className="text-right flex-shrink-0 space-y-1 flex flex-col items-end">
+                      {/* SLA pill — only renders for actionable rows
+                          (pending). Terminal rows (done / booked /
+                          no_response / cancelled) get null and render
+                          nothing. */}
+                      <SlaPill
+                        state={getSlaState({ followUpDate: fu.due_date, status: fu.status })}
+                        testId={`sla-pill-followup-${fu.id}`}
+                      />
                       <div className={`text-[11px] ${due.cls}`}>{due.text}</div>
                       {fu.no_response_count > 0 && (
                         <div className="text-[10px] text-muted-foreground/60">
