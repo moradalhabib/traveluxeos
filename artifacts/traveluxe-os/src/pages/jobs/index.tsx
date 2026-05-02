@@ -394,7 +394,7 @@ export default function Jobs() {
   }, [filteredBookings]);
 
   return (
-    <div className="space-y-2">
+    <div className={`space-y-2 ${bulk.selectMode ? "pb-32 sm:pb-4" : ""}`}>
       {/* Header */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-baseline gap-2">
@@ -582,7 +582,7 @@ export default function Jobs() {
           variant="outline"
           size="sm"
           onClick={() => setHideCompleted(v => !v)}
-          className={`h-8 px-2.5 text-[11px] flex-shrink-0 ${hideCompleted ? "border-border text-muted-foreground" : "border-primary/40 text-primary bg-primary/5"}`}
+          className={`h-9 sm:h-8 px-2.5 text-[11px] flex-shrink-0 ${hideCompleted ? "border-border text-muted-foreground" : "border-primary/40 text-primary bg-primary/5"}`}
           title={hideCompleted ? "Completed jobs hidden — click to show" : "Completed jobs visible — click to hide"}
           data-testid="button-toggle-hide-completed"
         >
@@ -594,7 +594,7 @@ export default function Jobs() {
           variant="outline"
           size="sm"
           onClick={() => setCompactMode(v => !v)}
-          className={`h-8 px-2.5 text-[11px] flex-shrink-0 ${compactMode ? "border-primary/40 text-primary bg-primary/5" : "border-border text-muted-foreground"}`}
+          className={`h-9 sm:h-8 px-2.5 text-[11px] flex-shrink-0 ${compactMode ? "border-primary/40 text-primary bg-primary/5" : "border-border text-muted-foreground"}`}
           title={compactMode ? "Compact rows" : "Standard rows"}
           data-testid="button-toggle-compact"
         >
@@ -634,10 +634,10 @@ export default function Jobs() {
             <button
               type="button"
               onClick={() => setCollapsedDays(prev => ({ ...prev, [group.sortKey]: !isCollapsed }))}
-              className="w-full flex items-center gap-2 sticky top-0 bg-background/95 backdrop-blur-sm py-1 z-10 hover:bg-secondary/20 rounded-md px-1 transition-colors"
+              className="w-full min-h-9 sm:min-h-0 flex items-center gap-2 sticky top-0 bg-background/95 backdrop-blur-sm py-1.5 sm:py-1 z-10 hover:bg-secondary/20 rounded-md px-1 transition-colors"
               data-testid={`day-toggle-${group.sortKey}`}
             >
-              {isCollapsed ? <ChevronRight className="w-3 h-3 text-primary flex-shrink-0" /> : <ChevronDown className="w-3 h-3 text-primary flex-shrink-0" />}
+              {isCollapsed ? <ChevronRight className="w-4 h-4 sm:w-3 sm:h-3 text-primary flex-shrink-0" /> : <ChevronDown className="w-4 h-4 sm:w-3 sm:h-3 text-primary flex-shrink-0" />}
               <h2 className="text-[11px] font-bold text-primary uppercase tracking-widest text-left">{group.label}</h2>
               <div className="flex-1 h-px bg-border" />
               <Badge variant="outline" className="text-[10px] text-muted-foreground border-border">

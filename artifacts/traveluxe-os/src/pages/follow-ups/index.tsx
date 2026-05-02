@@ -417,7 +417,7 @@ export default function FollowUps() {
   };
 
   return (
-    <div className="space-y-3 max-w-4xl mx-auto">
+    <div className={`space-y-3 max-w-4xl mx-auto ${bulk.selectMode ? "pb-32 sm:pb-4" : ""}`}>
       {/* Header */}
       <div className="flex items-center justify-between gap-4">
         <div>
@@ -694,14 +694,17 @@ export default function FollowUps() {
                     </div>
                   </div>
 
-                  {/* Action row */}
+                  {/* Action row — on narrow viewports each action stacks
+                      into a 2-column grid with full-width tap targets so
+                      operators can hit them confidently with a thumb;
+                      from sm: upwards we revert to the inline wrap row. */}
                   {isPending ? (
-                    <div className="flex gap-2 pt-2 border-t border-border/50 flex-wrap">
+                    <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border/50 sm:flex sm:flex-wrap">
                       {/* WhatsApp */}
                       {wa && (
-                        <a href={wa} target="_blank" rel="noreferrer">
+                        <a href={wa} target="_blank" rel="noreferrer" className="block w-full sm:w-auto sm:inline-block">
                           <Button size="sm" variant="outline" disabled={busy}
-                            className="h-8 px-2.5 text-[11px] border-green-600/40 text-green-400 hover:bg-green-500/10">
+                            className="w-full sm:w-auto h-9 sm:h-8 px-2.5 text-[11px] border-green-600/40 text-green-400 hover:bg-green-500/10">
                             <MessageCircle className="w-3 h-3 mr-1" /> WhatsApp
                           </Button>
                         </a>
@@ -710,7 +713,7 @@ export default function FollowUps() {
                       {/* Done */}
                       <Button size="sm" variant="outline" disabled={busy}
                         onClick={() => openDone(fu)}
-                        className="h-8 px-2.5 text-[11px] text-green-400 border-green-500/30 hover:bg-green-500/10">
+                        className="w-full sm:w-auto h-9 sm:h-8 px-2.5 text-[11px] text-green-400 border-green-500/30 hover:bg-green-500/10">
                         <CheckCheck className="w-3 h-3 mr-1" />
                         Done
                       </Button>
@@ -718,7 +721,7 @@ export default function FollowUps() {
                       {/* Booked Return */}
                       <Button size="sm" variant="outline" disabled={busy}
                         onClick={() => handleBookReturn(fu)}
-                        className="h-8 px-2.5 text-[11px] text-blue-400 border-blue-500/30 hover:bg-blue-500/10">
+                        className="w-full sm:w-auto h-9 sm:h-8 px-2.5 text-[11px] text-blue-400 border-blue-500/30 hover:bg-blue-500/10">
                         <RotateCcw className="w-3 h-3 mr-1" />
                         {busy ? "Creating…" : "Book Return"}
                       </Button>
@@ -726,16 +729,16 @@ export default function FollowUps() {
                       {/* No Response */}
                       <Button size="sm" variant="outline" disabled={busy}
                         onClick={() => handleNoResponse(fu)}
-                        className="h-8 px-2.5 text-[11px] text-muted-foreground border-border hover:bg-secondary/30">
+                        className="w-full sm:w-auto h-9 sm:h-8 px-2.5 text-[11px] text-muted-foreground border-border hover:bg-secondary/30">
                         <PhoneOff className="w-3 h-3 mr-1" />
                         No Response
                       </Button>
 
                       {/* Snooze */}
-                      <div className="relative">
+                      <div className="relative w-full sm:w-auto">
                         <Button size="sm" variant="outline" disabled={busy}
                           onClick={() => setSnoozeOpen(prev => ({ ...prev, [fu.id]: !prev[fu.id] }))}
-                          className="h-8 px-2.5 text-[11px] text-muted-foreground border-border hover:bg-secondary/30">
+                          className="w-full sm:w-auto h-9 sm:h-8 px-2.5 text-[11px] text-muted-foreground border-border hover:bg-secondary/30">
                           <Clock className="w-3 h-3 mr-1" /> Snooze
                         </Button>
                         {snoozeOpen[fu.id] && (
@@ -762,7 +765,7 @@ export default function FollowUps() {
                           so finance can break down lost leads. */}
                       <Button size="sm" variant="outline" disabled={busy}
                         onClick={() => openCancel(fu)}
-                        className="h-8 px-2.5 text-[11px] text-rose-400 border-rose-500/30 hover:bg-rose-500/10"
+                        className="w-full sm:w-auto h-9 sm:h-8 px-2.5 text-[11px] text-rose-400 border-rose-500/30 hover:bg-rose-500/10"
                         data-testid={`button-cancel-followup-${fu.id}`}>
                         <Ban className="w-3 h-3 mr-1" />
                         Cancel

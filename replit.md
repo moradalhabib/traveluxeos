@@ -112,6 +112,12 @@ Then run `artifacts/traveluxe-os/migration-service-types.sql` and `artifacts/tra
 - Compact / Standard row toggle.
 - Day-group headers are now collapsible buttons. Past days + "Date TBC" start collapsed so the board opens on the operator's actionable horizon.
 
+## Mobile Sweep — Jobs & Follow-Ups (May 2026)
+- **Scope**: layout-only polish for 360–420px viewports on `/jobs` and `/follow-ups`. No behaviour changes, no new features.
+- **Jobs Board** — outer wrapper adds `pb-32 sm:pb-4` only when bulk select-mode is active so the floating `BulkActionBar` doesn't sit on top of the last day-group's cards. The two inline filter-row toggles (`Completed hidden` / `Compact`) bump from `h-8` → `h-9` on mobile (revert to `h-8` from `sm:` up). Day-group collapse buttons get `min-h-9` and the chevron grows to `w-4 h-4` on mobile so a full-row tap is comfortable; desktop preserves the slimmer `h-3` chevron.
+- **Follow-Ups** — same outer-wrapper bottom-padding pattern. The per-card pending-action row (WhatsApp / Done / Book Return / No Response / Snooze / Cancel) switches from `flex flex-wrap` to `grid grid-cols-2 sm:flex sm:flex-wrap` on mobile, with each button `w-full sm:w-auto h-9 sm:h-8` so they stack into a clean 2×3 grid with thumb-sized targets. The Snooze popover continues to anchor to its `relative` wrapper which is now `w-full sm:w-auto`.
+- **Dialog/Sheet primitives** — `DialogContent` gains `max-h-[90vh] overflow-y-auto` and the `bottom` `SheetContent` variant gains `max-h-[85vh] overflow-y-auto`. Defensive change that prevents tall dialogs (Cancel-Follow-Up's 8 reason buttons + textarea, the bookings cancellation dialog, etc.) from running off-screen on short mobile viewports; benefits every dialog/sheet across the app with no API change.
+
 ## Supplier-Driven Job Rendering (May 2026)
 - Dashboard "Starting soon" + "Today's Jobs", Services list, Jobs board upcoming strip, AND backend scheduler (1-hour push, 08:00 digest) now all read `supplier_id` + `as_directed_supplier_driver` and render the supplier company instead of "Driver TBC" / "No Driver" when the supplier is providing the vehicle. The "needs assigning" digest also excludes supplier-driven jobs so operators aren't chased for a phantom driver.
 
