@@ -146,6 +146,36 @@ export const STATUS_STYLES: Record<RequestStatus, string> = {
   "Cancelled":      "bg-rose-500/15 text-rose-300 border-rose-500/40",
 };
 
+// ── Lost-lead reasons rollup ─────────────────────────────────────────────
+// Aggregated server-side from cancelled requests + cancelled follow-ups
+// for the Analytics page. Period drives a date window (this month is the
+// default). NULL/blank reasons collapse into "Unspecified" so the chart
+// always reflects total cancelled volume.
+export type LostLeadPeriod = "this_month" | "last_30" | "this_year" | "all";
+
+export interface LostLeadRow {
+  reason: string;
+  request_count: number;
+  follow_up_count: number;
+  total: number;
+}
+
+export interface LostLeadStats {
+  period: LostLeadPeriod;
+  since: string;
+  rows: LostLeadRow[];
+  total_request: number;
+  total_follow_up: number;
+  total_all: number;
+}
+
+export function useLostLeadStats(period: LostLeadPeriod) {
+  return useQuery<LostLeadStats>({
+    queryKey: ["lost-lead-stats", period],
+    queryFn: () => authFetch(`/dashboard/lost-leads?period=${period}`),
+  });
+}
+
 // Helper exposed for the cancel dialog so the route can mark a request
 // Cancelled and capture the reason in one PUT — keeps the audit log
 // row consistent with the badge shown across the app.

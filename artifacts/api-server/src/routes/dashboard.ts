@@ -623,4 +623,99 @@ router.get("/forecast", async (_req, res) => {
   });
 });
 
+// ─── GET /dashboard/lost-leads ──────────────────────────────────────────────
+// Rollup of cancelled requests + cancelled follow-ups, grouped by reason.
+// Operators use this on the Analytics page to see *why* leads are being lost
+// so we can fix the cause (e.g. "Price too high" → revisit pricing tier).
+//
+// Period options: this_month | last_30 | this_year | all
+// NULL/blank reasons fall into an "Unspecified" bucket so the chart never
+// hides volume.
+router.get("/lost-leads", async (req, res) => {
+  const period = String(req.query.period ?? "this_month");
+
+  const now = new Date();
+  let startIso: string | null = null;
+  if (period === "this_month") {
+    const s = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+    startIso = s.toISOString();
+  } else if (period === "last_30") {
+    const s = new Date(now);
+    s.setDate(now.getDate() - 30);
+    startIso = s.toISOString();
+  } else if (period === "this_year") {
+    const s = new Date(now.getFullYear(), 0, 1, 0, 0, 0);
+    startIso = s.toISOString();
+  } else if (period === "all") {
+    // No lower bound, but still gate by the live-stack cutoff so legacy
+    // Odoo cancellations don't pollute the chart.
+    startIso = STATS_CUTOFF_ISO;
+  } else {
+    return res.status(400).json({ error: "Invalid period" });
+  }
+
+  const effectiveStart = new Date(startIso) < new Date(STATS_CUTOFF_ISO)
+    ? STATS_CUTOFF_ISO
+    : startIso;
+
+  const [reqRes, fuRes] = await Promise.all([
+    supabase
+      .from("requests")
+      .select("cancellation_reason")
+      .eq("status", "Cancelled")
+      .gte("cancelled_at", effectiveStart),
+    supabase
+      .from("follow_ups")
+      .select("cancellation_reason")
+      .eq("status", "cancelled")
+      .gte("cancelled_at", effectiveStart),
+  ]);
+
+  if (reqRes.error) return res.status(500).json({ error: reqRes.error.message });
+  if (fuRes.error)  return res.status(500).json({ error: fuRes.error.message });
+
+  // Normalise: trim, collapse blanks → "Unspecified". Keeps the bucket
+  // aligned with the cancel dialog's stock list when the reason matches
+  // a known one verbatim.
+  const norm = (raw: string | null | undefined): string => {
+    const v = (raw ?? "").trim();
+    return v.length > 0 ? v : "Unspecified";
+  };
+
+  const map = new Map<string, { request_count: number; follow_up_count: number }>();
+  for (const r of reqRes.data ?? []) {
+    const key = norm((r as any).cancellation_reason);
+    const e = map.get(key) ?? { request_count: 0, follow_up_count: 0 };
+    e.request_count += 1;
+    map.set(key, e);
+  }
+  for (const f of fuRes.data ?? []) {
+    const key = norm((f as any).cancellation_reason);
+    const e = map.get(key) ?? { request_count: 0, follow_up_count: 0 };
+    e.follow_up_count += 1;
+    map.set(key, e);
+  }
+
+  const rows = Array.from(map.entries())
+    .map(([reason, c]) => ({
+      reason,
+      request_count: c.request_count,
+      follow_up_count: c.follow_up_count,
+      total: c.request_count + c.follow_up_count,
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  const total_request   = rows.reduce((s, r) => s + r.request_count, 0);
+  const total_follow_up = rows.reduce((s, r) => s + r.follow_up_count, 0);
+
+  return res.json({
+    period,
+    since: effectiveStart,
+    rows,
+    total_request,
+    total_follow_up,
+    total_all: total_request + total_follow_up,
+  });
+});
+
 export default router;

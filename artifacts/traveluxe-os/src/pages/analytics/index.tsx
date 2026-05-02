@@ -7,7 +7,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   TrendingUp, Globe, CalendarDays, Activity, AlertTriangle, Users, X, Info,
+  XCircle,
 } from "lucide-react";
+import { useLostLeadStats, type LostLeadPeriod } from "@/lib/requests-api";
 import {
   PieChart, Pie, Cell, Tooltip as RechartsTip, ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, CartesianGrid,
@@ -298,6 +300,9 @@ export default function Analytics() {
   const availableYears = [selectedYear - 1, selectedYear, selectedYear + 1];
 
   // Event calendar state
+  const [lostLeadPeriod, setLostLeadPeriod] = useState<LostLeadPeriod>("this_month");
+  const lostLeadStats = useLostLeadStats(lostLeadPeriod);
+
   const [activeFilters, setActiveFilters] = useState<Set<EventType>>(new Set());
   const [selectedEvent, setSelectedEvent] = useState<CalEvent | null>(null);
   const [showAllEvents, setShowAllEvents] = useState(false);
@@ -966,6 +971,136 @@ export default function Analytics() {
           </CardContent>
         </Card>
       )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {/* 6. LOST LEADS — why cancellations happened                             */}
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      <Card className="border-primary/10" data-testid="card-lost-leads">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <XCircle className="w-4 h-4 text-primary" />
+            Lost Leads — Why
+            {!lostLeadStats.isLoading && lostLeadStats.data && (
+              <span className="ml-auto text-[10px] text-muted-foreground font-normal">
+                {lostLeadStats.data.total_all} cancelled
+              </span>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-3">
+          {/* Period toggle */}
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              ["this_month", "This month"],
+              ["last_30",    "Last 30 days"],
+              ["this_year",  "This year"],
+              ["all",        "All time"],
+            ] as [LostLeadPeriod, string][]).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setLostLeadPeriod(val)}
+                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold border transition-all ${
+                  lostLeadPeriod === val
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-muted/30 text-muted-foreground border-border/60 hover:text-foreground hover:border-primary/40"
+                }`}
+                data-testid={`button-lostlead-period-${val}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {lostLeadStats.isLoading ? (
+            <Skeleton className="h-40 w-full" />
+          ) : lostLeadStats.isError ? (
+            <p className="text-xs text-destructive">Failed to load lost-lead stats.</p>
+          ) : !lostLeadStats.data || lostLeadStats.data.rows.length === 0 ? (
+            <div className="rounded-xl border border-border/40 bg-muted/20 p-4 text-center">
+              <p className="text-xs text-muted-foreground">
+                No cancellations in this window — nothing lost yet.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Source-split summary */}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="rounded-lg bg-muted/30 border border-border/40 px-3 py-2">
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider">From requests</div>
+                  <div className="text-lg font-bold text-foreground mt-0.5">{lostLeadStats.data.total_request}</div>
+                </div>
+                <div className="rounded-lg bg-muted/30 border border-border/40 px-3 py-2">
+                  <div className="text-[10px] text-muted-foreground uppercase tracking-wider">From follow-ups</div>
+                  <div className="text-lg font-bold text-foreground mt-0.5">{lostLeadStats.data.total_follow_up}</div>
+                </div>
+              </div>
+
+              {/* Horizontal bar chart — taller when more reasons */}
+              <div style={{ height: Math.max(140, lostLeadStats.data.rows.length * 32 + 20) }}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart
+                    data={lostLeadStats.data.rows}
+                    layout="vertical"
+                    margin={{ top: 4, right: 16, left: 0, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" horizontal={false} />
+                    <XAxis
+                      type="number"
+                      tick={{ fontSize: 10, fill: "#9CA3AF" }}
+                      tickLine={false}
+                      axisLine={false}
+                      allowDecimals={false}
+                    />
+                    <YAxis
+                      type="category"
+                      dataKey="reason"
+                      tick={{ fontSize: 11, fill: "#E5E7EB" }}
+                      tickLine={false}
+                      axisLine={false}
+                      width={130}
+                    />
+                    <RechartsTip
+                      cursor={{ fill: "rgba(201,168,76,0.06)" }}
+                      contentStyle={{ background: "#1a1a1a", border: "1px solid rgba(201,168,76,0.2)", borderRadius: 8, fontSize: 11 }}
+                      formatter={(_v: any, _n: any, p: any) => {
+                        const r = p.payload;
+                        return [
+                          `${r.total} (${r.request_count} req · ${r.follow_up_count} f/u)`,
+                          "Cancelled",
+                        ];
+                      }}
+                    />
+                    <Bar dataKey="total" fill="#C9A84C" radius={[0, 4, 4, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Tap-to-drill list — mobile-friendly alternative to clicking thin bars.
+                   Note for operators: opens the cancelled *requests* list only —
+                   it is not filtered down to the specific reason yet. */}
+              <div className="space-y-1">
+                <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
+                  Tap a row to open all cancelled requests
+                </div>
+                {lostLeadStats.data.rows.map((r) => (
+                  <button
+                    key={r.reason}
+                    onClick={() => navigate("/requests?status=Cancelled")}
+                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/20 border border-border/40 hover:border-primary/30 hover:bg-primary/5 transition-all text-left"
+                    data-testid={`button-lostlead-row-${r.reason.replace(/\s+/g,"-").toLowerCase()}`}
+                  >
+                    <span className="text-sm font-medium text-foreground flex-1 truncate">{r.reason}</span>
+                    <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                      {r.request_count} req · {r.follow_up_count} f/u
+                    </span>
+                    <span className="text-sm font-bold text-primary w-7 text-right flex-shrink-0">{r.total}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       {/* ═══════════════════════════════════════════════════════════════════════ */}
       {/* ─── REVENUE & FORECAST (moved to bottom) ────────────────────────────  */}

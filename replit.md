@@ -102,6 +102,7 @@ Then run `artifacts/traveluxe-os/migration-service-types.sql` and `artifacts/tra
 - **Requests** — `Cancelled` is now a first-class status alongside Declined / Expired. Cancel button on `/requests/:id` opens a dialog (radio reasons from `CANCELLATION_REASONS` + free-text). PUT `/api/requests/:id` validates that a reason is supplied; banner on the detail page surfaces `cancellation_reason` + `cancelled_at`.
 - **Follow-ups** — same shape: action row on each pending follow-up has a Cancel button → dialog with the same reason taxonomy → PATCH `/api/follow-ups/:id` writes `cancelled_at` / `cancelled_by` and refuses without a reason.
 - **Why a separate status, not just delete?** Deleting hides the lost lead from finance reporting. Cancelled rows stay queryable so we can roll up "lost lead reasons" across requests + follow-ups in one query.
+- **Lost-Leads report (Analytics)** — `/analytics` "Lost Leads — Why" card calls `GET /api/dashboard/lost-leads?period=this_month|last_30|this_year|all`. Endpoint groups cancelled requests + cancelled follow-ups by `cancellation_reason` (NULL/blank → "Unspecified"), clamped to the `STATS_CUTOFF_ISO` (20-Apr-2026) so legacy data never leaks. Card shows period chips, source-split totals, a horizontal Recharts bar chart, and a tap-to-drill row list that opens `/requests?status=Cancelled` (reason-level filter not yet implemented — list is by status only).
 
 ## Jobs Board Declutter (May 2026)
 - Search bar at top — fast text filter across TVL ref, client, driver, route, vehicle, flight number.
