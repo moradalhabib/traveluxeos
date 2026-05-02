@@ -324,6 +324,27 @@ router.patch("/:id", async (req, res) => {
     updates.completed_at = new Date().toISOString();
     updates.completed_by = user.id;
     if (notes !== undefined) updates.notes = notes;
+  } else if (status === "pending" && (fu as any).status === "cancelled") {
+    // Re-open a previously cancelled follow-up. Server appends an audit
+    // line to notes so the chase trail is preserved; cancellation_reason
+    // and cancelled_at stay put as an append-only record so the lost-lead
+    // rollup still reflects the original loss. completed_at / completed_by
+    // are cleared so dashboard counters treat it as live work again.
+    const stamp = new Date().toLocaleString("en-GB", {
+      timeZone: "Europe/London",
+      day: "2-digit",
+      month: "short",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const wasReason = ((fu as any).cancellation_reason ?? "").toString().trim() || "Unspecified";
+    const auditLine = `Re-opened (${stamp}) — was cancelled for: ${wasReason}`;
+    const existingNotes = ((fu as any).notes ?? "").toString().trim();
+    updates.status = "pending";
+    updates.completed_at = null;
+    updates.completed_by = null;
+    updates.notes = existingNotes ? `${existingNotes}\n\n${auditLine}` : auditLine;
+    if (due_date !== undefined) updates.due_date = due_date;
   } else {
     if (status) updates.status = status;
     if (notes !== undefined) updates.notes = notes;

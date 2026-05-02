@@ -113,6 +113,11 @@ export default function FollowUps() {
   const [cancelTarget, setCancelTarget] = useState<any>(null);
   const [cancelReason, setCancelReason] = useState(CANCEL_REASONS[0]);
   const [cancelNotes, setCancelNotes] = useState("");
+  // Re-open confirm dialog for cancelled follow-ups. Single per-row prompt
+  // — the server appends an audit line to notes referencing the original
+  // cancellation reason so history is preserved.
+  const [reopenOpen, setReopenOpen] = useState(false);
+  const [reopenTarget, setReopenTarget] = useState<any>(null);
 
   // The amber "X overdue · Y due today" banner is a read-only summary
   // driven by the API stats payload. Date filtering is done via the
@@ -256,6 +261,21 @@ export default function FollowUps() {
       notes: mergedNotes,
     }, "Follow-up cancelled");
     setCancelOpen(false);
+  };
+
+  const openReopen = (fu: any) => {
+    setReopenTarget(fu);
+    setReopenOpen(true);
+  };
+
+  // Server detects the cancelled→pending transition, appends a
+  // "Re-opened (…) — was cancelled for: <reason>" audit line to notes,
+  // and clears completed_at/_by so dashboard counters treat it as live
+  // again. cancellation_reason / cancelled_at stay on record.
+  const submitReopen = async () => {
+    if (!reopenTarget) return;
+    await patchFollowUp(reopenTarget.id, { status: "pending" }, "Follow-up re-opened");
+    setReopenOpen(false);
   };
 
   const handleBookReturn = async (fu: any) => {
@@ -697,18 +717,35 @@ export default function FollowUps() {
                       </Button>
                     </div>
                   ) : (
-                    /* Completed state — show outcome + view booking link */
+                    /* Completed state — show outcome + view booking link.
+                       Cancelled rows additionally surface a Re-open
+                       affordance so operators can revive a lost lead
+                       without going via the database. */
                     <div className="flex items-center justify-between pt-2 border-t border-border/50 gap-2">
                       <span className="text-[11px] text-muted-foreground">
                         {fu.completed_at
                           ? `${statusLabel(fu.status)} · ${format(new Date(fu.completed_at), "dd MMM yyyy")}`
                           : statusLabel(fu.status)}
                       </span>
-                      <Link href={`/bookings/${fu.booking_id}`}>
-                        <Button size="sm" variant="outline" className="h-7 text-[11px]">
-                          View booking <ChevronRight className="w-3 h-3 ml-1" />
-                        </Button>
-                      </Link>
+                      <div className="flex items-center gap-2">
+                        {fu.status === "cancelled" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={busy}
+                            onClick={() => openReopen(fu)}
+                            className="h-7 text-[11px] text-amber-300 border-amber-500/40 hover:bg-amber-500/10"
+                            data-testid={`button-reopen-followup-${fu.id}`}
+                          >
+                            <RotateCcw className="w-3 h-3 mr-1" /> Re-open
+                          </Button>
+                        )}
+                        <Link href={`/bookings/${fu.booking_id}`}>
+                          <Button size="sm" variant="outline" className="h-7 text-[11px]">
+                            View booking <ChevronRight className="w-3 h-3 ml-1" />
+                          </Button>
+                        </Link>
+                      </div>
                     </div>
                   )}
                 </CardContent>
@@ -798,6 +835,42 @@ export default function FollowUps() {
             <Button variant="outline" onClick={() => setCancelOpen(false)}>Keep follow-up</Button>
             <Button onClick={submitCancel} className="bg-rose-500 hover:bg-rose-600 text-white" data-testid="button-confirm-cancel-followup">
               <Ban className="w-4 h-4 mr-1.5" /> Cancel follow-up
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Re-open confirm dialog — single deliberate prompt before flipping
+          a cancelled follow-up back to pending. Cancellation history is
+          preserved so the lost-lead rollup still reflects the original
+          loss. */}
+      <Dialog open={reopenOpen} onOpenChange={setReopenOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Re-open this follow-up?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 py-2 text-sm text-muted-foreground">
+            <p>
+              The follow-up will move back to <span className="font-semibold text-foreground">Pending</span> and reappear on the active list.
+            </p>
+            {reopenTarget?.cancellation_reason && (
+              <p>
+                Originally cancelled for: <span className="text-foreground">{reopenTarget.cancellation_reason}</span>
+              </p>
+            )}
+            <p>
+              The cancellation reason and timestamp stay on record, and an audit line is added to the notes so the history is preserved.
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setReopenOpen(false)}>Keep cancelled</Button>
+            <Button
+              onClick={submitReopen}
+              disabled={busyId === reopenTarget?.id}
+              className="bg-amber-500 hover:bg-amber-600 text-white"
+              data-testid="button-confirm-reopen-followup"
+            >
+              <RotateCcw className="w-4 h-4 mr-1.5" /> Re-open
             </Button>
           </DialogFooter>
         </DialogContent>

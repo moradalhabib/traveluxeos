@@ -158,6 +158,34 @@ router.put("/:id", async (req, res) => {
     body.cancelled_by = user?.id ?? null;
   }
 
+  // Re-opening a previously Cancelled request: caller sets status="New".
+  // We fetch the current row, confirm it really is Cancelled, then append
+  // an audit line to notes server-side. cancellation_reason / cancelled_at
+  // are intentionally preserved as an append-only audit trail so reporting
+  // still attributes the original loss correctly.
+  let reopenAuditMsg: string | null = null;
+  if (body.status === "New") {
+    const { data: existing } = await supabase
+      .from("requests")
+      .select("status, cancellation_reason, notes")
+      .eq("id", req.params.id)
+      .single();
+    if (existing && existing.status === "Cancelled") {
+      const stamp = new Date().toLocaleString("en-GB", {
+        timeZone: "Europe/London",
+        day: "2-digit",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+      const wasReason = (existing.cancellation_reason ?? "").toString().trim() || "Unspecified";
+      const auditLine = `Re-opened (${stamp}) — was cancelled for: ${wasReason}`;
+      const existingNotes = (existing.notes ?? "").toString().trim();
+      body.notes = existingNotes ? `${existingNotes}\n\n${auditLine}` : auditLine;
+      reopenAuditMsg = auditLine;
+    }
+  }
+
   const { data, error } = await supabase
     .from("requests")
     .update(body)
@@ -170,7 +198,9 @@ router.put("/:id", async (req, res) => {
     "update_request", "request", req.params.id, user?.id ?? null,
     body.status === "Cancelled"
       ? `Request cancelled — ${body.cancellation_reason}`
-      : "Request updated",
+      : reopenAuditMsg
+        ? reopenAuditMsg
+        : "Request updated",
   );
   return res.json({
     ...data,

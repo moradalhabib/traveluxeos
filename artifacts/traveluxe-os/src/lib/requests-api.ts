@@ -193,3 +193,24 @@ export function useCancelRequest() {
     },
   });
 }
+
+// Re-open a previously Cancelled request back to the New queue. The PUT
+// route detects the Cancelled→New transition server-side and appends an
+// "Re-opened (…) — was cancelled for: <reason>" audit line to notes.
+// cancellation_reason / cancelled_at are intentionally preserved so the
+// lost-lead reporting still sees the original loss.
+export function useReopenRequest() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      authFetch(`/requests/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ status: "New" }),
+      }),
+    onSuccess: (_d, id) => {
+      qc.invalidateQueries({ queryKey: ["requests"] });
+      qc.invalidateQueries({ queryKey: ["request", id] });
+      qc.invalidateQueries({ queryKey: ["lost-lead-stats"] });
+    },
+  });
+}

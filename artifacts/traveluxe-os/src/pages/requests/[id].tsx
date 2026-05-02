@@ -3,7 +3,7 @@ import { useRoute, useLocation, Link } from "wouter";
 import { format, parseISO } from "date-fns";
 import {
   ArrowLeft, CalendarRange, Phone, Mail, Pencil, Save, X,
-  Trash2, ArrowRight, Loader2, Ban,
+  Trash2, ArrowRight, Loader2, Ban, RotateCcw,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +18,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import {
   useRequest, useUpdateRequest, useDeleteRequest, useConvertRequest,
-  useCancelRequest, CANCELLATION_REASONS,
+  useCancelRequest, useReopenRequest, CANCELLATION_REASONS,
   PRIORITY_STYLES, STATUS_STYLES,
 } from "@/lib/requests-api";
 import { ActivityPanel } from "@/components/activity/ActivityPanel";
@@ -39,6 +39,7 @@ export default function RequestDetail() {
   const remove = useDeleteRequest();
   const convert = useConvertRequest();
   const cancel = useCancelRequest();
+  const reopen = useReopenRequest();
 
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<any>({});
@@ -48,6 +49,9 @@ export default function RequestDetail() {
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState<string>(CANCELLATION_REASONS[0]);
   const [cancelNotes, setCancelNotes] = useState("");
+  // Re-open confirm dialog — surfaced from the Cancellation banner so the
+  // operator has to consciously bring a lost lead back into the queue.
+  const [reopenOpen, setReopenOpen] = useState(false);
 
   if (isLoading) return <Skeleton className="h-96" />;
   if (!r) return <div className="text-muted-foreground">Request not found.</div>;
@@ -96,6 +100,20 @@ export default function RequestDetail() {
         setCancelOpen(false);
       },
       onError: (e: any) => toast({ title: "Cancel failed", description: e?.message, variant: "destructive" }),
+    });
+  };
+
+  // Re-open the request → server flips status back to New and appends an
+  // audit line to notes referencing the original cancellation reason. The
+  // cancellation banner stays visible for history.
+  const submitReopen = () => {
+    if (!id) return;
+    reopen.mutate(id, {
+      onSuccess: () => {
+        toast({ title: "Request re-opened", description: "Back in the New queue. Cancellation history kept for the record." });
+        setReopenOpen(false);
+      },
+      onError: (e: any) => toast({ title: "Re-open failed", description: e?.message, variant: "destructive" }),
     });
   };
 
@@ -241,18 +259,37 @@ export default function RequestDetail() {
 
               {/* Cancellation reason banner — only when the request is
                   Cancelled. Reads from the new column populated by the
-                  PUT /requests/:id route. */}
-              {r.status === "Cancelled" && (r as any).cancellation_reason && (
+                  PUT /requests/:id route. The Re-open button flips the
+                  status back to New; cancellation history stays in place
+                  so the lost-lead reporting still reflects the original
+                  loss. */}
+              {r.status === "Cancelled" && (
                 <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3">
-                  <div className="text-xs uppercase tracking-wider text-rose-300/80 mb-1 flex items-center gap-1.5">
-                    <Ban className="w-3 h-3" /> Cancellation reason
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-xs uppercase tracking-wider text-rose-300/80 mb-1 flex items-center gap-1.5">
+                        <Ban className="w-3 h-3" /> Cancellation reason
+                      </div>
+                      <p className="text-sm text-foreground whitespace-pre-wrap">
+                        {(r as any).cancellation_reason || "Unspecified"}
+                      </p>
+                      {(r as any).cancelled_at && (
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          Cancelled {format(parseISO((r as any).cancelled_at), "PPp")}
+                        </p>
+                      )}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setReopenOpen(true)}
+                      className="flex-shrink-0 text-amber-300 border-amber-500/40 hover:bg-amber-500/10"
+                      data-testid="button-reopen-request"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5 mr-1.5" />
+                      Re-open
+                    </Button>
                   </div>
-                  <p className="text-sm text-foreground whitespace-pre-wrap">{(r as any).cancellation_reason}</p>
-                  {(r as any).cancelled_at && (
-                    <p className="text-[11px] text-muted-foreground mt-1">
-                      Cancelled {format(parseISO((r as any).cancelled_at), "PPp")}
-                    </p>
-                  )}
                 </div>
               )}
 
@@ -387,6 +424,37 @@ export default function RequestDetail() {
             >
               {cancel.isPending ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <Ban className="w-4 h-4 mr-1.5" />}
               Cancel request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Re-open confirm dialog — single deliberate prompt before flipping
+          a Cancelled lead back to New. Cancellation history is preserved
+          so reporting remains accurate. */}
+      <Dialog open={reopenOpen} onOpenChange={setReopenOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Re-open this request?</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-2 py-2 text-sm text-muted-foreground">
+            <p>
+              The request will move back to the <span className="font-semibold text-foreground">New</span> queue and reappear on the requests list.
+            </p>
+            <p>
+              The original cancellation reason and timestamp stay on record, and an audit line is added to the notes so the history is preserved.
+            </p>
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setReopenOpen(false)}>Keep cancelled</Button>
+            <Button
+              onClick={submitReopen}
+              disabled={reopen.isPending}
+              className="bg-amber-500 hover:bg-amber-600 text-white"
+              data-testid="button-confirm-reopen-request"
+            >
+              {reopen.isPending ? <Loader2 className="w-4 h-4 mr-1.5 animate-spin" /> : <RotateCcw className="w-4 h-4 mr-1.5" />}
+              Re-open
             </Button>
           </DialogFooter>
         </DialogContent>
