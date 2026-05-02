@@ -36,7 +36,11 @@ app.use(express.urlencoded({ extended: true }));
 // Global auth guard — reject any unauthenticated request to protected API routes.
 // Health and auth endpoints are public; everything else requires a valid, non-expired JWT.
 // Paths are relative to the /api mount point (req.path strips the /api prefix).
-const PUBLIC_PATHS = ["/health", "/auth"];
+//
+// NOTE: list the *exact* mounted paths here. The health router is mounted at the
+// root and exposes `/healthz`, so we list `/healthz` (NOT `/health`). The auth
+// router is mounted under `/auth`, so `/auth` + `/auth/...` are public.
+const PUBLIC_PATHS = ["/healthz", "/auth"];
 
 // HS256-shared-secret JWT verification against Supabase's signing key. The
 // secret lives in SUPABASE_JWT_SECRET (from the Supabase dashboard → Settings
