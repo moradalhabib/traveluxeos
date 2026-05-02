@@ -346,6 +346,15 @@ router.patch("/:id", async (req, res) => {
     updates.notes = existingNotes ? `${existingNotes}\n\n${auditLine}` : auditLine;
     if (due_date !== undefined) updates.due_date = due_date;
   } else {
+    // Symmetric guard with requests: cancelled is near-terminal — the only
+    // legal way out is via the explicit Re-open action (cancelled→pending,
+    // handled above). Reject Cancelled → done / booked_return / no_response
+    // accidental transitions from the generic update path.
+    if ((fu as any).status === "cancelled" && status && status !== "cancelled") {
+      return res.status(400).json({
+        error: "Cancelled follow-ups can only be re-opened to status 'pending'. Use the Re-open action.",
+      });
+    }
     if (status) updates.status = status;
     if (notes !== undefined) updates.notes = notes;
     if (due_date !== undefined) updates.due_date = due_date;

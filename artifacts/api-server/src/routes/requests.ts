@@ -158,19 +158,27 @@ router.put("/:id", async (req, res) => {
     body.cancelled_by = user?.id ?? null;
   }
 
-  // Re-opening a previously Cancelled request: caller sets status="New".
-  // We fetch the current row, confirm it really is Cancelled, then append
-  // an audit line to notes server-side. cancellation_reason / cancelled_at
-  // are intentionally preserved as an append-only audit trail so reporting
-  // still attributes the original loss correctly.
+  // Status-transition handling for previously Cancelled rows.
+  // Cancelled is intended as a near-terminal state — the only legal way out
+  // is via the explicit "Re-open" action which sends status="New". This
+  // also gives us a hook to (a) reject accidental Cancelled→FollowingUp /
+  // Quoted / Booked transitions from the generic edit form and (b) append
+  // an audit line to notes when the row actually goes Cancelled→New.
+  // cancellation_reason / cancelled_at are preserved either way so the
+  // Lost-Leads rollup still attributes the original loss correctly.
   let reopenAuditMsg: string | null = null;
-  if (body.status === "New") {
+  if (body.status && body.status !== "Cancelled") {
     const { data: existing } = await supabase
       .from("requests")
       .select("status, cancellation_reason, notes")
       .eq("id", req.params.id)
       .single();
     if (existing && existing.status === "Cancelled") {
+      if (body.status !== "New") {
+        return res.status(400).json({
+          error: "Cancelled requests can only be re-opened to status 'New'. Use the Re-open action.",
+        });
+      }
       const stamp = new Date().toLocaleString("en-GB", {
         timeZone: "Europe/London",
         day: "2-digit",
