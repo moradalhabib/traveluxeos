@@ -31,7 +31,8 @@ router.get("/", async (req, res) => {
     .from("follow_ups")
     .select(`
       id, booking_id, client_id, driver_id, due_date, status, notes,
-      no_response_count, completed_by, completed_at, created_at
+      no_response_count, completed_by, completed_at, created_at,
+      cancelled_by, cancelled_at, cancellation_reason
     `);
 
   // Status filter
@@ -132,9 +133,15 @@ router.get("/", async (req, res) => {
   // Hydrate operator + cancelled-by actor info in a single users lookup.
   // We need just `name` for the booking operator label, but the cancelled
   // banner on /follow-ups also wants an email tooltip — so the lookup pulls
-  // both columns and the page picks what it needs. Soft-deleted users already
-  // have name="[removed]" and a safe email placeholder (see routes/users.ts),
-  // so we never leak the original email of removed staff.
+  // both columns and the page picks what it needs.
+  //
+  // Privacy gate: routes/users.ts has two distinct deactivation flows —
+  // `deactivate` keeps the real email but flips active=false, while `remove`
+  // also overwrites email with a safe placeholder + name="[removed]". We
+  // therefore null out `cancelled_by_email` for any actor with active=false
+  // so a merely-deactivated operator's address is never leaked through the
+  // attribution line. The display name is still safe to show (it's either
+  // their real name or "[removed]").
   const userIds = [
     ...new Set(
       results
@@ -142,26 +149,32 @@ router.get("/", async (req, res) => {
         .filter(Boolean),
     ),
   ];
-  let userMap: Record<string, { name: string | null; email: string | null }> = {};
+  let userMap: Record<string, { name: string | null; email: string | null; active: boolean }> = {};
   if (userIds.length > 0) {
     const { data: us } = await supabase
       .from("users")
-      .select("id, name, email")
+      .select("id, name, email, active")
       .in("id", userIds);
     userMap = Object.fromEntries(
-      (us ?? []).map((u: any) => [u.id, { name: u.name ?? null, email: u.email ?? null }]),
+      (us ?? []).map((u: any) => [
+        u.id,
+        { name: u.name ?? null, email: u.email ?? null, active: u.active !== false },
+      ]),
     );
   }
 
-  results = results.map((f: any) => ({
-    ...f,
-    operator_name: userMap[f.booking?.operator_id]?.name ?? null,
-    cancelled_by_name: f.cancelled_by ? userMap[f.cancelled_by]?.name ?? null : null,
-    cancelled_by_email: f.cancelled_by ? userMap[f.cancelled_by]?.email ?? null : null,
-    days_since_arrival: f.booking?.date_time
-      ? Math.floor((Date.now() - new Date(f.booking.date_time).getTime()) / 86400000)
-      : null,
-  }));
+  results = results.map((f: any) => {
+    const actor = f.cancelled_by ? userMap[f.cancelled_by] : null;
+    return {
+      ...f,
+      operator_name: userMap[f.booking?.operator_id]?.name ?? null,
+      cancelled_by_name: actor?.name ?? null,
+      cancelled_by_email: actor && actor.active ? actor.email : null,
+      days_since_arrival: f.booking?.date_time
+        ? Math.floor((Date.now() - new Date(f.booking.date_time).getTime()) / 86400000)
+        : null,
+    };
+  });
 
   return res.json(results);
 });

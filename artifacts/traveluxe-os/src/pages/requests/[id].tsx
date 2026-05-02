@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useRoute, useLocation, Link } from "wouter";
 import { format, parseISO } from "date-fns";
+import { fmtLondon } from "@/lib/datetime";
 import {
   ArrowLeft, CalendarRange, Phone, Mail, Pencil, Save, X,
   Trash2, ArrowRight, Loader2, Ban, RotateCcw,
@@ -258,57 +259,58 @@ export default function RequestDetail() {
                 </div>
               )}
 
-              {/* Cancellation reason banner — only when the request is
-                  Cancelled. Reads from the new column populated by the
-                  PUT /requests/:id route. The Re-open button flips the
-                  status back to New; cancellation history stays in place
-                  so the lost-lead reporting still reflects the original
-                  loss. */}
+              {/* Cancellation banner — only when the request is Cancelled.
+                  Single-line audit attribution combining actor (with email
+                  tooltip), Europe/London timestamp, and the captured reason.
+                  Reads from columns populated by PUT /requests/:id; the
+                  Re-open button flips status back to New and the cancellation
+                  history stays so the lost-lead reporting still reflects the
+                  original loss. The line uses flex-wrap with dot separators
+                  so it breaks cleanly on narrow viewports. Falls back to a
+                  reduced label set if cancelled_by_name is missing
+                  (deactivated user / legacy row from before cancelled_by). */}
               {r.status === "Cancelled" && (
                 <div className="rounded-lg border border-rose-500/30 bg-rose-500/5 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="text-xs uppercase tracking-wider text-rose-300/80 mb-1 flex items-center gap-1.5">
-                        <Ban className="w-3 h-3" /> Cancellation reason
+                        <Ban className="w-3 h-3" /> Cancellation
                       </div>
-                      <p className="text-sm text-foreground whitespace-pre-wrap">
-                        {(r as any).cancellation_reason || "Unspecified"}
-                      </p>
-                      {/* Audit attribution: who pulled the trigger + when (Europe/London).
-                          Renders flexibly so on narrow viewports it wraps cleanly with
-                          dot separators between segments. Falls back to the timestamp-only
-                          line if cancelled_by_name is null (deactivated user / legacy row). */}
-                      {((r as any).cancelled_at || (r as any).cancelled_by_name) && (
-                        <p className="text-[11px] text-muted-foreground mt-1 flex flex-wrap items-center gap-x-1.5">
-                          <span>
-                            {(r as any).cancelled_by_name ? "Cancelled by" : "Cancelled"}
-                          </span>
-                          {(r as any).cancelled_by_name && (
-                            (r as any).cancelled_by_email ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span className="font-medium text-foreground/90 cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2">
-                                    {(r as any).cancelled_by_name}
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">{(r as any).cancelled_by_email}</TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              <span className="font-medium text-foreground/90">
+                      <p
+                        className="text-sm text-foreground flex flex-wrap items-center gap-x-1.5 gap-y-1"
+                        data-testid="text-cancellation-attribution"
+                      >
+                        <span>
+                          {(r as any).cancelled_by_name ? "Cancelled by" : "Cancelled"}
+                        </span>
+                        {(r as any).cancelled_by_name && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span
+                                className="font-medium cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2"
+                                data-testid="text-cancelled-by-name"
+                              >
                                 {(r as any).cancelled_by_name}
                               </span>
-                            )
-                          )}
-                          {(r as any).cancelled_at && (
-                            <>
-                              <span aria-hidden="true">·</span>
-                              <span>
-                                {format(parseISO((r as any).cancelled_at), "d MMM HH:mm")}
-                              </span>
-                            </>
-                          )}
-                        </p>
-                      )}
+                            </TooltipTrigger>
+                            <TooltipContent side="top">
+                              {(r as any).cancelled_by_email ?? (r as any).cancelled_by_name}
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                        {(r as any).cancelled_at && (
+                          <>
+                            <span aria-hidden="true" className="text-muted-foreground">·</span>
+                            <span className="text-muted-foreground">
+                              {fmtLondon((r as any).cancelled_at, "d MMM HH:mm")}
+                            </span>
+                          </>
+                        )}
+                        <span aria-hidden="true" className="text-muted-foreground">·</span>
+                        <span className="text-muted-foreground">
+                          Reason: <span className="text-foreground whitespace-pre-wrap">{(r as any).cancellation_reason || "Unspecified"}</span>
+                        </span>
+                      </p>
                     </div>
                     <Button
                       size="sm"

@@ -126,21 +126,29 @@ router.get("/:id", async (req, res) => {
 
   // Hydrate the cancelling operator's display name + email so the banner
   // on /requests/:id can show "Cancelled by Sara A." with an email tooltip.
-  // Read-only, optional join — soft-deleted users already have name="[removed]"
-  // and a safe email placeholder (see routes/users.ts), so we never leak the
-  // original email of removed staff. Falls back to nulls when the actor row
-  // is missing (e.g. legacy cancellations from before cancelled_by existed).
+  // Read-only, optional join — falls back to nulls when the actor row is
+  // missing (e.g. legacy cancellations from before cancelled_by existed).
+  //
+  // Privacy gate: routes/users.ts has two distinct deactivation flows —
+  // `deactivate` keeps the real email but flips active=false, while `remove`
+  // also overwrites email with a safe placeholder + name="[removed]". We
+  // null out cancelled_by_email for any actor with active=false so a merely-
+  // deactivated operator's address is never leaked through the attribution.
+  // The display name is still safe to show (it's their real name or
+  // "[removed]" — never a leaked email).
   let cancelled_by_name: string | null = null;
   let cancelled_by_email: string | null = null;
   if ((data as any).cancelled_by) {
     const { data: actor } = await supabase
       .from("users")
-      .select("name, email")
+      .select("name, email, active")
       .eq("id", (data as any).cancelled_by)
       .maybeSingle();
     if (actor) {
       cancelled_by_name = (actor as any).name ?? null;
-      cancelled_by_email = (actor as any).email ?? null;
+      cancelled_by_email = (actor as any).active === false
+        ? null
+        : (actor as any).email ?? null;
     }
   }
 

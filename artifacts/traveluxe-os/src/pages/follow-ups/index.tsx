@@ -23,6 +23,7 @@ import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown"
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { RecentActivityFeed } from "@/components/activity/RecentActivityFeed";
 import { format, formatDistanceToNow } from "date-fns";
+import { fmtLondon } from "@/lib/datetime";
 import { getVipPillClass } from "@/lib/vip";
 import * as XLSX from "xlsx";
 
@@ -774,31 +775,24 @@ export default function FollowUps() {
                         <p className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-1.5">
                           <span>{fu.cancelled_by_name ? "Cancelled by" : "Cancelled"}</span>
                           {fu.cancelled_by_name && (
-                            fu.cancelled_by_email ? (
-                              <Tooltip>
-                                <TooltipTrigger asChild>
-                                  <span
-                                    className="font-medium text-foreground/90 cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2"
-                                    data-testid={`text-cancelled-by-${fu.id}`}
-                                  >
-                                    {fu.cancelled_by_name}
-                                  </span>
-                                </TooltipTrigger>
-                                <TooltipContent side="top">{fu.cancelled_by_email}</TooltipContent>
-                              </Tooltip>
-                            ) : (
-                              <span
-                                className="font-medium text-foreground/90"
-                                data-testid={`text-cancelled-by-${fu.id}`}
-                              >
-                                {fu.cancelled_by_name}
-                              </span>
-                            )
+                            <Tooltip>
+                              <TooltipTrigger asChild>
+                                <span
+                                  className="font-medium text-foreground/90 cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2"
+                                  data-testid={`text-cancelled-by-${fu.id}`}
+                                >
+                                  {fu.cancelled_by_name}
+                                </span>
+                              </TooltipTrigger>
+                              <TooltipContent side="top">
+                                {fu.cancelled_by_email ?? fu.cancelled_by_name}
+                              </TooltipContent>
+                            </Tooltip>
                           )}
                           {fu.cancelled_at && (
                             <>
                               <span aria-hidden="true">·</span>
-                              <span>{format(new Date(fu.cancelled_at), "d MMM HH:mm")}</span>
+                              <span>{fmtLondon(fu.cancelled_at, "d MMM HH:mm")}</span>
                             </>
                           )}
                           {fu.cancellation_reason && (
