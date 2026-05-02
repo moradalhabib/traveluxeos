@@ -546,8 +546,11 @@ export default function Jobs() {
         )}
       </div>
 
-      {/* Filters + chips — single scrollable row */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+      {/* Filters + chips — wraps onto multiple rows on mobile so no
+          horizontal scrolling is needed at 360–420px; reverts to the
+          original single scrollable row from sm: upwards so the desktop
+          density is preserved. */}
+      <div className="flex flex-wrap items-center gap-2 sm:flex-nowrap sm:overflow-x-auto sm:pb-0.5">
         {!statusFilter && (
           <>
             <FilterDropdown
