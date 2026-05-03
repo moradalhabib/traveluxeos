@@ -10,7 +10,8 @@ interface BulkActionBarProps {
   count: number;
   noun: string;            // e.g. "invoice", "client", "booking"
   onClear: () => void;
-  onDelete: () => Promise<void> | void;
+  /** Omit to hide the Delete button (e.g. for roles that can cancel but not delete). */
+  onDelete?: () => Promise<void> | void;
   /** Optional extra confirm copy. */
   warning?: string;
   /**
@@ -51,6 +52,7 @@ export function BulkActionBar({
   const plural = count === 1 ? noun : `${noun}s`;
 
   const handleDelete = async () => {
+    if (!onDelete) return;
     setRunning(true);
     try {
       await onDelete();
@@ -108,17 +110,19 @@ export function BulkActionBar({
             {cancelSelectedLabel ?? `Cancel ${count}`}
           </Button>
         )}
-        <Button
-          variant="destructive"
-          size="sm"
-          onClick={() => setConfirmOpen(true)}
-          className="h-9"
-          disabled={running}
-          data-testid="button-bulk-delete"
-        >
-          {running ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1" />}
-          Delete {count}
-        </Button>
+        {onDelete && (
+          <Button
+            variant="destructive"
+            size="sm"
+            onClick={() => setConfirmOpen(true)}
+            className="h-9"
+            disabled={running}
+            data-testid="button-bulk-delete"
+          >
+            {running ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Trash2 className="w-4 h-4 mr-1" />}
+            Delete {count}
+          </Button>
+        )}
       </div>
 
       <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

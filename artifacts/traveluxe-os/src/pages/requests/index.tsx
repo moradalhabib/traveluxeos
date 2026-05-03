@@ -192,7 +192,7 @@ export default function Requests() {
           </p>
         </div>
         <div className="flex gap-2 w-full sm:w-auto">
-          {canBulkDelete && (
+          {(canBulkCancel || canBulkDelete) && (
             bulk.selectMode ? (
               <Button variant="outline" onClick={bulk.exitSelectMode} className="h-12 flex-1 sm:flex-initial" data-testid="button-cancel-select">
                 <XIcon className="w-4 h-4 mr-2" /> Cancel
@@ -304,7 +304,7 @@ export default function Requests() {
         count={bulk.count}
         noun="request"
         onClear={bulk.clear}
-        onDelete={handleBulkDelete}
+        onDelete={canBulkDelete ? handleBulkDelete : undefined}
         onReopenSelected={allSelectedCancelled ? () => setBulkReopenOpen(true) : undefined}
         reopenSelectedLabel={`Re-open ${bulk.count}`}
         onCancelSelected={canBulkCancel && !allSelectedCancelled ? () => setBulkCancelOpen(true) : undefined}

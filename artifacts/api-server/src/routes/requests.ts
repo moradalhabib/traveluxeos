@@ -167,6 +167,10 @@ router.post("/", async (req, res) => {
 router.post("/bulk-cancel", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
   if (!user) return res.status(401).json({ error: "Unauthorised" });
+  const ALLOWED_ROLES = ["operator", "admin", "super_admin"];
+  if (!ALLOWED_ROLES.includes(user.role)) {
+    return res.status(403).json({ error: "Forbidden: operator or higher required" });
+  }
 
   const { ids, cancellation_reason } = req.body ?? {};
   if (!Array.isArray(ids) || ids.length === 0) {
