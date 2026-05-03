@@ -1272,7 +1272,13 @@ export default function BookingDetail() {
       onSuccess: () => {
         toast({ title: "Booking updated" });
         setIsEditOpen(false);
+        // Booking edits can change price, date, vehicle, commission — bust
+        // the detail (via refetch for instant UI), the list (price/date
+        // visible in cards), commission ledger, and dashboard KPIs.
         refetch();
+        qc.invalidateQueries({ queryKey: getListBookingsQueryKey() });
+        qc.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
+        qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
       },
       onError: (e: any) =>
         toast({ title: "Update failed", description: e?.message, variant: "destructive" }),
@@ -3300,28 +3306,17 @@ export default function BookingDetail() {
         <SupplierCostCard
           booking={booking}
           onSaved={() => {
-            // Targeted invalidation — supplier cost changes affect the
-            // current booking detail, the bookings list, finance/invoice
-            // totals, commission summaries, and the dashboard KPIs.
-            // Use the orval-generated query-key helpers so we match the
-            // exact keys react-query uses (string-prefix matches don't
-            // work; tanstack matches array elements by deep-equal).
+            // Supplier cost changes affect this booking detail, the list
+            // (price visible in cards), invoice totals, commission ledger,
+            // audit feed, and dashboard KPIs. Use typed orval helpers so
+            // TanStack Query matches array keys by deep-equal — string
+            // prefix predicates are unreliable (key arrays aren't strings).
             qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
             qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-            // List/summary endpoints take params, so invalidate every
-            // variation by matching on the URL prefix (first key element).
-            const prefixes = [
-              "/api/bookings",
-              "/api/invoices",
-              "/api/commissions",
-              "/api/audit-log",
-              "/api/finance/summary",
-            ];
-            qc.invalidateQueries({
-              predicate: (q) =>
-                typeof q.queryKey[0] === "string" &&
-                prefixes.some((p) => (q.queryKey[0] as string).startsWith(p)),
-            });
+            qc.invalidateQueries({ queryKey: getListBookingsQueryKey() });
+            qc.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
+            qc.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
+            qc.invalidateQueries({ queryKey: getListAuditLogQueryKey() });
           }}
         />
       )}
