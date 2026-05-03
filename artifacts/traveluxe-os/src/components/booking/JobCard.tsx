@@ -71,6 +71,10 @@ export function JobCard({
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
   const [supplierCostPromptOpen, setSupplierCostPromptOpen] = useState(false);
   const [supplierCostDraft, setSupplierCostDraft] = useState<string>("");
+  // Tracks which terminal status the supplier-cost prompt is gating, so the
+  // same dialog works for both Completed and No Show (suppliers usually still
+  // bill 100% on no-shows).
+  const [supplierCostPendingStatus, setSupplierCostPendingStatus] = useState<"Completed" | "No Show">("Completed");
   // Force-remount the <select> after a cancelled change so its DOM value
   // resets back to job.status (controlled value alone isn't always enough
   // because the user's interaction already advanced the select).
@@ -126,13 +130,15 @@ export function JobCard({
       return;
     }
 
-    // Bug 3 — Completing a booking that has a supplier assigned without a
-    // supplier_cost would silently leave the supplier balance and P&L wrong.
-    // Prompt for a cost (operator can still confirm £0 explicitly).
+    // Bug 3 — Completing or marking a job as No Show when there's a supplier
+    // assigned but no supplier_cost would silently leave the supplier balance
+    // and P&L wrong. Suppliers typically still bill on no-shows. Prompt for a
+    // cost in either case (operator can still confirm £0 explicitly).
     const hasSupplier = !!(job as any).supplier_id;
     const cost = Number((job as any).supplier_cost ?? 0);
-    if (next === "Completed" && hasSupplier && !(cost > 0)) {
+    if ((next === "Completed" || next === "No Show") && hasSupplier && !(cost > 0)) {
       setSupplierCostDraft("");
+      setSupplierCostPendingStatus(next);
       setSupplierCostPromptOpen(true);
       setStatusSelectNonce((n: number) => n + 1);
       return;
@@ -155,7 +161,7 @@ export function JobCard({
     // or neither does — no risk of a stale balance vs status mismatch if the
     // network drops between two sequential calls.
     updateBooking.mutate(
-      { id: job.id, data: { supplier_cost: num, status: "Completed" } as any },
+      { id: job.id, data: { supplier_cost: num, status: supplierCostPendingStatus } as any },
       {
         onSuccess: () => qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) }),
       },
@@ -164,7 +170,7 @@ export function JobCard({
 
   const completeWithoutSupplierCost = () => {
     setSupplierCostPromptOpen(false);
-    commitStatus("Completed");
+    commitStatus(supplierCostPendingStatus);
   };
   const handlePaymentChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     e.preventDefault();
@@ -528,10 +534,15 @@ export function JobCard({
       <Dialog open={supplierCostPromptOpen} onOpenChange={setSupplierCostPromptOpen}>
         <DialogContent onClick={(e) => e.stopPropagation()}>
           <DialogHeader>
-            <DialogTitle>Add supplier cost for {job.tvl_ref}?</DialogTitle>
+            <DialogTitle>
+              {supplierCostPendingStatus === "No Show"
+                ? `Add supplier cost for No Show on ${job.tvl_ref}?`
+                : `Add supplier cost for ${job.tvl_ref}?`}
+            </DialogTitle>
             <DialogDescription>
-              You haven't entered a supplier cost for this booking. Add one now to keep
-              the supplier balance and P&amp;L accurate.
+              {supplierCostPendingStatus === "No Show"
+                ? "Suppliers usually still bill on no-shows. Enter the amount you owe (£0 if waived) so the supplier balance and P&L stay accurate."
+                : "You haven't entered a supplier cost for this booking. Add one now to keep the supplier balance and P&L accurate."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-2 py-2">
@@ -558,14 +569,18 @@ export function JobCard({
               onClick={completeWithoutSupplierCost}
               data-testid={`button-complete-without-cost-${job.id}`}
             >
-              Complete without cost
+              {supplierCostPendingStatus === "No Show" ? "Mark No Show without cost" : "Complete without cost"}
             </Button>
             <Button
               onClick={submitSupplierCostThenComplete}
               disabled={updateBooking.isPending}
               data-testid={`button-save-cost-and-complete-${job.id}`}
             >
-              {updateBooking.isPending ? "Saving…" : "Save cost & complete"}
+              {updateBooking.isPending
+                ? "Saving…"
+                : supplierCostPendingStatus === "No Show"
+                  ? "Save cost & mark No Show"
+                  : "Save cost & complete"}
             </Button>
           </DialogFooter>
         </DialogContent>
