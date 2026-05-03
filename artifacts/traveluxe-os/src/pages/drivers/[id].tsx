@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import { supabase } from "@/lib/supabase";
 import { MessageSquare, Edit, ArrowLeft, Calculator, Car, Save, X, Loader2, BarChart3, AlertTriangle, Plane } from "lucide-react";
 import { format } from "date-fns";
@@ -70,6 +71,8 @@ export default function DriverDetail() {
   const id = params.id as string;
   const { toast } = useToast();
   const qc = useQueryClient();
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
 
   const { data: driver, isLoading } = useGetDriver(id, {
     query: { enabled: !!id, queryKey: getGetDriverQueryKey(id) },
@@ -530,7 +533,9 @@ export default function DriverDetail() {
         </CardContent>
       </Card>
 
-      <DriverAppPin driverId={d.id} hasPin={Boolean(d.pin_hash)} driverName={d.name} />
+      {isSuperAdmin && (
+        <DriverAppPin driverId={d.id} hasPin={Boolean(d.pin_hash)} driverName={d.name} />
+      )}
 
       {/* ── Financial Summary ─────────────────────────────────────── */}
       <Card className="border-primary/10 bg-card" data-testid="card-financial-summary">

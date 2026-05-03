@@ -7,8 +7,8 @@ const router: IRouter = Router();
 async function requireAdmin(req: Request, res: Response): Promise<{ id: string; role: string } | null> {
   const user = await getUserFromToken(req.headers.authorization);
   if (!user) { res.status(401).json({ error: "Unauthorized" }); return null; }
-  if (user.role !== "super_admin" && user.role !== "admin") {
-    res.status(403).json({ error: "Admins only." }); return null;
+  if (user.role !== "super_admin") {
+    res.status(403).json({ error: "Super Admins only." }); return null;
   }
   return user;
 }

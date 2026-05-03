@@ -2438,7 +2438,9 @@ export default function Admin() {
               <TabsTrigger value="users" className="text-xs px-3 whitespace-nowrap">Users</TabsTrigger>
             )}
             <TabsTrigger value="audit" className="text-xs px-3 whitespace-nowrap">Audit</TabsTrigger>
-            <TabsTrigger value="api" className="text-xs px-3 whitespace-nowrap">API</TabsTrigger>
+            {isSuperAdmin && (
+              <TabsTrigger value="api" className="text-xs px-3 whitespace-nowrap">API</TabsTrigger>
+            )}
             {canEditSettings && (
               <TabsTrigger value="settings" className="text-xs px-3 whitespace-nowrap">Settings</TabsTrigger>
             )}
@@ -2575,9 +2577,11 @@ export default function Admin() {
           </Tabs>
         </TabsContent>
 
-        <TabsContent value="api" className="mt-3">
-          <IntegrationTab />
-        </TabsContent>
+        {isSuperAdmin && (
+          <TabsContent value="api" className="mt-3">
+            <IntegrationTab />
+          </TabsContent>
+        )}
 
         {canEditSettings && (
           <TabsContent value="settings" className="mt-3">
