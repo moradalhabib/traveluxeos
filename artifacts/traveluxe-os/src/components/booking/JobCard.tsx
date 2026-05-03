@@ -31,6 +31,7 @@ const STATUS_COLORS: Record<string, string> = {
   Active:    "bg-green-500/20 text-green-400 border-green-500/50",
   Completed: "bg-gray-500/20 text-gray-400 border-gray-500/50",
   Cancelled: "bg-destructive/20 text-destructive border-destructive/50",
+  "No Show": "bg-orange-500/20 text-orange-400 border-orange-500/50",
 };
 
 const PAYMENT_COLORS: Record<string, string> = {
@@ -264,6 +265,7 @@ export function JobCard({
                 <option value="Confirmed">Confirmed</option>
                 <option value="Active">Active</option>
                 <option value="Completed">Completed</option>
+                <option value="No Show">No Show</option>
                 <option value="Cancelled">Cancelled</option>
               </select>
             </div>

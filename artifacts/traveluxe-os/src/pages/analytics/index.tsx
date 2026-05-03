@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { parseISO, format } from "date-fns";
 import { useLocation } from "wouter";
@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   TrendingUp, Globe, CalendarDays, Activity, AlertTriangle, Users, X, Info,
   XCircle, ChevronDown, MessageCircle, Clock, Repeat, ArrowUp, ArrowDown,
+  BarChart3, Building2, Route as RouteIcon, Car, Flame, Ban, Hourglass, RotateCcw,
 } from "lucide-react";
 import { useLostLeadStats, type LostLeadPeriod } from "@/lib/requests-api";
 import {
@@ -45,6 +46,37 @@ const NAT_COLORS = [
   "#C9A84C","#8B5CF6","#3B82F6","#F59E0B","#10B981",
   "#EF4444","#EC4899","#14B8A6","#F97316","#6366F1",
 ];
+
+// ── Section 4 address-normalisation helpers ────────────────────────────────
+// Heuristic hotel detection from free-form pickup/dropoff text. We bucket by
+// the first comma-separated segment, lowercased, with common noise stripped.
+// "Hotel-like" means it either contains the word "hotel" / "residence" /
+// "suites" / "the X", or matches a small known-luxury list. Everything else
+// (airports, postcodes, generic addresses) is excluded from Top Hotels but
+// still used as-is in Top Routes.
+const KNOWN_HOTELS_RE = /\b(claridge'?s?|the savoy|the ritz|the dorchester|the connaught|the langham|the berkeley|corinthia|peninsula|four seasons|mandarin|shangri.?la|bvlgari|aman|raffles|st\.? regis|nobu|chiltern|edition|park lane|grosvenor|45 park lane|biltmore|rosewood|kimpton|ham yard|soho hotel|the lanesborough|the ned|nh london|sofitel|bulgari)\b/i;
+
+function bucketKeyForAddress(raw: string | null | undefined): { key: string; display: string } | null {
+  if (!raw || typeof raw !== "string") return null;
+  const head = raw.split(",")[0]
+    .replace(/\b[A-Z]{1,2}\d[A-Z\d]?\s*\d?[A-Z]{0,2}\b/gi, "") // UK postcode
+    .replace(/\b(suite|room|apt|apartment|no\.?)\s*\d+\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (head.length < 2) return null;
+  const key = head.toLowerCase()
+    .replace(/^the\s+/, "")
+    .replace(/'s\b/g, "s")
+    .replace(/[.,]/g, "")
+    .replace(/\s+hotel$/, "")
+    .trim();
+  return { key, display: head };
+}
+function isHotelLikeAddress(raw: string | null | undefined): boolean {
+  if (!raw || typeof raw !== "string") return false;
+  if (KNOWN_HOTELS_RE.test(raw)) return true;
+  return /\b(hotel|hôtel|residence|suites?|the\s+[A-Z])/i.test(raw);
+}
 
 // ── Interfaces ────────────────────────────────────────────────────────────────
 interface ForecastResponse {
@@ -322,6 +354,12 @@ export default function Analytics() {
   const [expandedNat, setExpandedNat] = useState<string | null>(null);
   const [repeatPeriod, setRepeatPeriod] = useState<"this_month" | "last_30" | "this_year">("this_month");
 
+  // Section 4 Business Performance UI state
+  const [serviceBreakPeriod, setServiceBreakPeriod] = useState<"this_month" | "this_year" | "all_time">("this_year");
+  const [heatmapPeriod,      setHeatmapPeriod]      = useState<"this_month" | "last_90" | "this_year">("this_year");
+  const [vehicleNatFilter,   setVehicleNatFilter]   = useState<string>(""); // "" = all
+  const [showCxnByNat,       setShowCxnByNat]       = useState<boolean>(false);
+
   // ── Revenue Forecast ────────────────────────────────────────────────────────
   const forecastQuery = useQuery<ForecastResponse>({
     queryKey: ["dashboard-forecast"],
@@ -448,6 +486,35 @@ export default function Analytics() {
     staleTime: 5 * 60 * 1000,
   });
   const futureBookings = futureBookingsQuery.data ?? [];
+
+  // ── Section 4: rich all-status bookings dataset ────────────────────────────
+  // ALL bookings since STATS_CUTOFF_ISO (no status filter — includes Cancelled
+  // and No Show so 4F can compute ratios). Powers 4A–4H without extra queries.
+  const businessBookingsQuery = useQuery<Array<{
+    id: string;
+    status: string | null;
+    service_type: string | null;
+    price: number | null;
+    additional_charges: number | null;
+    date_time: string | null;
+    created_at: string | null;
+    client_id: string | null;
+    pickup: string | null;
+    dropoff: string | null;
+    vehicle_type: string | null;
+  }>>({
+    queryKey: ["intel-business-bookings"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bookings")
+        .select("id, status, service_type, price, additional_charges, date_time, created_at, client_id, pickup, dropoff, vehicle_type")
+        .gte("date_time", STATS_CUTOFF_ISO);
+      if (error) throw error;
+      return (data ?? []) as any;
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+  const businessBookings = businessBookingsQuery.data ?? [];
 
   // Per-client lifetime aggregates derived from the rich query
   const lifetimeRevByClient: Record<string, number> = {};
@@ -630,6 +697,301 @@ export default function Analytics() {
     if (!digits) return null;
     return `https://wa.me/${digits}`;
   };
+
+  // ── Section 4 helpers: nationality lookup per client ──────────────────────
+  const natByClient = useMemo(() => {
+    const m: Record<string, { flag: string; country: string }> = {};
+    (clientsQuery.data ?? []).forEach(cl => {
+      m[cl.id] = detectNat(null, cl.whatsapp, cl.nationality);
+    });
+    return m;
+  }, [clientsQuery.data]);
+
+  // ── 4A: Top Hotels (pickup OR dropoff appearances) ────────────────────────
+  const topHotels = useMemo(() => {
+    type Bucket = { display: string; count: number; revenue: number };
+    const buckets: Record<string, Bucket> = {};
+    businessBookings.forEach(b => {
+      if (b.status === "Cancelled") return;
+      const value = (Number(b.price) || 0) + (Number(b.additional_charges) || 0);
+      const seenKeys = new Set<string>();
+      for (const addr of [b.pickup, b.dropoff]) {
+        if (!isHotelLikeAddress(addr)) continue;
+        const bk = bucketKeyForAddress(addr);
+        if (!bk) continue;
+        if (seenKeys.has(bk.key)) continue; // don't double-count if same hotel both ends
+        seenKeys.add(bk.key);
+        buckets[bk.key] ??= { display: bk.display, count: 0, revenue: 0 };
+        buckets[bk.key].count += 1;
+        buckets[bk.key].revenue += value;
+      }
+    });
+    return Object.values(buckets)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+  }, [businessBookings]);
+
+  // ── 4B: Top Routes (directional pickup → dropoff) ─────────────────────────
+  const topRoutes = useMemo(() => {
+    type Bucket = { from: string; to: string; count: number; total: number };
+    const buckets: Record<string, Bucket> = {};
+    businessBookings.forEach(b => {
+      if (b.status === "Cancelled") return;
+      const fromKey = bucketKeyForAddress(b.pickup);
+      const toKey   = bucketKeyForAddress(b.dropoff);
+      if (!fromKey || !toKey) return;
+      const key = `${fromKey.key}→${toKey.key}`;
+      const value = (Number(b.price) || 0) + (Number(b.additional_charges) || 0);
+      buckets[key] ??= { from: fromKey.display, to: toKey.display, count: 0, total: 0 };
+      buckets[key].count += 1;
+      buckets[key].total += value;
+    });
+    return Object.values(buckets)
+      .map(r => ({ ...r, avg: r.count > 0 ? r.total / r.count : 0 }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10);
+  }, [businessBookings]);
+
+  // ── Period helper for 4C / 4E ─────────────────────────────────────────────
+  function periodStart(p: "this_month" | "last_30" | "last_90" | "this_year" | "all_time"): Date | null {
+    const now = new Date();
+    if (p === "this_month") return new Date(now.getFullYear(), now.getMonth(), 1);
+    if (p === "last_30")    return new Date(now.getTime() - 30 * 86400_000);
+    if (p === "last_90")    return new Date(now.getTime() - 90 * 86400_000);
+    if (p === "this_year")  return new Date(now.getFullYear(), 0, 1);
+    return null; // all_time
+  }
+
+  // ── 4C: Service Breakdown (revenue + bookings split by service_type) ──────
+  const serviceBreakdown = useMemo(() => {
+    const start = periodStart(serviceBreakPeriod);
+    type Bucket = { service: string; count: number; revenue: number };
+    const buckets: Record<string, Bucket> = {};
+    let total = 0;
+    businessBookings.forEach(b => {
+      if (b.status !== "Completed") return;
+      if (!b.date_time) return;
+      const d = new Date(b.date_time);
+      if (start && d < start) return;
+      const value = (Number(b.price) || 0) + (Number(b.additional_charges) || 0);
+      const svc = b.service_type || "Other";
+      buckets[svc] ??= { service: svc, count: 0, revenue: 0 };
+      buckets[svc].count += 1;
+      buckets[svc].revenue += value;
+      total += value;
+    });
+    const rows = Object.values(buckets)
+      .map(b => ({ ...b, pct: total > 0 ? (b.revenue / total) * 100 : 0 }))
+      .sort((a, b) => b.revenue - a.revenue);
+    return { rows, total };
+  }, [businessBookings, serviceBreakPeriod]);
+
+  // ── 4D: Vehicle Type Demand (optional nationality filter) ─────────────────
+  const vehicleDemand = useMemo(() => {
+    const buckets: Record<string, number> = {};
+    let total = 0;
+    businessBookings.forEach(b => {
+      if (b.status === "Cancelled") return;
+      if (!b.vehicle_type) return;
+      if (vehicleNatFilter) {
+        if (!b.client_id) return;
+        if (natByClient[b.client_id]?.country !== vehicleNatFilter) return;
+      }
+      buckets[b.vehicle_type] = (buckets[b.vehicle_type] ?? 0) + 1;
+      total += 1;
+    });
+    const rows = Object.entries(buckets)
+      .map(([vehicle, count]) => ({ vehicle, count, pct: total > 0 ? (count / total) * 100 : 0 }))
+      .sort((a, b) => b.count - a.count);
+    return { rows, total };
+  }, [businessBookings, vehicleNatFilter, natByClient]);
+
+  // Distinct list of nationalities present in bookings (for 4D filter dropdown)
+  const bookingNationalities = useMemo(() => {
+    const s = new Set<string>();
+    businessBookings.forEach(b => {
+      if (b.client_id && natByClient[b.client_id]) s.add(natByClient[b.client_id].country);
+    });
+    return [...s].sort();
+  }, [businessBookings, natByClient]);
+
+  // ── 4E: Peak Days & Hours Heatmap (day-of-week × hour, by job date_time) ──
+  const heatmap = useMemo(() => {
+    const start = periodStart(heatmapPeriod);
+    // grid[day][hour] where day=0 is Monday
+    const grid: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+    const hourTotals: number[] = Array(24).fill(0);
+    let max = 0;
+    businessBookings.forEach(b => {
+      if (b.status === "Cancelled") return;
+      if (!b.date_time) return;
+      const d = new Date(b.date_time);
+      if (start && d < start) return;
+      // Convert JS getDay (0=Sun..6=Sat) to Mon-first (0=Mon..6=Sun)
+      const day = (d.getDay() + 6) % 7;
+      const hour = d.getHours();
+      grid[day][hour] += 1;
+      hourTotals[hour] += 1;
+      if (grid[day][hour] > max) max = grid[day][hour];
+    });
+    // Top 3 peak hours by total bookings across all days
+    const peakHours = hourTotals
+      .map((count, hour) => ({ hour, count }))
+      .filter(x => x.count > 0)
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 3);
+    const totalBookingsInPeriod = grid.flat().reduce((s, v) => s + v, 0);
+    return { grid, max, peakHours, total: totalBookingsInPeriod };
+  }, [businessBookings, heatmapPeriod]);
+
+  // ── 4F: Cancellation & No-Show rates ──────────────────────────────────────
+  const cancelStats = useMemo(() => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const calc = (start: Date, end: Date) => {
+      let total = 0, cancelled = 0, noShow = 0;
+      const byNat: Record<string, { total: number; cancelled: number; noShow: number; flag: string }> = {};
+      businessBookings.forEach(b => {
+        if (!b.date_time) return;
+        const d = new Date(b.date_time);
+        if (d < start || d >= end) return;
+        if (d > now) return; // exclude future bookings from denominator
+        total += 1;
+        if (b.status === "Cancelled") cancelled += 1;
+        if (b.status === "No Show")   noShow    += 1;
+        if (b.client_id && natByClient[b.client_id]) {
+          const nat = natByClient[b.client_id];
+          byNat[nat.country] ??= { total: 0, cancelled: 0, noShow: 0, flag: nat.flag };
+          byNat[nat.country].total += 1;
+          if (b.status === "Cancelled") byNat[nat.country].cancelled += 1;
+          if (b.status === "No Show")   byNat[nat.country].noShow    += 1;
+        }
+      });
+      return { total, cancelled, noShow, byNat };
+    };
+    const cur  = calc(monthStart, now);
+    const prev = calc(lastMonthStart, monthStart);
+    const cancelRate = cur.total > 0 ? (cur.cancelled / cur.total) * 100 : 0;
+    const noShowRate = cur.total > 0 ? (cur.noShow    / cur.total) * 100 : 0;
+    const prevCancelRate = prev.total > 0 ? (prev.cancelled / prev.total) * 100 : 0;
+    const prevNoShowRate = prev.total > 0 ? (prev.noShow    / prev.total) * 100 : 0;
+    // Suppress trend pts if the previous-month window starts before our data
+    // cutoff — partial baseline would produce misleading deltas.
+    const cutoff = new Date(STATS_CUTOFF_ISO);
+    const trendValid = lastMonthStart >= cutoff;
+    const byNatRows = Object.entries(cur.byNat)
+      .map(([country, v]) => ({
+        country,
+        flag: v.flag,
+        total: v.total,
+        cancelRate: v.total > 0 ? (v.cancelled / v.total) * 100 : 0,
+        noShowRate: v.total > 0 ? (v.noShow / v.total) * 100 : 0,
+      }))
+      .sort((a, b) => b.cancelRate - a.cancelRate);
+    return {
+      cancelRate, noShowRate,
+      cancelTrend: trendValid ? cancelRate - prevCancelRate : null,
+      noShowTrend: trendValid ? noShowRate - prevNoShowRate : null,
+      total: cur.total, cancelled: cur.cancelled, noShow: cur.noShow,
+      byNat: byNatRows,
+    };
+  }, [businessBookings, natByClient]);
+
+  // ── 4G: Booking Lead Time (created_at → date_time, in days) ──────────────
+  const leadTime = useMemo(() => {
+    type Acc = { sum: number; count: number };
+    const overall: Acc = { sum: 0, count: 0 };
+    const byNat:  Record<string, Acc & { flag: string }> = {};
+    const byServ: Record<string, Acc> = {};
+    businessBookings.forEach(b => {
+      if (!b.created_at || !b.date_time) return;
+      if (b.status === "Cancelled") return;
+      const created = new Date(b.created_at);
+      const job     = new Date(b.date_time);
+      if (isNaN(created.getTime()) || isNaN(job.getTime())) return;
+      const days = Math.max(0, Math.round((job.getTime() - created.getTime()) / 86400_000));
+      overall.sum += days; overall.count += 1;
+      if (b.client_id && natByClient[b.client_id]) {
+        const nat = natByClient[b.client_id];
+        byNat[nat.country] ??= { sum: 0, count: 0, flag: nat.flag };
+        byNat[nat.country].sum += days; byNat[nat.country].count += 1;
+      }
+      const svc = b.service_type || "Other";
+      byServ[svc] ??= { sum: 0, count: 0 };
+      byServ[svc].sum += days; byServ[svc].count += 1;
+    });
+    const fmt = (a: Acc) => a.count > 0 ? a.sum / a.count : null;
+    return {
+      overall: fmt(overall),
+      byNat: Object.entries(byNat)
+        .map(([country, v]) => ({ country, flag: v.flag, avg: v.sum / v.count, count: v.count }))
+        .sort((a, b) => b.count - a.count),
+      byService: Object.entries(byServ)
+        .map(([service, v]) => ({ service, avg: v.sum / v.count, count: v.count }))
+        .sort((a, b) => b.count - a.count),
+    };
+  }, [businessBookings, natByClient]);
+
+  // ── 4H: Repeat Booking Frequency (avg gap between bookings) ───────────────
+  const repeatFreq = useMemo(() => {
+    // Group completed bookings by client, sort dates ASC, compute gaps.
+    const datesByClient: Record<string, number[]> = {};
+    businessBookings.forEach(b => {
+      if (b.status !== "Completed") return;
+      if (!b.client_id || !b.date_time) return;
+      const t = new Date(b.date_time).getTime();
+      if (isNaN(t)) return;
+      datesByClient[b.client_id] ??= [];
+      datesByClient[b.client_id].push(t);
+    });
+    let totalGapSum = 0, totalGapCount = 0;
+    const perClientAvg: Record<string, number> = {};
+    Object.entries(datesByClient).forEach(([id, dates]) => {
+      if (dates.length < 2) return;
+      dates.sort((a, b) => a - b);
+      let sum = 0;
+      for (let i = 1; i < dates.length; i++) sum += (dates[i] - dates[i - 1]) / 86400_000;
+      const gaps = dates.length - 1;
+      perClientAvg[id] = sum / gaps;
+      totalGapSum += sum;
+      totalGapCount += gaps;
+    });
+    const overall = totalGapCount > 0 ? totalGapSum / totalGapCount : null;
+
+    // By nationality (only countries with 2+ qualifying clients)
+    const byNatAcc: Record<string, { sum: number; count: number; clients: number; flag: string }> = {};
+    Object.entries(perClientAvg).forEach(([id, avg]) => {
+      const nat = natByClient[id];
+      if (!nat) return;
+      byNatAcc[nat.country] ??= { sum: 0, count: 0, clients: 0, flag: nat.flag };
+      byNatAcc[nat.country].sum += avg;
+      byNatAcc[nat.country].count += 1;
+      byNatAcc[nat.country].clients += 1;
+    });
+    const byNat = Object.entries(byNatAcc)
+      .map(([country, v]) => ({
+        country, flag: v.flag, clients: v.clients,
+        avg: v.count > 0 ? v.sum / v.count : null,
+        insufficient: v.clients < 2,
+      }))
+      .sort((a, b) => (a.avg ?? Infinity) - (b.avg ?? Infinity));
+
+    // High-Frequency clients: per-client avg gap < overall * 0.6
+    const highFreq = overall !== null
+      ? Object.entries(perClientAvg)
+          .filter(([_, avg]) => avg < overall * 0.6)
+          .map(([id, avg]) => ({
+            id,
+            name: (clientsQuery.data ?? []).find(c => c.id === id)?.name ?? "Unknown",
+            avg,
+          }))
+          .sort((a, b) => a.avg - b.avg)
+          .slice(0, 5)
+      : [];
+
+    return { overall, byNat, highFreq };
+  }, [businessBookings, natByClient, clientsQuery.data]);
   const totalNatClients = natStats.reduce((s, n) => s + n.count, 0);
   const natPieData = natStats.map(n => ({ name: n.country, value: n.count }));
 
@@ -1559,6 +1921,455 @@ export default function Analytics() {
                 );
               })}
             </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {/* ─── BUSINESS PERFORMANCE (Section 4) ─────────────────────────────────  */}
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      <div className="flex items-center gap-3">
+        <div className="h-px flex-1 bg-border/60" />
+        <div className="flex items-center gap-2 px-2">
+          <BarChart3 className="w-3.5 h-3.5 text-primary" />
+          <span className="text-xs font-semibold text-primary uppercase tracking-widest">Business Performance</span>
+        </div>
+        <div className="h-px flex-1 bg-border/60" />
+      </div>
+
+      {/* 4A — Top Hotels */}
+      <Card className="border-primary/10" data-testid="card-top-hotels">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Building2 className="w-4 h-4 text-primary" />
+            Top Hotels
+            <span className="text-[10px] text-muted-foreground font-normal">(pickup or dropoff)</span>
+            {topHotels.length > 0 && <span className="ml-auto text-[10px] text-muted-foreground font-normal">Top {topHotels.length}</span>}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {businessBookingsQuery.isLoading ? <Skeleton className="h-32 w-full" /> : topHotels.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">No hotel-tagged pickups or dropoffs yet.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {topHotels.map((h, i) => (
+                <button
+                  key={h.display + i}
+                  onClick={() => navigate(`/bookings?q=${encodeURIComponent(h.display)}`)}
+                  data-testid={`hotel-row-${i}`}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-muted/30 border border-border/40 hover:border-primary/30 hover:bg-primary/5 transition-all text-left"
+                >
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${i === 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{i + 1}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-foreground truncate">{h.display}</div>
+                    <div className="text-[10px] text-muted-foreground">{h.count} booking{h.count !== 1 ? "s" : ""}</div>
+                  </div>
+                  <div className="text-sm font-bold text-primary flex-shrink-0">£{h.revenue.toLocaleString()}</div>
+                </button>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 4B — Top Routes */}
+      <Card className="border-primary/10" data-testid="card-top-routes">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <RouteIcon className="w-4 h-4 text-primary" />
+            Top Routes
+            <span className="text-[10px] text-muted-foreground font-normal">(directional)</span>
+            {topRoutes.length > 0 && <span className="ml-auto text-[10px] text-muted-foreground font-normal">Top {topRoutes.length}</span>}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {businessBookingsQuery.isLoading ? <Skeleton className="h-32 w-full" /> : topRoutes.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">No routes recorded yet.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {topRoutes.map((r, i) => (
+                <div key={i} className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-muted/30 border border-border/40" data-testid={`route-row-${i}`}>
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${i === 0 ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}>{i + 1}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-foreground truncate">
+                      {r.from} <span className="text-muted-foreground">→</span> {r.to}
+                    </div>
+                    <div className="text-[10px] text-muted-foreground">{r.count} trip{r.count !== 1 ? "s" : ""}</div>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <div className="text-sm font-bold text-primary">£{Math.round(r.avg).toLocaleString()}</div>
+                    <div className="text-[9px] text-muted-foreground uppercase tracking-wide">avg</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 4C — Service Breakdown */}
+      <Card className="border-primary/10" data-testid="card-service-breakdown">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-primary" />
+            Service Breakdown
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-3">
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              ["this_month", "This month"],
+              ["this_year",  "This year"],
+              ["all_time",   "All time"],
+            ] as const).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setServiceBreakPeriod(val)}
+                data-testid={`svc-period-${val}`}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                  serviceBreakPeriod === val ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground hover:bg-muted/70"
+                }`}
+              >{label}</button>
+            ))}
+          </div>
+          {businessBookingsQuery.isLoading ? <Skeleton className="h-40 w-full" /> : serviceBreakdown.rows.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">No completed bookings in this period.</p>
+          ) : (
+            <div className="flex items-center gap-4">
+              <div className="relative h-32 w-32 flex-shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie data={serviceBreakdown.rows} cx="50%" cy="50%" innerRadius={36} outerRadius={60} paddingAngle={2} dataKey="revenue">
+                      {serviceBreakdown.rows.map(r => (
+                        <Cell key={r.service} fill={SERVICE_COLORS[r.service] ?? SERVICE_COLORS.Other} />
+                      ))}
+                    </Pie>
+                    <RechartsTip contentStyle={{ background: "#1a1a1a", border: "1px solid rgba(201,168,76,0.2)", borderRadius: 8, fontSize: 11 }} formatter={(v: any) => [`£${Number(v).toLocaleString()}`, "Revenue"]} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+              <div className="flex-1 space-y-1">
+                {serviceBreakdown.rows.map(r => (
+                  <div key={r.service} className="flex items-center gap-2 text-[11px]" data-testid={`svc-row-${r.service}`}>
+                    <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: SERVICE_COLORS[r.service] ?? SERVICE_COLORS.Other }} />
+                    <span className="text-foreground font-medium flex-1 truncate">{r.service}</span>
+                    <span className="text-muted-foreground">{r.count}</span>
+                    <span className="text-primary font-semibold">£{r.revenue.toLocaleString()}</span>
+                    <span className="text-muted-foreground w-10 text-right">{r.pct.toFixed(0)}%</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 4D — Vehicle Type Demand */}
+      <Card className="border-primary/10" data-testid="card-vehicle-demand">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Car className="w-4 h-4 text-primary" />
+            Vehicle Type Demand
+            {vehicleDemand.total > 0 && <span className="ml-auto text-[10px] text-muted-foreground font-normal">{vehicleDemand.total} total</span>}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-3">
+          {bookingNationalities.length > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] text-muted-foreground">Filter by nationality</span>
+              <select
+                value={vehicleNatFilter}
+                onChange={e => setVehicleNatFilter(e.target.value)}
+                data-testid="vehicle-nat-filter"
+                className="text-[11px] bg-muted/40 border border-border/60 rounded-md px-2 py-1 text-foreground"
+              >
+                <option value="">All</option>
+                {bookingNationalities.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          )}
+          {businessBookingsQuery.isLoading ? <Skeleton className="h-32 w-full" /> : vehicleDemand.rows.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">No vehicle data for this filter.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {vehicleDemand.rows.map((v, i) => (
+                <div key={v.vehicle} className="flex items-center gap-3 px-3 py-2 rounded-xl bg-muted/30 border border-border/40" data-testid={`vehicle-row-${i}`}>
+                  <div className="text-[10px] font-bold text-muted-foreground w-5">{i + 1}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-semibold text-foreground truncate">{v.vehicle}</div>
+                    <div className="h-1.5 mt-1 rounded-full bg-muted overflow-hidden">
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${v.pct}%` }} />
+                    </div>
+                  </div>
+                  <div className="text-[11px] text-muted-foreground flex-shrink-0">{v.count}</div>
+                  <div className="text-sm font-bold text-primary flex-shrink-0 w-12 text-right">{v.pct.toFixed(0)}%</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 4E — Peak Days & Hours Heatmap */}
+      <Card className="border-primary/10" data-testid="card-heatmap">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Flame className="w-4 h-4 text-primary" />
+            Peak Days & Hours
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-3">
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              ["this_month", "This month"],
+              ["last_90",    "Last 90 days"],
+              ["this_year",  "This year"],
+            ] as const).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setHeatmapPeriod(val)}
+                data-testid={`heat-period-${val}`}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                  heatmapPeriod === val ? "bg-primary text-primary-foreground" : "bg-muted/40 text-muted-foreground hover:bg-muted/70"
+                }`}
+              >{label}</button>
+            ))}
+          </div>
+          {businessBookingsQuery.isLoading ? <Skeleton className="h-40 w-full" /> : heatmap.total === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">No bookings in this period.</p>
+          ) : (
+            <>
+              <div className="overflow-x-auto" data-testid="heatmap-grid">
+                <table className="w-full text-[9px] text-muted-foreground border-separate" style={{ borderSpacing: 1 }}>
+                  <thead>
+                    <tr>
+                      <th className="text-left pr-1"></th>
+                      {Array.from({ length: 24 }, (_, h) => (
+                        <th key={h} className="text-center font-normal" style={{ minWidth: 14 }}>
+                          {h % 6 === 0 ? `${h}` : ""}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {["Mon","Tue","Wed","Thu","Fri","Sat","Sun"].map((day, di) => (
+                      <tr key={day}>
+                        <td className="pr-1 text-right font-semibold">{day}</td>
+                        {heatmap.grid[di].map((count, h) => {
+                          const intensity = heatmap.max > 0 ? count / heatmap.max : 0;
+                          return (
+                            <td
+                              key={h}
+                              title={`${day} ${h}:00 — ${count} booking${count !== 1 ? "s" : ""}`}
+                              className="rounded-sm"
+                              style={{
+                                background: count > 0 ? `rgba(201,168,76,${0.15 + intensity * 0.85})` : "rgba(255,255,255,0.04)",
+                                height: 18,
+                              }}
+                            />
+                          );
+                        })}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {heatmap.peakHours.length > 0 && (
+                <div className="text-[11px] text-muted-foreground" data-testid="peak-hours">
+                  <span className="font-semibold text-foreground">Peak hours:</span>{" "}
+                  {heatmap.peakHours.map((p, i) => (
+                    <span key={p.hour}>
+                      {p.hour.toString().padStart(2, "0")}:00–{(p.hour + 1).toString().padStart(2, "0")}:00 ({p.count})
+                      {i < heatmap.peakHours.length - 1 ? " · " : ""}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 4F — Cancellation & No-Show Rate */}
+      <Card className="border-primary/10" data-testid="card-cancel-stats">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Ban className="w-4 h-4 text-primary" />
+            Cancellation & No-Show
+            <span className="text-[10px] text-muted-foreground font-normal">(this month)</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-3">
+          {businessBookingsQuery.isLoading ? <Skeleton className="h-32 w-full" /> : cancelStats.total === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">No bookings recorded for this month yet.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-destructive/10 border border-destructive/30 p-3" data-testid="cancel-rate">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">Cancellation</div>
+                  <div className="flex items-baseline gap-2">
+                    <div className="text-2xl font-black text-destructive">{cancelStats.cancelRate.toFixed(1)}%</div>
+                    {cancelStats.cancelTrend !== null && (
+                      <span className={`text-[10px] font-semibold flex items-center gap-0.5 ${cancelStats.cancelTrend > 0 ? "text-red-400" : cancelStats.cancelTrend < 0 ? "text-emerald-400" : "text-muted-foreground"}`}>
+                        {cancelStats.cancelTrend > 0 ? <ArrowUp className="w-3 h-3" /> : cancelStats.cancelTrend < 0 ? <ArrowDown className="w-3 h-3" /> : null}
+                        {Math.abs(cancelStats.cancelTrend).toFixed(1)}pt
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">{cancelStats.cancelled} of {cancelStats.total}</div>
+                </div>
+                <div className="rounded-xl bg-orange-500/10 border border-orange-500/30 p-3" data-testid="noshow-rate">
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground">No-Show</div>
+                  <div className="flex items-baseline gap-2">
+                    <div className="text-2xl font-black text-orange-400">{cancelStats.noShowRate.toFixed(1)}%</div>
+                    {cancelStats.noShowTrend !== null && (
+                      <span className={`text-[10px] font-semibold flex items-center gap-0.5 ${cancelStats.noShowTrend > 0 ? "text-red-400" : cancelStats.noShowTrend < 0 ? "text-emerald-400" : "text-muted-foreground"}`}>
+                        {cancelStats.noShowTrend > 0 ? <ArrowUp className="w-3 h-3" /> : cancelStats.noShowTrend < 0 ? <ArrowDown className="w-3 h-3" /> : null}
+                        {Math.abs(cancelStats.noShowTrend).toFixed(1)}pt
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-0.5">{cancelStats.noShow} of {cancelStats.total}</div>
+                </div>
+              </div>
+              {cancelStats.byNat.length > 0 && (
+                <button
+                  onClick={() => setShowCxnByNat(v => !v)}
+                  data-testid="cancel-by-nat-toggle"
+                  className="w-full flex items-center justify-between text-[11px] text-muted-foreground hover:text-primary transition-colors"
+                >
+                  <span>Breakdown by nationality</span>
+                  <ChevronDown className={`w-3.5 h-3.5 transition-transform ${showCxnByNat ? "rotate-180" : ""}`} />
+                </button>
+              )}
+              {showCxnByNat && (
+                <div className="space-y-1" data-testid="cancel-by-nat-list">
+                  {cancelStats.byNat.map(n => (
+                    <div key={n.country} className="flex items-center gap-2 text-[11px] px-2 py-1.5 rounded-lg bg-muted/30">
+                      <span className="text-base leading-none">{n.flag}</span>
+                      <span className="flex-1 text-foreground font-medium">{n.country}</span>
+                      <span className="text-destructive font-semibold w-14 text-right">{n.cancelRate.toFixed(0)}% cxn</span>
+                      <span className="text-orange-400 font-semibold w-14 text-right">{n.noShowRate.toFixed(0)}% NS</span>
+                      <span className="text-muted-foreground w-8 text-right">{n.total}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 4G — Booking Lead Time */}
+      <Card className="border-primary/10" data-testid="card-lead-time">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Hourglass className="w-4 h-4 text-primary" />
+            Booking Lead Time
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-3">
+          {businessBookingsQuery.isLoading ? <Skeleton className="h-28 w-full" /> : leadTime.overall === null ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">No qualifying bookings to measure lead time.</p>
+          ) : (
+            <>
+              <div className="text-center py-2">
+                <div className="text-3xl font-black text-primary" data-testid="lead-overall">{leadTime.overall.toFixed(1)}</div>
+                <div className="text-[11px] text-muted-foreground">days advance booking on average</div>
+              </div>
+              {leadTime.byNat.length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">By nationality</div>
+                  <div className="space-y-1">
+                    {leadTime.byNat.map(n => (
+                      <div key={n.country} className="flex items-center gap-2 text-[11px] px-2 py-1 rounded-lg bg-muted/30">
+                        <span className="text-base leading-none">{n.flag}</span>
+                        <span className="flex-1 text-foreground font-medium">{n.country}</span>
+                        <span className="text-muted-foreground">{n.count}</span>
+                        <span className="text-primary font-semibold w-16 text-right">{n.avg.toFixed(1)} days</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {leadTime.byService.length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">By service</div>
+                  <div className="space-y-1">
+                    {leadTime.byService.map(s => (
+                      <div key={s.service} className="flex items-center gap-2 text-[11px] px-2 py-1 rounded-lg bg-muted/30">
+                        <div className="w-2 h-2 rounded-full" style={{ background: SERVICE_COLORS[s.service] ?? SERVICE_COLORS.Other }} />
+                        <span className="flex-1 text-foreground font-medium">{s.service}</span>
+                        <span className="text-muted-foreground">{s.count}</span>
+                        <span className="text-primary font-semibold w-16 text-right">{s.avg.toFixed(1)} days</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 4H — Repeat Booking Frequency */}
+      <Card className="border-primary/10" data-testid="card-repeat-freq">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <RotateCcw className="w-4 h-4 text-primary" />
+            Repeat Booking Frequency
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-3">
+          {businessBookingsQuery.isLoading ? <Skeleton className="h-28 w-full" /> : repeatFreq.overall === null ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">Not enough repeat bookings yet to measure cadence.</p>
+          ) : (
+            <>
+              <div className="text-center py-2">
+                <div className="text-3xl font-black text-primary" data-testid="repeat-overall">{repeatFreq.overall.toFixed(0)}</div>
+                <div className="text-[11px] text-muted-foreground">days between bookings on average</div>
+              </div>
+              {repeatFreq.byNat.length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">By nationality</div>
+                  <div className="space-y-1">
+                    {repeatFreq.byNat.map(n => (
+                      <div key={n.country} className="flex items-center gap-2 text-[11px] px-2 py-1 rounded-lg bg-muted/30" data-testid={`repeat-nat-${n.country}`}>
+                        <span className="text-base leading-none">{n.flag}</span>
+                        <span className="flex-1 text-foreground font-medium">{n.country}</span>
+                        {n.insufficient ? (
+                          <span className="text-muted-foreground italic">insufficient data</span>
+                        ) : (
+                          <>
+                            <span className="text-muted-foreground">{n.clients} clients</span>
+                            <span className="text-primary font-semibold w-16 text-right">{n.avg!.toFixed(0)} days</span>
+                          </>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {repeatFreq.highFreq.length > 0 && (
+                <div>
+                  <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">High Frequency</div>
+                  <div className="space-y-1">
+                    {repeatFreq.highFreq.map(c => (
+                      <button
+                        key={c.id}
+                        onClick={() => navigate(`/clients/${c.id}`)}
+                        data-testid={`high-freq-${c.id}`}
+                        className="w-full flex items-center gap-2 text-[11px] px-2 py-1 rounded-lg bg-primary/10 border border-primary/20 hover:bg-primary/15 transition-colors"
+                      >
+                        <span className="px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground text-[9px] font-bold">HF</span>
+                        <span className="flex-1 text-left text-foreground font-medium truncate">{c.name}</span>
+                        <span className="text-primary font-semibold">every {c.avg.toFixed(0)} days</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </CardContent>
       </Card>
