@@ -4,9 +4,13 @@ import { format, parseISO } from "date-fns";
 import { fmtLondon } from "@/lib/datetime";
 import {
   ArrowLeft, CalendarRange, Phone, Mail, Pencil, Save, X,
-  Trash2, ArrowRight, Loader2, Ban, RotateCcw,
+  Trash2, ArrowRight, Loader2, Ban, RotateCcw, Plus,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -54,6 +58,9 @@ export default function RequestDetail() {
   // Re-open confirm dialog — surfaced from the Cancellation banner so the
   // operator has to consciously bring a lost lead back into the queue.
   const [reopenOpen, setReopenOpen] = useState(false);
+  // Delete confirm dialog — replaces the legacy native confirm() call with
+  // a styled AlertDialog matching the rest of the audit's destructive flow.
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
   if (isLoading) return <Skeleton className="h-96" />;
   if (!r) return <div className="text-muted-foreground">Request not found.</div>;
@@ -86,11 +93,26 @@ export default function RequestDetail() {
 
   const handleDelete = () => {
     if (!id) return;
-    if (!confirm("Delete this request? This cannot be undone.")) return;
     remove.mutate(id, {
-      onSuccess: () => { toast({ title: "Request deleted" }); setLocation("/requests"); },
-      onError: (e: any) => toast({ title: "Delete failed", description: e?.message, variant: "destructive" }),
+      onSuccess: () => {
+        toast({ title: "Request deleted" });
+        setDeleteOpen(false);
+        setLocation("/requests");
+      },
+      onError: (e: any) => {
+        toast({ title: "Delete failed", description: e?.message, variant: "destructive" });
+      },
     });
+  };
+
+  // Prefer browser back when we have history, so scroll position on the
+  // requests list is preserved. Falls back to /requests on first visit.
+  const goBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      window.history.back();
+    } else {
+      setLocation("/requests");
+    }
   };
 
   const submitCancel = () => {
@@ -145,7 +167,7 @@ export default function RequestDetail() {
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-center justify-between gap-3">
-        <Button variant="ghost" onClick={() => setLocation("/requests")} className="gap-2">
+        <Button variant="ghost" onClick={goBack} className="gap-2" data-testid="button-back-to-requests">
           <ArrowLeft className="w-4 h-4" /> Back to Requests
         </Button>
         <div className="flex gap-2">
@@ -167,7 +189,7 @@ export default function RequestDetail() {
                   <Ban className="w-4 h-4 mr-2" /> Cancel
                 </Button>
               )}
-              <Button variant="outline" onClick={handleDelete} className="text-red-400 border-red-500/30 hover:bg-red-500/10">
+              <Button variant="outline" onClick={() => setDeleteOpen(true)} className="text-red-400 border-red-500/30 hover:bg-red-500/10" data-testid="button-delete-request">
                 <Trash2 className="w-4 h-4 mr-2" /> Delete
               </Button>
             </>
@@ -220,7 +242,19 @@ export default function RequestDetail() {
                   {r.requested_date_time ? format(parseISO(r.requested_date_time), "PPp") : "—"}
                 </Field>
                 <Field label="Estimated price">
-                  {r.estimated_price != null ? `£${Number(r.estimated_price).toLocaleString()}` : "—"}
+                  {r.estimated_price != null ? (
+                    `£${Number(r.estimated_price).toLocaleString()}`
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={startEdit}
+                      className="inline-flex items-center gap-1 text-primary/80 hover:text-primary text-sm underline-offset-2 hover:underline"
+                      data-testid="button-add-estimated-price"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      Tap to add estimated price
+                    </button>
+                  )}
                 </Field>
               </div>
 
@@ -461,6 +495,33 @@ export default function RequestDetail() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Delete confirm dialog — destructive action with explicit prompt
+          replacing the legacy native confirm() so behaviour matches the
+          rest of the audit's destructive flows (driver deactivate, supplier
+          deactivate, booking cancel). */}
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent data-testid="dialog-delete-request">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this request?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the request and its history. The action cannot be undone.
+              If you just want to close it out, use <strong>Cancel</strong> instead — that keeps the lead in the audit log.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={remove.isPending} data-testid="button-confirm-delete-cancel">Keep request</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleDelete(); }}
+              disabled={remove.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              data-testid="button-confirm-delete-request"
+            >
+              {remove.isPending ? <><Loader2 className="w-4 h-4 mr-1.5 animate-spin" />Deleting…</> : <><Trash2 className="w-4 h-4 mr-1.5" />Yes, delete</>}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Re-open confirm dialog — single deliberate prompt before flipping
           a Cancelled lead back to New. Cancellation history is preserved

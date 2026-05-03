@@ -10,6 +10,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -408,15 +409,46 @@ function SupplierBalanceTracker({
     [bookings],
   );
 
+  // Months that have at least one billable booking — feeds the From/To
+  // dropdowns so operators only see options that actually contain data.
+  // Sorted oldest → newest. Each option value is `yyyy-MM` (e.g. "2026-04").
+  const monthOptions = useMemo(() => {
+    const set = new Set<string>();
+    for (const b of billable) {
+      if (!b.date_time) continue;
+      const d = new Date(b.date_time);
+      if (Number.isNaN(d.getTime())) continue;
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      set.add(ym);
+    }
+    return Array.from(set)
+      .sort()
+      .map(ym => {
+        const [y, m] = ym.split("-").map(Number);
+        const label = new Date(y, m - 1, 1).toLocaleDateString("en-GB", { month: "short", year: "numeric" });
+        return { value: ym, label };
+      });
+  }, [billable]);
+
+  // Convert "yyyy-MM" → first day / last day strings used by the existing
+  // date-range filter logic below so the rest of the component is unchanged.
+  const fromDate = useMemo(() => from ? `${from}-01` : "", [from]);
+  const toDate = useMemo(() => {
+    if (!to) return "";
+    const [y, m] = to.split("-").map(Number);
+    const last = new Date(y, m, 0).getDate();
+    return `${to}-${String(last).padStart(2, "0")}`;
+  }, [to]);
+
   const filtered = useMemo(() => {
     return billable.filter((b: any) => {
-      if (from && b.date_time && new Date(b.date_time) < new Date(from)) return false;
-      if (to && b.date_time && new Date(b.date_time) > new Date(to + "T23:59:59")) return false;
+      if (fromDate && b.date_time && new Date(b.date_time) < new Date(fromDate)) return false;
+      if (toDate && b.date_time && new Date(b.date_time) > new Date(toDate + "T23:59:59")) return false;
       if (statusFilter === "paid"        && !b.supplier_paid_at) return false;
       if (statusFilter === "outstanding" && b.supplier_paid_at)  return false;
       return true;
     });
-  }, [billable, from, to, statusFilter]);
+  }, [billable, fromDate, toDate, statusFilter]);
 
   const totals = useMemo(() => {
     let invoiced = 0, paid = 0, outstanding = 0;
@@ -523,17 +555,39 @@ function SupplierBalanceTracker({
           </div>
         </div>
 
-        {/* Filters */}
-        <div className="grid grid-cols-1 sm:grid-cols-4 gap-2 items-end">
+        {/* Filters — From/To are now month dropdowns populated from the
+            supplier's actual billable bookings so operators can't pick a
+            month that has no data. "Any" clears the bound on that side. */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 items-end">
           <div>
-            <Label className="text-[10px] uppercase text-muted-foreground">From</Label>
-            <Input type="date" value={from} onChange={e => setFrom(e.target.value)} />
+            <Label className="text-[10px] uppercase text-muted-foreground">From month</Label>
+            <Select value={from || "__any__"} onValueChange={v => setFrom(v === "__any__" ? "" : v)}>
+              <SelectTrigger data-testid="select-balance-from-month">
+                <SelectValue placeholder="Any" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__any__">Any (earliest)</SelectItem>
+                {monthOptions.map(o => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div>
-            <Label className="text-[10px] uppercase text-muted-foreground">To</Label>
-            <Input type="date" value={to} onChange={e => setTo(e.target.value)} />
+            <Label className="text-[10px] uppercase text-muted-foreground">To month</Label>
+            <Select value={to || "__any__"} onValueChange={v => setTo(v === "__any__" ? "" : v)}>
+              <SelectTrigger data-testid="select-balance-to-month">
+                <SelectValue placeholder="Any" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__any__">Any (latest)</SelectItem>
+                {monthOptions.map(o => (
+                  <SelectItem key={o.value} value={o.value}>{o.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
-          <div className="sm:col-span-2 flex gap-1">
+          <div className="col-span-2 sm:col-span-2 flex gap-1">
             {(["outstanding","paid","all"] as const).map(s => (
               <Button key={s} type="button" size="sm"
                 variant={statusFilter === s ? "default" : "outline"}

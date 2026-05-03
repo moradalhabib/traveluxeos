@@ -46,22 +46,50 @@ const OPERATOR_SIDEBAR = [
   { href: "/admin",        label: "Admin",        icon: Settings },
 ];
 
-const OPERATOR_MORE = [
-  { href: "/bookings",     label: "Bookings",     icon: CalendarRange },
-  { href: "/services",     label: "Service",      icon: Layers },
-  { href: "/follow-ups",   label: "Follow-Ups",   icon: PhoneCall, badge: true },
-  { href: "/analytics",    label: "Intel",        icon: LineChart },
-  { href: "/requests",     label: "Requests",     icon: ClipboardList },
-  { href: "/invoices",     label: "Invoices",     icon: Receipt },
-  { href: "/flights",      label: "Flights",      icon: PlaneTakeoff },
-  { href: "/drivers",      label: "Drivers",      icon: Car },
-  { href: "/suppliers",    label: "Suppliers",    icon: Building2 },
-  { href: "/commissions",  label: "Commissions",  icon: Calculator },
-  { href: "/messages",     label: "Messages",     icon: MessageSquare },
-  { href: "/finance",      label: "Finance",      icon: LineChart },
-  { href: "/marketing",    label: "Marketing",    icon: Megaphone },
-  { href: "/admin",        label: "Admin",        icon: Settings },
+// More menu grouped logically so the 14-item flat grid doesn't blur into
+// one wall of icons. Sections are rendered with small headers in the
+// drawer; the flat list (still exported as OPERATOR_MORE) is preserved so
+// any code that filters/maps it (filterForRole, role gating, etc.) keeps
+// working unchanged.
+const OPERATOR_MORE_GROUPS = [
+  {
+    label: "Operations",
+    items: [
+      { href: "/bookings",     label: "Bookings",     icon: CalendarRange },
+      { href: "/services",     label: "Service",      icon: Layers },
+      { href: "/follow-ups",   label: "Follow-Ups",   icon: PhoneCall, badge: true },
+      { href: "/flights",      label: "Flights",      icon: PlaneTakeoff },
+      { href: "/drivers",      label: "Drivers",      icon: Car },
+      { href: "/suppliers",    label: "Suppliers",    icon: Building2 },
+    ],
+  },
+  {
+    label: "Commercial",
+    items: [
+      { href: "/clients",      label: "Clients",      icon: Users },
+      { href: "/requests",     label: "Requests",     icon: ClipboardList },
+      { href: "/invoices",     label: "Invoices",     icon: Receipt },
+      { href: "/commissions",  label: "Commissions",  icon: Calculator },
+      { href: "/marketing",    label: "Marketing",    icon: Megaphone },
+    ],
+  },
+  {
+    label: "Intelligence",
+    items: [
+      { href: "/analytics",    label: "Intel",        icon: LineChart },
+      { href: "/finance",      label: "Finance",      icon: LineChart },
+      { href: "/messages",     label: "Messages",     icon: MessageSquare },
+    ],
+  },
+  {
+    label: "System",
+    items: [
+      { href: "/admin",        label: "Admin",        icon: Settings },
+    ],
+  },
 ];
+
+const OPERATOR_MORE = OPERATOR_MORE_GROUPS.flatMap(g => g.items);
 
 // Residence Manager: only Apartment bookings + Clients (view)
 const RM_SIDEBAR = [
@@ -512,24 +540,41 @@ export function Shell({ children }: { children: ReactNode }) {
                     Return to Dashboard
                   </button>
                 </div>
-                <div className="px-5 pb-4 grid grid-cols-3 gap-3">
-                  {moreItems.map((item) => {
-                    const isActive = location === item.href || (item.href !== '/' && location.startsWith(item.href));
-                    const showBadge = (item as any).badge && followUpBadge > 0;
+                {/* Grouped sections — Operations / Commercial / Intelligence
+                    / System. Items hidden by role filtering are dropped from
+                    each group; empty groups don't render their header. */}
+                <div className="px-5 pb-4 space-y-4">
+                  {OPERATOR_MORE_GROUPS.map((group) => {
+                    const visible = group.items.filter(it => moreItems.some(mi => mi.href === it.href));
+                    if (visible.length === 0) return null;
                     return (
-                      <button
-                        key={item.href}
-                        onClick={() => { setLocation(item.href); setMoreOpen(false); }}
-                        className={`relative flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-all ${isActive ? 'bg-primary/10 border-primary/50 text-primary' : 'bg-secondary/30 border-border text-muted-foreground hover:bg-secondary hover:text-foreground'}`}
-                      >
-                        {showBadge && (
-                          <span className="absolute top-2 right-2 min-w-[16px] h-4 rounded-full bg-destructive text-[9px] font-bold text-white flex items-center justify-center px-1">
-                            {followUpBadge > 9 ? "9+" : followUpBadge}
-                          </span>
-                        )}
-                        <item.icon className="w-5 h-5" />
-                        <span className="text-[11px] font-medium">{item.label}</span>
-                      </button>
+                      <div key={group.label}>
+                        <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 mb-2 px-1">
+                          {group.label}
+                        </div>
+                        <div className="grid grid-cols-3 gap-3">
+                          {visible.map((item) => {
+                            const isActive = location === item.href || (item.href !== '/' && location.startsWith(item.href));
+                            const showBadge = (item as any).badge && followUpBadge > 0;
+                            return (
+                              <button
+                                key={item.href}
+                                onClick={() => { setLocation(item.href); setMoreOpen(false); }}
+                                className={`relative flex flex-col items-center justify-center gap-2 p-4 rounded-xl border transition-all ${isActive ? 'bg-primary/10 border-primary/50 text-primary' : 'bg-secondary/30 border-border text-muted-foreground hover:bg-secondary hover:text-foreground'}`}
+                                data-testid={`more-link-${item.href.replace(/^\//, '')}`}
+                              >
+                                {showBadge && (
+                                  <span className="absolute top-2 right-2 min-w-[16px] h-4 rounded-full bg-destructive text-[9px] font-bold text-white flex items-center justify-center px-1">
+                                    {followUpBadge > 9 ? "9+" : followUpBadge}
+                                  </span>
+                                )}
+                                <item.icon className="w-5 h-5" />
+                                <span className="text-[11px] font-medium">{item.label}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     );
                   })}
                 </div>
