@@ -11,6 +11,11 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   ArrowLeft, Building2, Phone, Mail, MessageCircle, Save, Trash2,
   MapPin, Globe, Star, Briefcase, Package, Plus, Pencil, Check, X,
   PoundSterling, Receipt, Undo2,
@@ -122,8 +127,9 @@ export default function SupplierDetail() {
     }
   };
 
-  const handleDeactivate = async () => {
-    if (!confirm("Deactivate this supplier? They will be hidden from new-booking pickers but existing bookings remain linked.")) return;
+  const [deactivateOpen, setDeactivateOpen] = useState(false);
+  const performDeactivate = async () => {
+    setDeactivateOpen(false);
     try {
       const res = await authedFetch(`/api/suppliers/${id}?soft=1`, { method: "DELETE" });
       if (!res.ok) throw new Error("Failed");
@@ -332,9 +338,37 @@ export default function SupplierDetail() {
 
       {/* Danger zone */}
       <div className="flex justify-end">
-        <Button variant="outline" onClick={handleDeactivate} className="text-destructive border-destructive/30 hover:bg-destructive/10">
-          <Trash2 className="w-4 h-4 mr-2" /> Deactivate supplier
-        </Button>
+        <AlertDialog open={deactivateOpen} onOpenChange={setDeactivateOpen}>
+          <AlertDialogTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-destructive hover:text-destructive hover:bg-destructive/10"
+              data-testid="button-deactivate-supplier"
+            >
+              <Trash2 className="w-4 h-4 mr-1.5" /> Deactivate supplier
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Deactivate this supplier?</AlertDialogTitle>
+              <AlertDialogDescription>
+                They will be hidden from new-booking pickers but existing bookings
+                remain linked. This cannot be undone from the app.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel data-testid="button-keep-supplier">Keep supplier</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                onClick={performDeactivate}
+                data-testid="button-confirm-deactivate-supplier"
+              >
+                Yes, Deactivate
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
     </div>
   );
@@ -365,9 +399,12 @@ function SupplierBalanceTracker({
   const [busy, setBusy] = useState(false);
 
   // Only bookings that actually represent a supplier liability appear here.
-  // No supplier_cost = nothing to pay = nothing to track.
+  // No supplier_cost = nothing to pay = nothing to track. Cancelled jobs
+  // are excluded so they don't inflate the Invoiced/Outstanding totals.
   const billable = useMemo(
-    () => (bookings ?? []).filter((b: any) => Number(b.supplier_cost ?? 0) > 0),
+    () => (bookings ?? []).filter(
+      (b: any) => Number(b.supplier_cost ?? 0) > 0 && b.status !== "Cancelled",
+    ),
     [bookings],
   );
 

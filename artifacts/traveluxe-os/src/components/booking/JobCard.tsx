@@ -12,13 +12,18 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { getVipBadgeColor } from "@/lib/vip";
 import { isSupplierDrivenJob } from "@/lib/supplierDriven";
 import {
   useUpdateBookingStatus, useUpdateBooking, getListBookingsQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 
 const STATUS_COLORS: Record<string, string> = {
   Pending:   "bg-amber-500/20 text-amber-400 border-amber-500/50",
@@ -60,6 +65,16 @@ export function JobCard({
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressFired = useRef(false);
 
+  // Confirmation flows: cancelling a booking (destructive) or completing a
+  // supplier-driven booking that has no supplier_cost (financial accuracy).
+  const [confirmCancelOpen, setConfirmCancelOpen] = useState(false);
+  const [supplierCostPromptOpen, setSupplierCostPromptOpen] = useState(false);
+  const [supplierCostDraft, setSupplierCostDraft] = useState<string>("");
+  // Force-remount the <select> after a cancelled change so its DOM value
+  // resets back to job.status (controlled value alone isn't always enough
+  // because the user's interaction already advanced the select).
+  const [statusSelectNonce, setStatusSelectNonce] = useState(0);
+
   const startLongPress = () => {
     if (selectMode || !onLongPress) return;
     longPressFired.current = false;
@@ -90,13 +105,65 @@ export function JobCard({
     setLocation(`/bookings/${job.id}`);
   };
 
+  const commitStatus = (status: string) => {
+    updateStatus.mutate(
+      { id: job.id, data: { status } },
+      { onSuccess: () => qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) }) },
+    );
+  };
+
   const handleStatusChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     e.preventDefault();
     e.stopPropagation();
-    updateStatus.mutate(
-      { id: job.id, data: { status: e.target.value } },
-      { onSuccess: () => qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) }) },
+    const next = e.target.value;
+
+    // Bug 2 — Cancelling a booking is destructive. Always require a
+    // two-step confirmation before mutating.
+    if (next === "Cancelled" && job.status !== "Cancelled") {
+      setConfirmCancelOpen(true);
+      setStatusSelectNonce((n: number) => n + 1);
+      return;
+    }
+
+    // Bug 3 — Completing a booking that has a supplier assigned without a
+    // supplier_cost would silently leave the supplier balance and P&L wrong.
+    // Prompt for a cost (operator can still confirm £0 explicitly).
+    const hasSupplier = !!(job as any).supplier_id;
+    const cost = Number((job as any).supplier_cost ?? 0);
+    if (next === "Completed" && hasSupplier && !(cost > 0)) {
+      setSupplierCostDraft("");
+      setSupplierCostPromptOpen(true);
+      setStatusSelectNonce((n: number) => n + 1);
+      return;
+    }
+
+    commitStatus(next);
+  };
+
+  const confirmCancelBooking = () => {
+    setConfirmCancelOpen(false);
+    commitStatus("Cancelled");
+  };
+
+  const submitSupplierCostThenComplete = () => {
+    const raw = supplierCostDraft.trim();
+    const num = raw === "" ? 0 : Number(raw);
+    if (!Number.isFinite(num) || num < 0) return;
+    setSupplierCostPromptOpen(false);
+    // Send supplier_cost AND status in a single PUT so they either both land
+    // or neither does — no risk of a stale balance vs status mismatch if the
+    // network drops between two sequential calls.
+    updateBooking.mutate(
+      { id: job.id, data: { supplier_cost: num, status: "Completed" } as any },
+      {
+        onSuccess: () => qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) }),
+      },
     );
+  };
+
+  const completeWithoutSupplierCost = () => {
+    setSupplierCostPromptOpen(false);
+    commitStatus("Completed");
   };
   const handlePaymentChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     e.preventDefault();
@@ -186,6 +253,7 @@ export function JobCard({
                 </div>
               )}
               <select
+                key={`status-${job.id}-${statusSelectNonce}`}
                 value={job.status}
                 onClick={(e) => e.stopPropagation()}
                 onChange={handleStatusChange}
@@ -428,6 +496,78 @@ export function JobCard({
           </Card>
         );
       })}
+
+      {/* Bug 2 — Cancel-booking confirmation. Wording locked per spec. */}
+      <AlertDialog open={confirmCancelOpen} onOpenChange={setConfirmCancelOpen}>
+        <AlertDialogContent onClick={(e) => e.stopPropagation()}>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Cancel booking {job.tvl_ref}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to cancel this booking? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid={`button-keep-booking-${job.id}`}>
+              Keep Booking
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmCancelBooking}
+              data-testid={`button-confirm-cancel-${job.id}`}
+            >
+              Yes, Cancel Booking
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Bug 3 — Supplier-cost prompt before marking Completed. Keeps the
+          Supplier Balance Tracker and Finance P&L accurate. */}
+      <Dialog open={supplierCostPromptOpen} onOpenChange={setSupplierCostPromptOpen}>
+        <DialogContent onClick={(e) => e.stopPropagation()}>
+          <DialogHeader>
+            <DialogTitle>Add supplier cost for {job.tvl_ref}?</DialogTitle>
+            <DialogDescription>
+              You haven't entered a supplier cost for this booking. Add one now to keep
+              the supplier balance and P&amp;L accurate.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 py-2">
+            <Label htmlFor={`supplier-cost-${job.id}`}>Supplier cost (£)</Label>
+            <Input
+              id={`supplier-cost-${job.id}`}
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="0.01"
+              autoFocus
+              value={supplierCostDraft}
+              onChange={(e) => setSupplierCostDraft(e.target.value)}
+              placeholder="0.00"
+              data-testid={`input-supplier-cost-${job.id}`}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") submitSupplierCostThenComplete();
+              }}
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button
+              variant="ghost"
+              onClick={completeWithoutSupplierCost}
+              data-testid={`button-complete-without-cost-${job.id}`}
+            >
+              Complete without cost
+            </Button>
+            <Button
+              onClick={submitSupplierCostThenComplete}
+              disabled={updateBooking.isPending}
+              data-testid={`button-save-cost-and-complete-${job.id}`}
+            >
+              {updateBooking.isPending ? "Saving…" : "Save cost & complete"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
