@@ -16,6 +16,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { JobCard } from "@/components/booking/JobCard";
 import { useJobCardContext } from "@/lib/booking-data";
+import { useFilterState } from "@/components/ui/filter-dropdown";
 
 /**
  * Upcoming view: jobs scheduled in any FUTURE calendar month (i.e. starting
@@ -54,11 +55,16 @@ export default function Upcoming() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedMonths, setCollapsedMonths] = useState<Record<string, boolean>>({});
-  // Track which month was last jumped to for chip highlight
-  const [activeJump, setActiveJump] = useState<string | null>(null);
 
-  // Refs for each month section so we can scroll them into view
+  // URL-backed active month — persists across navigations and is shareable.
+  // "" (default) means no month has been jumped to yet.
+  const [activeJump, setActiveJump] = useFilterState("m", "");
+
+  // Refs for each month section so we can scroll them into view.
   const monthRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // Guard so the auto-scroll on mount only fires once per page visit.
+  const hasAutoScrolled = useRef(false);
 
   // First day of NEXT calendar month — anything from this date forward.
   const horizon = useMemo(() => startOfMonth(addMonths(new Date(), 1)), []);
@@ -115,25 +121,43 @@ export default function Upcoming() {
     return out as Array<typeof out[number] & { daysSorted: { dayKey: string; dayLabel: string; jobs: any[] }[] }>;
   }, [filtered]);
 
-  // Clear stale activeJump when the grouped list changes (data refresh / search clears).
+  // Clear stale activeJump when the grouped list no longer contains that month
+  // (e.g. after a data refresh that removes old bookings, or if the URL param
+  // was set to a month that doesn't exist in the current dataset).
   useEffect(() => {
     if (activeJump && !grouped.find(m => m.monthKey === activeJump)) {
-      setActiveJump(null);
+      setActiveJump(""); // "" === defaultValue → removes ?m= from URL
     }
-  }, [grouped, activeJump]);
+  }, [grouped, activeJump, setActiveJump]);
 
-  // Jump to a month: expand it and scroll into view.
+  // On initial data load: if ?m=yyyy-MM is already in the URL (i.e. the
+  // operator returned to this page after previously jumping), auto-expand
+  // that month and scroll into view. Fires at most once per page visit.
+  useEffect(() => {
+    if (hasAutoScrolled.current) return;
+    if (!activeJump || isLoading || grouped.length === 0) return;
+    const exists = grouped.find(m => m.monthKey === activeJump);
+    if (!exists) return;
+    hasAutoScrolled.current = true;
+    setCollapsedMonths(prev => ({ ...prev, [activeJump]: false }));
+    // Give the DOM one frame to render the expanded section before scrolling.
+    requestAnimationFrame(() => {
+      const el = monthRefs.current.get(activeJump);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, [grouped, activeJump, isLoading]);
+
+  // Jump to a month: expand, update URL param, and scroll into view.
   const jumpToMonth = useCallback((monthKey: string) => {
     setCollapsedMonths(prev => ({ ...prev, [monthKey]: false }));
-    setActiveJump(monthKey);
-    // Scroll after state settles
+    setActiveJump(monthKey); // writes ?m=yyyy-MM to URL via replaceState
     requestAnimationFrame(() => {
       const el = monthRefs.current.get(monthKey);
       if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
     });
-  }, []);
+  }, [setActiveJump]);
 
-  // Short chip label: "Jun" within same year, "Jun '26" when crossing a year boundary
+  // Short chip label: "Jun" within same year, "Jun '26" when crossing a year boundary.
   const thisYear = new Date().getFullYear();
   const chipLabel = (monthKey: string) => {
     const [y, m] = monthKey.split("-").map(Number);
@@ -209,7 +233,7 @@ export default function Upcoming() {
                 className={`flex-shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-all ${
                   isActive
                     ? "bg-primary text-primary-foreground border-primary shadow-[0_0_8px_rgba(201,168,76,0.35)]"
-                    : isFirst && activeJump === null
+                    : isFirst && activeJump === ""
                       ? "bg-primary/15 text-primary border-primary/40"
                       : "bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
                 }`}
@@ -239,7 +263,8 @@ export default function Upcoming() {
       ) : (
         <div className="space-y-5">
           {grouped.map((month) => {
-            // First future month opens by default; later months collapsed.
+            // First future month opens by default; later months collapsed unless
+            // this month is the URL-backed activeJump (will be expanded by the effect).
             const defaultCollapsed = month.monthKey !== grouped[0].monthKey;
             const monthCollapsed = collapsedMonths[month.monthKey] ?? defaultCollapsed;
             const monthJobCount = month.daysSorted.reduce((sum, d) => sum + d.jobs.length, 0);
