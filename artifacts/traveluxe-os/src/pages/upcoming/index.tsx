@@ -1,4 +1,4 @@
-import { useMemo, useState, useRef, useCallback } from "react";
+import { useMemo, useState, useRef, useCallback, useEffect } from "react";
 import {
   useListBookings, getListBookingsQueryKey, useDeleteBooking,
 } from "@workspace/api-client-react";
@@ -115,6 +115,13 @@ export default function Upcoming() {
     return out as Array<typeof out[number] & { daysSorted: { dayKey: string; dayLabel: string; jobs: any[] }[] }>;
   }, [filtered]);
 
+  // Clear stale activeJump when the grouped list changes (data refresh / search clears).
+  useEffect(() => {
+    if (activeJump && !grouped.find(m => m.monthKey === activeJump)) {
+      setActiveJump(null);
+    }
+  }, [grouped, activeJump]);
+
   // Jump to a month: expand it and scroll into view.
   const jumpToMonth = useCallback((monthKey: string) => {
     setCollapsedMonths(prev => ({ ...prev, [monthKey]: false }));
@@ -184,7 +191,7 @@ export default function Upcoming() {
 
       {/* Month jump strip — shown only when 2+ months exist and no active search */}
       {!searchQuery && grouped.length >= 2 && (
-        <div
+        <nav
           className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none -mx-1 px-1"
           data-testid="month-jump-strip"
           aria-label="Jump to month"
@@ -211,7 +218,7 @@ export default function Upcoming() {
               </button>
             );
           })}
-        </div>
+        </nav>
       )}
 
       {isLoading ? (
