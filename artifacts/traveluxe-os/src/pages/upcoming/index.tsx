@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useRef, useCallback } from "react";
 import {
   useListBookings, getListBookingsQueryKey, useDeleteBooking,
 } from "@workspace/api-client-react";
@@ -54,6 +54,11 @@ export default function Upcoming() {
 
   const [searchQuery, setSearchQuery] = useState("");
   const [collapsedMonths, setCollapsedMonths] = useState<Record<string, boolean>>({});
+  // Track which month was last jumped to for chip highlight
+  const [activeJump, setActiveJump] = useState<string | null>(null);
+
+  // Refs for each month section so we can scroll them into view
+  const monthRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   // First day of NEXT calendar month — anything from this date forward.
   const horizon = useMemo(() => startOfMonth(addMonths(new Date(), 1)), []);
@@ -110,6 +115,25 @@ export default function Upcoming() {
     return out as Array<typeof out[number] & { daysSorted: { dayKey: string; dayLabel: string; jobs: any[] }[] }>;
   }, [filtered]);
 
+  // Jump to a month: expand it and scroll into view.
+  const jumpToMonth = useCallback((monthKey: string) => {
+    setCollapsedMonths(prev => ({ ...prev, [monthKey]: false }));
+    setActiveJump(monthKey);
+    // Scroll after state settles
+    requestAnimationFrame(() => {
+      const el = monthRefs.current.get(monthKey);
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
+
+  // Short chip label: "Jun" within same year, "Jun '26" when crossing a year boundary
+  const thisYear = new Date().getFullYear();
+  const chipLabel = (monthKey: string) => {
+    const [y, m] = monthKey.split("-").map(Number);
+    const d = new Date(y, m - 1, 1);
+    return y === thisYear ? format(d, "MMM") : format(d, "MMM ''yy");
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-2">
@@ -158,6 +182,38 @@ export default function Upcoming() {
         )}
       </div>
 
+      {/* Month jump strip — shown only when 2+ months exist and no active search */}
+      {!searchQuery && grouped.length >= 2 && (
+        <div
+          className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none -mx-1 px-1"
+          data-testid="month-jump-strip"
+          aria-label="Jump to month"
+        >
+          <span className="text-[10px] text-muted-foreground flex-shrink-0 mr-0.5">Jump:</span>
+          {grouped.map((month) => {
+            const isActive = activeJump === month.monthKey;
+            const isFirst = month.monthKey === grouped[0].monthKey;
+            return (
+              <button
+                key={month.monthKey}
+                type="button"
+                onClick={() => jumpToMonth(month.monthKey)}
+                data-testid={`jump-chip-${month.monthKey}`}
+                className={`flex-shrink-0 text-[11px] font-semibold px-2.5 py-1 rounded-full border transition-all ${
+                  isActive
+                    ? "bg-primary text-primary-foreground border-primary shadow-[0_0_8px_rgba(201,168,76,0.35)]"
+                    : isFirst && activeJump === null
+                      ? "bg-primary/15 text-primary border-primary/40"
+                      : "bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+                }`}
+              >
+                {chipLabel(month.monthKey)}
+              </button>
+            );
+          })}
+        </div>
+      )}
+
       {isLoading ? (
         <div className="space-y-3">
           {[...Array(4)].map((_, i) => <Skeleton key={i} className="h-28" />)}
@@ -181,7 +237,14 @@ export default function Upcoming() {
             const monthCollapsed = collapsedMonths[month.monthKey] ?? defaultCollapsed;
             const monthJobCount = month.daysSorted.reduce((sum, d) => sum + d.jobs.length, 0);
             return (
-              <div key={month.monthKey} className="space-y-2">
+              <div
+                key={month.monthKey}
+                className="space-y-2"
+                ref={(el) => {
+                  if (el) monthRefs.current.set(month.monthKey, el);
+                  else monthRefs.current.delete(month.monthKey);
+                }}
+              >
                 <button
                   type="button"
                   onClick={() => setCollapsedMonths(prev => ({ ...prev, [month.monthKey]: !monthCollapsed }))}
