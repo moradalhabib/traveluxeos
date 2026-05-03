@@ -347,6 +347,10 @@ export default function Analytics() {
 
   const [selectedEvent, setSelectedEvent] = useState<CalEvent | null>(null);
 
+  // Season Calendar collapsible list state
+  const [calListOpen, setCalListOpen] = useState(false);
+  const [calTypeFilter, setCalTypeFilter] = useState<Set<EventType>>(new Set());
+
   // Section 3 Client Intelligence UI state
   const [natSortMode, setNatSortMode] = useState<"clients" | "avg">("clients");
   const [expandedNat, setExpandedNat] = useState<string | null>(null);
@@ -1478,6 +1482,121 @@ export default function Analytics() {
           )}
         </CardContent>
       </Card>
+
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {/* 2C. SEASON CALENDAR — collapsible event list with filter chips         */}
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {(() => {
+        const windowEnd = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+        const filtered = upcomingEvents.filter(e => {
+          if (calTypeFilter.size > 0 && !calTypeFilter.has(e.type)) return false;
+          return e.startDate <= windowEnd;
+        });
+        const allTypes: EventType[] = [
+          "gulf-holiday",
+          "gulf-national-day",
+          "london-peak",
+          "school-holiday",
+        ];
+        const toggleType = (t: EventType) => {
+          setCalTypeFilter(prev => {
+            const next = new Set(prev);
+            if (next.has(t)) next.delete(t); else next.add(t);
+            return next;
+          });
+        };
+        return (
+          <Card className="border-primary/10" data-testid="card-season-calendar">
+            <button
+              type="button"
+              onClick={() => setCalListOpen(v => !v)}
+              className="w-full flex items-center gap-2 px-4 py-3 hover:bg-muted/20 transition-colors rounded-xl"
+              data-testid="season-calendar-toggle"
+            >
+              <CalendarDays className="w-4 h-4 text-primary flex-shrink-0" />
+              <span className="text-sm font-semibold text-foreground flex-1 text-left">Season Calendar</span>
+              <span className="text-[10px] text-muted-foreground mr-1">
+                Next 30 days · {filtered.length} event{filtered.length !== 1 ? "s" : ""}
+              </span>
+              <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${calListOpen ? "rotate-180" : ""}`} />
+            </button>
+
+            {calListOpen && (
+              <CardContent className="pt-0 space-y-3">
+                {/* ── Filter chips ───────────────────────────────────────── */}
+                <div className="flex flex-wrap gap-1.5 border-t border-border/40 pt-3">
+                  {allTypes.map(t => {
+                    const active = calTypeFilter.has(t);
+                    return (
+                      <button
+                        key={t}
+                        type="button"
+                        onClick={() => toggleType(t)}
+                        data-testid={`cal-filter-${t}`}
+                        className={`text-[11px] px-2.5 py-1 rounded-full border font-medium transition-all hover:brightness-110 ${
+                          active ? EVENT_TYPE_ACTIVE[t] : EVENT_TAG_STYLE[t]
+                        }`}
+                      >
+                        {EVENT_TAG_LABEL[t]}
+                      </button>
+                    );
+                  })}
+                  {calTypeFilter.size > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setCalTypeFilter(new Set())}
+                      className="text-[11px] px-2.5 py-1 rounded-full border border-border/60 text-muted-foreground hover:text-foreground transition-colors"
+                      data-testid="cal-filter-clear"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                {/* ── Event rows ─────────────────────────────────────────── */}
+                {filtered.length === 0 ? (
+                  <p className="text-xs text-muted-foreground py-2">
+                    No events in the next 30 days{calTypeFilter.size > 0 ? " matching the selected filter" : ""}.
+                  </p>
+                ) : (
+                  <div className="space-y-1.5 max-h-72 overflow-y-auto overscroll-contain pr-0.5">
+                    {filtered.map(ev => {
+                      const du = daysUntil(ev.startDate);
+                      const ongoing = du <= 0 && ev.endDate >= today;
+                      return (
+                        <button
+                          key={`${ev.name}-${ev.startDate.toISOString()}`}
+                          type="button"
+                          onClick={() => setSelectedEvent(ev)}
+                          className="w-full text-left rounded-xl border border-border/40 bg-muted/20 px-3 py-2.5 hover:bg-muted/40 transition-colors"
+                          data-testid={`cal-event-${ev.name.replace(/\s+/g, "-").toLowerCase()}`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] px-2 py-0.5 rounded-full border font-semibold flex-shrink-0 ${EVENT_TAG_STYLE[ev.type]}`}>
+                              {ev.tag}
+                            </span>
+                            <span className="text-sm font-medium text-foreground truncate flex-1">{ev.name}</span>
+                            <span className={`text-[11px] font-bold flex-shrink-0 ${ongoing ? "text-emerald-400" : "text-primary"}`}>
+                              {ongoing ? "Now" : `${du}d`}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-muted-foreground mt-1">
+                            {ev.startDate.toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
+                            {ev.endDate.toDateString() !== ev.startDate.toDateString() && (
+                              <span> – {ev.endDate.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}</span>
+                            )}
+                            {ev.approximate && <span className="ml-1 opacity-60">(approx.)</span>}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            )}
+          </Card>
+        );
+      })()}
 
       {/* ═══════════════════════════════════════════════════════════════════════ */}
       {/* ─── CLIENT INTELLIGENCE ─────────────────────────────────────────────  */}
