@@ -26,7 +26,9 @@ router.get("/", async (req, res) => {
   if (cancellation_reason) {
     const cr = String(cancellation_reason);
     if (cr === "__none") {
-      query = query.or("cancellation_reason.is.null,cancellation_reason.eq.");
+      // Match NULL, empty string, or whitespace-only (trim() = '' equivalent).
+      // The `match` filter uses the PostgreSQL ~ operator for regex.
+      query = query.or("cancellation_reason.is.null,cancellation_reason.eq.,cancellation_reason.match.^\\s*$");
     } else {
       query = query.eq("cancellation_reason", cr);
     }

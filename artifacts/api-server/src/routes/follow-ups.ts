@@ -44,9 +44,11 @@ router.get("/", async (req, res) => {
   }
 
   // cancellation_reason filter — __none sentinel maps to IS NULL or blank.
+  // The `match` predicate uses PostgreSQL ~ (regex) to also catch whitespace-only values
+  // (trim() = '' equivalent), even though trim-on-write prevents them in practice.
   if (cancellation_reason) {
     if (cancellation_reason === "__none") {
-      q = (q as any).or("cancellation_reason.is.null,cancellation_reason.eq.");
+      q = (q as any).or("cancellation_reason.is.null,cancellation_reason.eq.,cancellation_reason.match.^\\s*$");
     } else {
       q = (q as any).eq("cancellation_reason", cancellation_reason);
     }
