@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-import { Trash2, X, Loader2, Ban } from "lucide-react";
+import { Trash2, X, Loader2, Ban, RotateCcw } from "lucide-react";
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -21,6 +21,12 @@ interface BulkActionBarProps {
    */
   onCancelSelected?: () => void;
   cancelSelectedLabel?: string;
+  /**
+   * Optional "Re-open selected" action shown when all selected rows are
+   * cancelled. The handler should open the page-owned confirm dialog.
+   */
+  onReopenSelected?: () => void;
+  reopenSelectedLabel?: string;
   /** Optional slot for additional left-aligned controls (rare). */
   extraActions?: ReactNode;
 }
@@ -34,7 +40,9 @@ interface BulkActionBarProps {
  */
 export function BulkActionBar({
   count, noun, onClear, onDelete, warning,
-  onCancelSelected, cancelSelectedLabel, extraActions,
+  onCancelSelected, cancelSelectedLabel,
+  onReopenSelected, reopenSelectedLabel,
+  extraActions,
 }: BulkActionBarProps) {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [running, setRunning] = useState(false);
@@ -74,6 +82,19 @@ export function BulkActionBar({
           <X className="w-4 h-4 mr-1" /> Clear
         </Button>
         {extraActions}
+        {onReopenSelected && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onReopenSelected}
+            disabled={running}
+            className="h-9 text-amber-400 border-amber-500/40 hover:bg-amber-500/10"
+            data-testid="button-bulk-reopen-selected"
+          >
+            <RotateCcw className="w-4 h-4 mr-1" />
+            {reopenSelectedLabel ?? `Re-open ${count}`}
+          </Button>
+        )}
         {onCancelSelected && (
           <Button
             variant="outline"

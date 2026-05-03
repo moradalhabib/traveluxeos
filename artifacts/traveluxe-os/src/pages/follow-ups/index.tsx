@@ -12,6 +12,10 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   PhoneCall, MessageCircle, CheckCheck, RotateCcw, PhoneOff, Clock,
@@ -114,6 +118,9 @@ export default function FollowUps() {
   // cancellation reason so history is preserved.
   const [reopenOpen, setReopenOpen] = useState(false);
   const [reopenTarget, setReopenTarget] = useState<any>(null);
+  // Bulk re-open confirm dialog — shown when all selected rows are cancelled.
+  const [bulkReopenOpen, setBulkReopenOpen] = useState(false);
+  const [bulkReopenRunning, setBulkReopenRunning] = useState(false);
 
   // The amber "X overdue · Y due today" banner is a read-only summary
   // driven by the API stats payload. Date filtering is done via the
@@ -307,6 +314,44 @@ export default function FollowUps() {
     );
   };
 
+  // ── Bulk re-open fan-out ──────────────────────────────────────────────────
+  // Fans out per-row PATCH calls so the audit append is identical to the
+  // single-row flow. Shows an in-flight toast so a large selection doesn't
+  // look frozen, then surfaces the precise success/failure tally.
+  const handleBulkReopen = async () => {
+    const ids = bulk.ids;
+    setBulkReopenRunning(true);
+    try {
+      const token = await getToken();
+      toast({ title: `Re-opening ${ids.length} follow-up${ids.length === 1 ? "" : "s"}…` });
+      const results = await Promise.allSettled(
+        ids.map(id =>
+          fetch(`${API_BASE}/follow-ups/${id}`, {
+            method: "PATCH",
+            headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ status: "pending" }),
+          }).then(async r => {
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Failed");
+          })
+        )
+      );
+      const ok = results.filter(r => r.status === "fulfilled").length;
+      const fail = results.length - ok;
+      setBulkReopenOpen(false);
+      bulk.exitSelectMode();
+      fetchData();
+      qc.invalidateQueries({ queryKey: ["lost-lead-stats"] });
+      qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+      if (fail === 0) {
+        toast({ title: `${ok} follow-up${ok === 1 ? "" : "s"} re-opened` });
+      } else {
+        toast({ title: `${ok} re-opened, ${fail} failed`, variant: "destructive" });
+      }
+    } finally {
+      setBulkReopenRunning(false);
+    }
+  };
+
   const openReopen = (fu: any) => {
     setReopenTarget(fu);
     setReopenOpen(true);
@@ -379,6 +424,10 @@ export default function FollowUps() {
 
   const todayPending = followUps.filter(f => isDueToday(f)).length;
   const overduePending = followUps.filter(f => isOverdue(f)).length;
+
+  // Show "Re-open" in the bulk bar only when every selected row is cancelled.
+  const allSelectedCancelled = bulk.count > 0 &&
+    bulk.ids.every(id => followUps.find(f => f.id === id)?.status === "cancelled");
 
   // ── Excel export ──────────────────────────────────────────────────────────
   // Dumps the *currently filtered* follow-ups to a .xlsx file so operators
@@ -975,9 +1024,39 @@ export default function FollowUps() {
         noun="follow-up"
         onClear={bulk.exitSelectMode}
         onDelete={handleBulkDelete}
+        onReopenSelected={allSelectedCancelled ? () => setBulkReopenOpen(true) : undefined}
+        reopenSelectedLabel={`Re-open ${bulk.count}`}
         onCancelSelected={() => setBulkCancelOpen(true)}
         cancelSelectedLabel={`Cancel ${bulk.count}`}
       />
+
+      {/* Bulk re-open confirm — shown when every selected row is cancelled.
+          Cancellation history stays on record (cancellation_reason / cancelled_at
+          preserved); an audit line is appended to notes server-side. */}
+      <AlertDialog open={bulkReopenOpen} onOpenChange={setBulkReopenOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Re-open {bulk.count} follow-up{bulk.count === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {bulk.count === 1 ? "This follow-up" : `All ${bulk.count} follow-ups`} will move back to <strong>Pending</strong> and reappear on the active list. The cancellation reason and timestamp stay on record — an audit line is added to notes so the history is preserved.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkReopenRunning}>Keep cancelled</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleBulkReopen(); }}
+              disabled={bulkReopenRunning}
+              className="bg-amber-500 text-white hover:bg-amber-600"
+              data-testid="button-bulk-reopen-confirm"
+            >
+              <RotateCcw className="w-4 h-4 mr-1.5" />
+              {bulkReopenRunning ? "Re-opening…" : `Re-open ${bulk.count}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

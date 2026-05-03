@@ -4,7 +4,7 @@ import { format, parseISO, differenceInCalendarDays } from "date-fns";
 import {
   Plus, ClipboardList, CalendarRange, AlertTriangle, Search,
   Plane, MapPin, Car as CarIcon, Building2, Hotel, Package,
-  CheckSquare, X as XIcon, MessageCircle,
+  CheckSquare, X as XIcon, MessageCircle, RotateCcw,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
@@ -12,16 +12,21 @@ import { BulkActionBar } from "@/components/bulk-action-bar";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { useQueryClient } from "@tanstack/react-query";
+import { getGetDashboardSummaryQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { RecentActivityFeed } from "@/components/activity/RecentActivityFeed";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import {
-  useListRequests, PRIORITY_STYLES, STATUS_STYLES,
+  useListRequests, useReopenRequest, PRIORITY_STYLES, STATUS_STYLES,
   type RequestStatus, type RequestPriority, type RequestServiceType,
   type ClientRequest,
 } from "@/lib/requests-api";
@@ -47,6 +52,9 @@ export default function Requests() {
   const canBulkDelete = user?.role === "admin" || user?.role === "super_admin";
   const bulk = useBulkSelect();
   const queryClient = useQueryClient();
+  const reopenRequest = useReopenRequest();
+  const [bulkReopenOpen, setBulkReopenOpen] = useState(false);
+  const [bulkReopenRunning, setBulkReopenRunning] = useState(false);
   // URL-backed filters so a refresh / shared link restores the same view.
   const [status, setStatus] = useFilterState<RequestStatus | "">("status", "");
   const [priority, setPriority] = useFilterState<RequestPriority | "">("priority", "");
@@ -56,6 +64,47 @@ export default function Requests() {
   // reason — drills into a specific cancellation_reason bucket from the Lost Leads chart.
   // The sentinel "__none" means IS NULL or blank (shows as "Unspecified").
   const [reason, setReason] = useFilterState("reason", "");
+
+  // Fan-out re-open using the per-row PUT. Mirrors the single-row reopen
+  // hook's PUT /requests/:id {status:"New"} so the server audit append is
+  // identical. Cache busting covers requests, lost-lead stats, and dashboard.
+  const handleBulkReopen = async () => {
+    const ids = bulk.ids;
+    setBulkReopenRunning(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      toast.message(`Re-opening ${ids.length} request${ids.length === 1 ? "" : "s"}…`);
+      const results = await Promise.allSettled(
+        ids.map(id =>
+          fetch(`/api/requests/${id}`, {
+            method: "PUT",
+            headers: {
+              "Content-Type": "application/json",
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ status: "New" }),
+          }).then(async r => {
+            if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Failed");
+          })
+        )
+      );
+      const ok = results.filter(r => r.status === "fulfilled").length;
+      const fail = results.length - ok;
+      setBulkReopenOpen(false);
+      bulk.exitSelectMode();
+      queryClient.invalidateQueries({ queryKey: ["requests"] });
+      queryClient.invalidateQueries({ queryKey: ["lost-lead-stats"] });
+      queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+      if (fail === 0) {
+        toast.success(`${ok} request${ok === 1 ? "" : "s"} re-opened`);
+      } else {
+        toast.error(`${ok} re-opened, ${fail} failed`);
+      }
+    } finally {
+      setBulkReopenRunning(false);
+    }
+  };
 
   const handleBulkDelete = async () => {
     const ids = bulk.ids;
@@ -88,6 +137,10 @@ export default function Requests() {
     (requests ?? []).forEach(r => { c[r.status] = (c[r.status] ?? 0) + 1; });
     return c;
   }, [requests]);
+
+  // Show "Re-open" in the bulk bar only when every selected row is Cancelled.
+  const allSelectedCancelled = bulk.count > 0 &&
+    bulk.ids.every(id => (requests ?? []).find(r => r.id === id)?.status === "Cancelled");
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
 
@@ -214,7 +267,37 @@ export default function Requests() {
         noun="request"
         onClear={bulk.clear}
         onDelete={handleBulkDelete}
+        onReopenSelected={allSelectedCancelled ? () => setBulkReopenOpen(true) : undefined}
+        reopenSelectedLabel={`Re-open ${bulk.count}`}
       />
+
+      {/* Bulk re-open confirm — shown when every selected row is Cancelled.
+          Cancellation history is preserved server-side (cancellation_reason /
+          cancelled_at stay on the row; an audit line is appended to notes). */}
+      <AlertDialog open={bulkReopenOpen} onOpenChange={setBulkReopenOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Re-open {bulk.count} request{bulk.count === 1 ? "" : "s"}?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {bulk.count === 1 ? "This request" : `All ${bulk.count} requests`} will move back to <strong>New</strong> and reappear on the active list. The cancellation reason and timestamp stay on record — an audit line is added to notes so the history is preserved.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkReopenRunning}>Keep cancelled</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(e) => { e.preventDefault(); handleBulkReopen(); }}
+              disabled={bulkReopenRunning}
+              className="bg-amber-500 text-white hover:bg-amber-600"
+              data-testid="button-bulk-reopen-confirm"
+            >
+              <RotateCcw className="w-4 h-4 mr-1.5" />
+              {bulkReopenRunning ? "Re-opening…" : `Re-open ${bulk.count}`}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
