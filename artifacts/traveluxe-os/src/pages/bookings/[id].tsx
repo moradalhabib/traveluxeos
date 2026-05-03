@@ -7,7 +7,7 @@ import {
   useUpdateBooking, useListDrivers, getListDriversQueryKey,
   getListBookingsQueryKey, getListCommissionsQueryKey,
   getListInvoicesQueryKey, getListTasksQueryKey, getListAuditLogQueryKey,
-  getGetDriverQueryKey,
+  getGetDriverQueryKey, getGetFinanceSummaryQueryKey,
 } from "@workspace/api-client-react";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
@@ -3308,15 +3308,15 @@ export default function BookingDetail() {
           onSaved={() => {
             // Supplier cost changes affect this booking detail, the list
             // (price visible in cards), invoice totals, commission ledger,
-            // audit feed, and dashboard KPIs. Use typed orval helpers so
-            // TanStack Query matches array keys by deep-equal — string
+            // finance summary, and dashboard KPIs. Use typed orval helpers
+            // so TanStack Query matches array keys by deep-equal — string
             // prefix predicates are unreliable (key arrays aren't strings).
             qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
-            qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
             qc.invalidateQueries({ queryKey: getListBookingsQueryKey() });
-            qc.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
             qc.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
-            qc.invalidateQueries({ queryKey: getListAuditLogQueryKey() });
+            qc.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
+            qc.invalidateQueries({ queryKey: getGetFinanceSummaryQueryKey() });
+            qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
           }}
         />
       )}
