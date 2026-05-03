@@ -4,7 +4,7 @@ import { format, parseISO, differenceInCalendarDays } from "date-fns";
 import {
   Plus, ClipboardList, CalendarRange, AlertTriangle, Search,
   Plane, MapPin, Car as CarIcon, Building2, Hotel, Package,
-  CheckSquare, X as XIcon, MessageCircle, RotateCcw,
+  CheckSquare, X as XIcon, MessageCircle, RotateCcw, UserX,
 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
@@ -473,6 +473,41 @@ function RequestCard({ r, today, selectMode, selected, onToggle }: {
               )}
             </div>
           </div>
+
+          {/* ── "Cancelled by …" attribution line ───────────────────────────
+              Shown only on Cancelled rows. Surfaces the operator who
+              cancelled without requiring a drill-in — mirrors the banner
+              on /requests/:id and the cancelled-by line on follow-up cards.
+              Falls back to a generic "—" when the actor row is missing
+              (legacy cancellations before cancelled_by was tracked, or the
+              user has since been removed). Email shown as a tooltip so the
+              card stays compact on mobile.
+          */}
+          {r.status === "Cancelled" && (
+            <div
+              className="flex items-center gap-1.5 text-[11px] text-muted-foreground mt-1 flex-wrap"
+              data-testid={`text-cancelled-by-${r.id}`}
+            >
+              <UserX className="w-3 h-3 flex-shrink-0" />
+              <span>Cancelled by</span>
+              {r.cancelled_by_name ? (
+                <span
+                  className="font-medium text-foreground/80"
+                  title={r.cancelled_by_email ?? undefined}
+                >
+                  {r.cancelled_by_name}
+                </span>
+              ) : (
+                <span className="font-medium text-muted-foreground">—</span>
+              )}
+              {r.cancelled_at && (
+                <>
+                  <span className="opacity-50">·</span>
+                  <span>{format(parseISO(r.cancelled_at), "d MMM HH:mm")}</span>
+                </>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
   );

@@ -58,18 +58,49 @@ router.get("/", async (req, res) => {
     await supabase.from("requests").update({ status: "Expired" }).in("id", expiredIds);
   }
 
-  const requests = (data ?? []).map((r: any) => ({
-    ...r,
-    client_name: r.clients?.name ?? r.client_name,
-    // Prefer the linked client profile's whatsapp; fall back to the value
-    // captured at request creation (stored in details.client_whatsapp for
-    // typed-lead requests that have no client_id yet). Mirrors the detail
-    // endpoint so the requests list can render a WhatsApp action button.
-    client_whatsapp:
-      r.clients?.whatsapp ?? (r.details as any)?.client_whatsapp ?? null,
-    clients: undefined,
-    status: expiredIds.includes(r.id) ? "Expired" : r.status,
-  }));
+  // Batch-hydrate the cancelling operator's display name + email for all
+  // rows that have a cancelled_by set. A single IN-query is cheaper than
+  // N individual lookups and mirrors the pattern in routes/follow-ups.ts.
+  //
+  // Privacy gate: `deactivate` keeps the real email but flips active=false;
+  // `remove` also overwrites email with a placeholder + name="[removed]".
+  // We null out cancelled_by_email for any actor with active=false so a
+  // merely-deactivated operator's address is never leaked through the list.
+  // The display name is safe to show in both cases.
+  const cancelledByIds = Array.from(
+    new Set((data ?? []).map((r: any) => r.cancelled_by).filter(Boolean)),
+  );
+  let cancelledByMap: Record<string, { name: string | null; email: string | null; active: boolean }> = {};
+  if (cancelledByIds.length > 0) {
+    const { data: actors } = await supabase
+      .from("users")
+      .select("id, name, email, active")
+      .in("id", cancelledByIds);
+    cancelledByMap = Object.fromEntries(
+      (actors ?? []).map((u: any) => [
+        u.id,
+        { name: u.name ?? null, email: u.email ?? null, active: u.active !== false },
+      ]),
+    );
+  }
+
+  const requests = (data ?? []).map((r: any) => {
+    const actor = r.cancelled_by ? cancelledByMap[r.cancelled_by] : null;
+    return {
+      ...r,
+      client_name: r.clients?.name ?? r.client_name,
+      // Prefer the linked client profile's whatsapp; fall back to the value
+      // captured at request creation (stored in details.client_whatsapp for
+      // typed-lead requests that have no client_id yet). Mirrors the detail
+      // endpoint so the requests list can render a WhatsApp action button.
+      client_whatsapp:
+        r.clients?.whatsapp ?? (r.details as any)?.client_whatsapp ?? null,
+      clients: undefined,
+      status: expiredIds.includes(r.id) ? "Expired" : r.status,
+      cancelled_by_name: actor?.name ?? null,
+      cancelled_by_email: actor && actor.active ? actor.email ?? null : null,
+    };
+  });
 
   return res.json(requests);
 });

@@ -40,6 +40,12 @@ export interface ClientRequest {
   created_by: string | null;
   created_at: string;
   updated_at: string;
+  // Present on Cancelled rows — hydrated from the users table by the list
+  // endpoint using the same batched IN-lookup as the detail endpoint.
+  cancelled_by_name?: string | null;
+  cancelled_by_email?: string | null;
+  cancelled_at?: string | null;
+  cancellation_reason?: string | null;
 }
 
 async function authFetch(path: string, init: RequestInit = {}) {
