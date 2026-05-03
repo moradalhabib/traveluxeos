@@ -1,54 +1,21 @@
-/**
- * Startup migration — runs DDL that cannot be done through PostgREST.
- * Requires SUPABASE_DB_URL (the direct PostgreSQL connection string from
- * Supabase Dashboard → Settings → Database → "URI" connection string).
- *
- * If not set, a warning is printed with instructions to run the SQL manually.
- */
+-- Run this once in your Supabase SQL Editor (Dashboard → SQL Editor)
+-- Creates unwind_commission_settlement() and unwind_driver_payout() as
+-- atomic Postgres functions so the "revert statuses + delete ledger row"
+-- path cannot be interleaved with a concurrent re-settle.
+--
+-- Each function:
+--   1. Locks the ledger row (SELECT ... FOR UPDATE NOWAIT) so two concurrent
+--      callers cannot both proceed past this point for the same record.
+--   2. Reverts commission_status / payout_status on the affected bookings
+--      and booking_vehicles inside the SAME transaction.
+--   3. Deletes the ledger row.
+--
+-- SECURITY DEFINER + explicit GRANT/REVOKE mean only the service_role
+-- (used by the API server) can execute the functions; direct PostgREST /
+-- anon / authenticated callers cannot invoke them.
 
-import { logger } from "../lib/logger";
+-- ── unwind_commission_settlement ─────────────────────────────────────────
 
-const CREATE_PUSH_SUBSCRIPTIONS = `
-  CREATE TABLE IF NOT EXISTS push_subscriptions (
-    id          bigserial PRIMARY KEY,
-    user_id     uuid NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
-    endpoint    text NOT NULL UNIQUE,
-    p256dh      text NOT NULL,
-    auth        text NOT NULL,
-    expires_at  timestamptz,
-    created_at  timestamptz NOT NULL DEFAULT now(),
-    updated_at  timestamptz NOT NULL DEFAULT now()
-  );
-  CREATE INDEX IF NOT EXISTS push_subscriptions_user_id_idx
-    ON push_subscriptions(user_id);
-  ALTER TABLE push_subscriptions ENABLE ROW LEVEL SECURITY;
-  DO $$
-  BEGIN
-    IF NOT EXISTS (
-      SELECT 1 FROM pg_policies
-      WHERE tablename = 'push_subscriptions' AND policyname = 'service_role_all'
-    ) THEN
-      CREATE POLICY service_role_all ON push_subscriptions
-        USING (true) WITH CHECK (true);
-    END IF;
-  END $$;
-`;
-
-/**
- * Atomic unwind functions for commission settlement and driver payout.
- *
- * Each function locks the ledger row (SELECT … FOR UPDATE NOWAIT), reverts
- * booking / booking_vehicle statuses, and deletes the ledger row — all in a
- * single Postgres transaction. This closes the race window where a concurrent
- * re-settle could leave bookings tagged against two ledger rows.
- *
- * SECURITY DEFINER + explicit GRANT/REVOKE restrict execution to service_role
- * only; the Express routes already admin-gate the HTTP callers.
- *
- * Manual fallback: run artifacts/api-server/migrations/migration-unwind-functions.sql
- * in the Supabase SQL Editor.
- */
-const CREATE_UNWIND_FUNCTIONS = `
 CREATE OR REPLACE FUNCTION unwind_commission_settlement(p_settlement_id uuid)
 RETURNS TABLE(
   reverted_bookings  int,
@@ -67,6 +34,9 @@ DECLARE
   v_reverted_bookings int := 0;
   v_reverted_vehicles int := 0;
 BEGIN
+  -- Lock the ledger row first. NOWAIT means a second concurrent unwind
+  -- for the same id will immediately raise lock_not_available (55P03)
+  -- rather than queuing silently behind the first caller.
   SELECT
     s.booking_ids,
     COALESCE(s.booking_vehicle_ids, ARRAY[]::uuid[]),
@@ -82,10 +52,15 @@ BEGIN
   FOR UPDATE NOWAIT;
 
   IF NOT FOUND THEN
+    -- Surface as P0002 (no_data_found) so the route maps it to 404.
     RAISE EXCEPTION 'not_found: settlement % does not exist', p_settlement_id
       USING ERRCODE = 'P0002';
   END IF;
 
+  -- Revert primary bookings: Settled → Outstanding.
+  -- The WHERE commission_status = 'Settled' guard ensures we do not
+  -- accidentally revert a booking that was re-settled concurrently under
+  -- a different ledger row.
   IF array_length(v_booking_ids, 1) IS NOT NULL AND array_length(v_booking_ids, 1) > 0 THEN
     UPDATE bookings
     SET commission_status = 'Outstanding'
@@ -94,6 +69,7 @@ BEGIN
     GET DIAGNOSTICS v_reverted_bookings = ROW_COUNT;
   END IF;
 
+  -- Revert extra-vehicle legs: Settled → Outstanding.
   IF array_length(v_vehicle_ids, 1) IS NOT NULL AND array_length(v_vehicle_ids, 1) > 0 THEN
     UPDATE booking_vehicles
     SET commission_status = 'Outstanding'
@@ -102,6 +78,7 @@ BEGIN
     GET DIAGNOSTICS v_reverted_vehicles = ROW_COUNT;
   END IF;
 
+  -- Delete the ledger row atomically with the status reversals above.
   DELETE FROM commission_settlements WHERE id = p_settlement_id;
 
   RETURN QUERY
@@ -109,9 +86,12 @@ BEGIN
 END;
 $$;
 
+-- Restrict to service_role only; revoke from PUBLIC first.
 REVOKE EXECUTE ON FUNCTION unwind_commission_settlement(uuid) FROM PUBLIC;
 GRANT  EXECUTE ON FUNCTION unwind_commission_settlement(uuid) TO service_role;
 
+
+-- ── unwind_driver_payout ──────────────────────────────────────────────────
 
 CREATE OR REPLACE FUNCTION unwind_driver_payout(p_payout_id uuid)
 RETURNS TABLE(
@@ -131,6 +111,7 @@ DECLARE
   v_reverted_bookings int := 0;
   v_reverted_vehicles int := 0;
 BEGIN
+  -- Lock the payout row. Same NOWAIT rationale as unwind_commission_settlement.
   SELECT
     p.booking_ids,
     COALESCE(p.booking_vehicle_ids, ARRAY[]::uuid[]),
@@ -150,6 +131,7 @@ BEGIN
       USING ERRCODE = 'P0002';
   END IF;
 
+  -- Revert primary bookings: Paid → Pending.
   IF array_length(v_booking_ids, 1) IS NOT NULL AND array_length(v_booking_ids, 1) > 0 THEN
     UPDATE bookings
     SET payout_status = 'Pending'
@@ -158,6 +140,7 @@ BEGIN
     GET DIAGNOSTICS v_reverted_bookings = ROW_COUNT;
   END IF;
 
+  -- Revert extra-vehicle legs: Paid → Pending.
   IF array_length(v_vehicle_ids, 1) IS NOT NULL AND array_length(v_vehicle_ids, 1) > 0 THEN
     UPDATE booking_vehicles
     SET payout_status = 'Pending'
@@ -166,6 +149,7 @@ BEGIN
     GET DIAGNOSTICS v_reverted_vehicles = ROW_COUNT;
   END IF;
 
+  -- Delete the payout ledger row atomically with the status reversals.
   DELETE FROM driver_payouts WHERE id = p_payout_id;
 
   RETURN QUERY
@@ -175,31 +159,3 @@ $$;
 
 REVOKE EXECUTE ON FUNCTION unwind_driver_payout(uuid) FROM PUBLIC;
 GRANT  EXECUTE ON FUNCTION unwind_driver_payout(uuid) TO service_role;
-`;
-
-export async function runMigrations(): Promise<void> {
-  const dbUrl = (process.env.SUPABASE_DB_URL || "").trim();
-  if (!dbUrl) {
-    logger.warn(
-      "SUPABASE_DB_URL not set — skipping startup migrations. " +
-      "Run the SQL files in artifacts/api-server/migrations/ " +
-      "in the Supabase SQL Editor, then set SUPABASE_DB_URL in Secrets."
-    );
-    return;
-  }
-
-  try {
-    const { default: pg } = await import("pg");
-    const client = new pg.Client({ connectionString: dbUrl, ssl: { rejectUnauthorized: false } });
-    await client.connect();
-    try {
-      await client.query(CREATE_PUSH_SUBSCRIPTIONS);
-      await client.query(CREATE_UNWIND_FUNCTIONS);
-      logger.info("Startup migrations applied successfully");
-    } finally {
-      await client.end();
-    }
-  } catch (err: any) {
-    logger.warn({ err: err?.message }, "Startup migration failed — run SQL files manually from artifacts/api-server/migrations/.");
-  }
-}
