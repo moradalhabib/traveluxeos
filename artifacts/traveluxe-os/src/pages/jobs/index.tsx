@@ -100,34 +100,6 @@ export default function Jobs() {
     bulk.exitSelectMode();
   };
 
-  // Card data context (drivers, suppliers, vehicles).
-  // Scope the booking_vehicles fetch to the current calendar month only —
-  // the Jobs board never shows past or future months, so fetching vehicles
-  // for the full history would be a wasted full-table scan.
-  const visibleBookingIds = useMemo(() => {
-    const ms = startOfMonth(new Date());
-    const me = endOfMonth(new Date());
-    return (bookings ?? [])
-      .filter((b: any) => {
-        if (!b.date_time) return false;
-        const d = new Date(b.date_time);
-        return !isBefore(d, ms) && !isAfter(d, me);
-      })
-      .map((b: any) => b.id)
-      .filter(Boolean);
-  }, [bookings]);
-  const { driversById, suppliersById, vehiclesByBooking } = useJobCardContext(visibleBookingIds);
-
-  // Long-press quick-status menu (bottom sheet)
-  const [quickMenuJob, setQuickMenuJob] = useState<any>(null);
-  const quickSetStatus = (status: string) => {
-    if (!quickMenuJob) return;
-    updateStatus.mutate({ id: quickMenuJob.id, data: { status } }, {
-      onSuccess: () => qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) }),
-    });
-    setQuickMenuJob(null);
-  };
-
   // URL-backed "show only unassigned" filter, toggled by the urgent banner.
   const [unassignedFlag, setUnassignedFlag] = useFilterState<"0" | "1">("unassigned", "0");
   const unassignedOnly = unassignedFlag === "1";
@@ -194,6 +166,25 @@ export default function Jobs() {
       }
     });
   }, [bookings, timeFilter, statusFilter, customFilter, unassignedOnly, searchQuery, hideCompleted, monthStart, monthEnd]);
+
+  // Card data context (drivers, suppliers, vehicles).
+  // Derive IDs from filteredBookings so the booking_vehicles fetch is
+  // scoped to only the jobs currently visible — no full-table scan.
+  const visibleBookingIds = useMemo(
+    () => filteredBookings.map((b: any) => b.id).filter(Boolean),
+    [filteredBookings],
+  );
+  const { driversById, suppliersById, vehiclesByBooking } = useJobCardContext(visibleBookingIds);
+
+  // Long-press quick-status menu (bottom sheet)
+  const [quickMenuJob, setQuickMenuJob] = useState<any>(null);
+  const quickSetStatus = (status: string) => {
+    if (!quickMenuJob) return;
+    updateStatus.mutate({ id: quickMenuJob.id, data: { status } }, {
+      onSuccess: () => qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) }),
+    });
+    setQuickMenuJob(null);
+  };
 
   // Urgent count is derived from THIS month's bookings only so the strip
   // doesn't count jobs that live in /upcoming or /bookings (archive).
