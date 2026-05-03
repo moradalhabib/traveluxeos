@@ -26,7 +26,7 @@ import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown"
 import { RecentActivityFeed } from "@/components/activity/RecentActivityFeed";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import {
-  useListRequests, useReopenRequest, PRIORITY_STYLES, STATUS_STYLES,
+  useListRequests, PRIORITY_STYLES, STATUS_STYLES,
   type RequestStatus, type RequestPriority, type RequestServiceType,
   type ClientRequest,
 } from "@/lib/requests-api";
@@ -52,7 +52,6 @@ export default function Requests() {
   const canBulkDelete = user?.role === "admin" || user?.role === "super_admin";
   const bulk = useBulkSelect();
   const queryClient = useQueryClient();
-  const reopenRequest = useReopenRequest();
   const [bulkReopenOpen, setBulkReopenOpen] = useState(false);
   const [bulkReopenRunning, setBulkReopenRunning] = useState(false);
   // URL-backed filters so a refresh / shared link restores the same view.
