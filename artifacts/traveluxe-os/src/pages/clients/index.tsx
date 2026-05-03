@@ -111,6 +111,13 @@ export default function Clients() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Clients</h1>
+          {!isLoading && (
+            <p className="text-sm text-muted-foreground mt-0.5" data-testid="clients-count">
+              {nationalityFilter
+                ? `${clients.length} of ${clientsRaw?.length ?? 0} clients`
+                : `${clients.length} client${clients.length !== 1 ? "s" : ""}`}
+            </p>
+          )}
           {isResidenceManager && (
             <p className="text-sm text-muted-foreground mt-0.5">View client information for apartment bookings</p>
           )}
