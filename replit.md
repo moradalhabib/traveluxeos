@@ -129,3 +129,19 @@ Auto-features in schema:
 - Commission type auto-set based on payment method (trigger)
 - User profile auto-created on auth.users creation (trigger)
 - updated_at auto-updated on booking changes (trigger)
+
+## Public API for Client App + Drivers App (May 2026)
+- **Mount point**: `/v1/*` is mounted in `artifacts/api-server/src/app.ts` **outside** the operator-JWT gate. `/api/*` (operator console) is unchanged.
+- **Migration** (operator must run once in Supabase SQL Editor): `artifacts/api-server/migrations/api_keys.sql` — creates `api_keys` (id, name, key_prefix, key_hash sha256, scopes text[], created_at, last_used_at/ip, revoked_at), `driver_sessions` (id, driver_id, token_hash, created_at, last_used_at, revoked_at), and adds `drivers.pin_hash`, `requests.source` ('client_app' | 'admin' default 'admin'), `requests.source_api_key_id`. RLS enabled deny-all on both new tables — only the API server (service role) reads them.
+- **Key format**: `tvl_pk_<base64url(32 bytes)>` for app keys, `tvl_drv_<base64url(32 bytes)>` for driver session tokens. Plaintext shown **once** at create time, only sha256 stored. Helpers in `src/lib/api-keys.ts`.
+- **Scopes**: `requests:create` (Client App), `driver:auth` / `driver:read` / `driver:update` (Drivers App). `requireApiKey([...])` middleware in `src/middleware/api-key-auth.ts` enforces; updates `last_used_at`/`last_used_ip` per call.
+- **Driver auth flow**: POST `/v1/driver/login` (scope `driver:auth`) takes `{whatsapp, pin}`, hashes pin with sha256+pepper (`api-keys.ts:hashPin`), checks against `drivers.pin_hash`, status case-insensitive `active`, returns a `tvl_drv_*` token. Subsequent driver routes require both the app's `Authorization: Bearer tvl_pk_*` header **and** `X-Driver-Token: tvl_drv_*` (`requireDriverSession`).
+- **Endpoints** (all under `/v1`, see `src/routes/public-v1.ts`):
+  - `POST /requests` — Client App submission. Lands in operator Requests pipeline with `source='client_app'` + `source_api_key_id`, status `New`. Operators convert to a Booking via the existing flow.
+  - `POST /driver/login`, `POST /driver/logout`, `GET /driver/me`.
+  - `GET /driver/jobs?from&to&status` — bookings WHERE `driver_id = session.driver_id`. `GET /driver/jobs/:id` (404 if not assigned to this driver — no leakage).
+  - `PATCH /driver/jobs/:id/status` — allowed values `On the way | Arrived | Started | Completed`. Writes via existing booking update path so audit log + realtime stay coherent.
+  - `GET /healthz` — no auth.
+- **Admin UI** (`traveluxe-os/src/pages/admin/index.tsx` → API tab): full key management — create with scope checkboxes + Client App / Drivers App presets, one-time key reveal banner, list with prefix/scopes/last-used/IP, revoke. Backed by `src/routes/admin-api-keys.ts` (CRUD, admin-only). Driver detail page (`drivers/[id].tsx`) has a "Drivers App Access" card to set/clear the driver's PIN (4–6 digits) — backed by `src/routes/admin-driver-pin.ts` (PUT `/api/drivers/:id/pin`); saving a new PIN revokes all that driver's existing sessions.
+- **Tests**: `artifacts/api-server/__tests__/public-api.test.ts` — 18 tests covering scope enforcement, missing/invalid keys, request creation tagging, driver login/jobs/status flow, isolation between drivers, and PIN rotation revoking sessions. Full suite 24/24 green.
+- **Artifact routing**: `.replit-artifact/artifact.toml` `paths = ["/api","/v1"]` so the shared proxy routes both prefixes to the API server.

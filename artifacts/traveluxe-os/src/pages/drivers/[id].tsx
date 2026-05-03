@@ -530,6 +530,8 @@ export default function DriverDetail() {
         </CardContent>
       </Card>
 
+      <DriverAppPin driverId={d.id} hasPin={Boolean(d.pin_hash)} driverName={d.name} />
+
       {/* ── Financial Summary ─────────────────────────────────────── */}
       <Card className="border-primary/10 bg-card" data-testid="card-financial-summary">
         <CardHeader>
@@ -802,5 +804,113 @@ function Stat({
       <div className={`text-xl font-semibold mt-1 ${toneClass}`}>{value}</div>
       {hint && <div className="text-[10px] text-muted-foreground mt-1">{hint}</div>}
     </div>
+  );
+}
+
+// ─── Drivers App PIN management ───────────────────────────────────────────────
+function DriverAppPin({ driverId, hasPin, driverName }: { driverId: string; hasPin: boolean; driverName: string }) {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [pin, setPin] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const save = async () => {
+    if (!/^\d{4,6}$/.test(pin)) {
+      toast({ title: "PIN must be 4–6 digits", variant: "destructive" });
+      return;
+    }
+    setSaving(true);
+    try {
+      await authFetch(`${API_BASE}/drivers/${driverId}/pin`, {
+        method: "PUT",
+        body: JSON.stringify({ pin }),
+      });
+      toast({ title: `Drivers App PIN set for ${driverName}`, description: "Existing sessions revoked. The driver must log in again." });
+      setEditing(false); setPin("");
+      qc.invalidateQueries({ queryKey: getGetDriverQueryKey(driverId) });
+    } catch (e: any) {
+      toast({ title: "Could not set PIN", description: String(e?.message ?? e), variant: "destructive" });
+    } finally { setSaving(false); }
+  };
+
+  const clear = async () => {
+    if (!confirm(`Clear ${driverName}'s Drivers App PIN? They will be logged out and unable to use the app until a new PIN is set.`)) return;
+    setSaving(true);
+    try {
+      await authFetch(`${API_BASE}/drivers/${driverId}/pin`, {
+        method: "PUT",
+        body: JSON.stringify({ pin: null }),
+      });
+      toast({ title: "PIN cleared", description: "Driver app access disabled." });
+      qc.invalidateQueries({ queryKey: getGetDriverQueryKey(driverId) });
+    } catch (e: any) {
+      toast({ title: "Could not clear PIN", description: String(e?.message ?? e), variant: "destructive" });
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <Card className="border-primary/10 bg-card" data-testid="card-driver-app-pin">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Car className="w-5 h-5 text-primary" /> Drivers App Access
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <div className="text-sm">
+              {hasPin ? (
+                <span className="text-green-500 font-medium">PIN configured</span>
+              ) : (
+                <span className="text-amber-500 font-medium">No PIN set — driver cannot log in</span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              The driver logs into the Drivers App with their WhatsApp number and this PIN.
+            </p>
+          </div>
+          {!editing && (
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => setEditing(true)} data-testid="button-set-driver-pin">
+                {hasPin ? "Change PIN" : "Set PIN"}
+              </Button>
+              {hasPin && (
+                <Button variant="ghost" size="sm" onClick={clear} disabled={saving} data-testid="button-clear-driver-pin">
+                  Clear
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+        {editing && (
+          <div className="space-y-2 pt-2 border-t border-border">
+            <Label htmlFor="driver-pin">New PIN (4–6 digits)</Label>
+            <div className="flex gap-2">
+              <Input
+                id="driver-pin"
+                inputMode="numeric"
+                pattern="\d*"
+                maxLength={6}
+                value={pin}
+                onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))}
+                placeholder="••••"
+                autoFocus
+                data-testid="input-driver-pin"
+              />
+              <Button onClick={save} disabled={saving} data-testid="button-save-driver-pin">
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : "Save"}
+              </Button>
+              <Button variant="outline" onClick={() => { setEditing(false); setPin(""); }} disabled={saving}>
+                Cancel
+              </Button>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Saving a new PIN will log the driver out of all current sessions.
+            </p>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

@@ -29,6 +29,8 @@ import amendmentsRouter from "./amendments";
 import bookingVehiclesRouter from "./booking-vehicles";
 import pushSubscriptionsRouter from "./push-subscriptions";
 import intelRouter from "./intel";
+import adminApiKeysRouter from "./admin-api-keys";
+import adminDriverPinRouter from "./admin-driver-pin";
 
 const router: IRouter = Router();
 
@@ -63,5 +65,7 @@ router.use("/amendments", amendmentsRouter);
 router.use("/booking-vehicles", bookingVehiclesRouter);
 router.use("/push-subscriptions", pushSubscriptionsRouter);
 router.use("/intel", intelRouter);
+router.use("/admin/api-keys", adminApiKeysRouter);
+router.use("/drivers", adminDriverPinRouter);
 
 export default router;

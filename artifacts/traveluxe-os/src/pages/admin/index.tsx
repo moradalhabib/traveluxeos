@@ -1197,25 +1197,101 @@ function CopyButton({ value }: { value: string }) {
   );
 }
 
-function IntegrationTab() {
-  const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL ?? "").replace(/\/$/, "");
-  const apiBase = `${supabaseUrl}/rest/v1`;
-  const realtimeUrl = `${supabaseUrl}/realtime/v1`;
+type ApiKeyRow = {
+  id: string;
+  name: string;
+  key_prefix: string;
+  scopes: string[];
+  created_at: string;
+  last_used_at: string | null;
+  last_used_ip: string | null;
+  revoked_at: string | null;
+};
 
-  const endpoints = [
-    { method: "GET", path: "/clients", desc: "List all clients (name, WhatsApp, VIP tier, nationality)" },
-    { method: "POST", path: "/clients", desc: "Create a new client" },
-    { method: "GET", path: "/clients?id=eq.{id}", desc: "Get client by ID" },
-    { method: "PATCH", path: "/clients?id=eq.{id}", desc: "Update client record" },
-    { method: "GET", path: "/bookings", desc: "List all bookings (transfers, tours, apartments) with client + driver joins" },
-    { method: "POST", path: "/bookings", desc: "Create a booking — service_type: Airport Transfer | Tour | City Tour | Chauffeur Tour | Apartment / Accommodation | As Directed | Event Transfer" },
-    { method: "GET", path: "/bookings?status=eq.Confirmed", desc: "Filter bookings by status" },
-    { method: "GET", path: "/bookings?service_type=eq.Tour", desc: "Filter by service type (e.g. Tour, City Tour, Apartment / Accommodation)" },
-    { method: "GET", path: "/requests", desc: "List all client requests" },
-    { method: "POST", path: "/requests", desc: "Create a client request" },
-    { method: "GET", path: "/drivers", desc: "List all drivers and their vehicles" },
-    { method: "GET", path: "/commissions", desc: "Commission ledger" },
-  ];
+const SCOPE_LABELS: Record<string, { title: string; subtitle: string }> = {
+  "requests:create": { title: "Submit Bookings (Client App)", subtitle: "POST /v1/requests — bookings land in the Requests pipeline for review" },
+  "driver:auth": { title: "Driver Login (Drivers App)", subtitle: "POST /v1/driver/login — exchange WhatsApp + PIN for a session" },
+  "driver:read": { title: "Read Driver Jobs", subtitle: "GET /v1/driver/jobs and /v1/driver/jobs/:id" },
+  "driver:update": { title: "Update Job Status", subtitle: "PATCH /v1/driver/jobs/:id/status — On the way / Arrived / Started / Completed" },
+};
+
+const ALL_SCOPES = ["requests:create", "driver:auth", "driver:read", "driver:update"];
+const PRESETS: Record<string, string[]> = {
+  "Client App": ["requests:create"],
+  "Drivers App": ["driver:auth", "driver:read", "driver:update"],
+};
+
+async function authJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const { data: { session } } = await supabase.auth.getSession();
+  const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
+  if (session?.access_token) headers.Authorization = `Bearer ${session.access_token}`;
+  if (init.body && !headers["Content-Type"]) headers["Content-Type"] = "application/json";
+  const base = `${import.meta.env.VITE_API_URL ?? ""}/api`;
+  const res = await fetch(`${base}${path}`, { ...init, headers });
+  const txt = await res.text();
+  if (!res.ok) throw new Error(txt || res.statusText);
+  return txt ? JSON.parse(txt) : ({} as T);
+}
+
+function IntegrationTab() {
+  const { toast } = useToast();
+  const [keys, setKeys] = useState<ApiKeyRow[] | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newScopes, setNewScopes] = useState<string[]>(PRESETS["Client App"]);
+  const [newKey, setNewKey] = useState<{ name: string; key: string } | null>(null);
+
+  const baseOrigin = (import.meta.env.VITE_API_URL ?? window.location.origin).replace(/\/$/, "");
+  const apiBase = `${baseOrigin}/v1`;
+
+  const reload = useCallback(async () => {
+    try {
+      const rows = await authJson<ApiKeyRow[]>("/admin/api-keys");
+      setKeys(rows);
+      setLoadErr(null);
+    } catch (e: any) {
+      setLoadErr(String(e?.message ?? e));
+      setKeys([]);
+    }
+  }, []);
+  useEffect(() => { reload(); }, [reload]);
+
+  const create = async () => {
+    if (!newName.trim()) { toast({ title: "Name is required", variant: "destructive" }); return; }
+    if (newScopes.length === 0) { toast({ title: "Pick at least one scope", variant: "destructive" }); return; }
+    setCreating(true);
+    try {
+      const created = await authJson<{ name: string; key: string }>("/admin/api-keys", {
+        method: "POST",
+        body: JSON.stringify({ name: newName.trim(), scopes: newScopes }),
+      });
+      setNewKey({ name: created.name, key: created.key });
+      setNewName(""); setNewScopes(PRESETS["Client App"]);
+      reload();
+    } catch (e: any) {
+      toast({ title: "Could not create key", description: String(e?.message ?? e), variant: "destructive" });
+    } finally { setCreating(false); }
+  };
+
+  const revoke = async (id: string, name: string) => {
+    if (!confirm(`Revoke "${name}"? Apps using this key will stop working immediately.`)) return;
+    try {
+      await authJson(`/admin/api-keys/${id}`, { method: "DELETE" });
+      toast({ title: `Revoked "${name}"` });
+      reload();
+    } catch (e: any) {
+      toast({ title: "Revoke failed", description: String(e?.message ?? e), variant: "destructive" });
+    }
+  };
+
+  const toggleScope = (s: string) =>
+    setNewScopes((cur) => (cur.includes(s) ? cur.filter((x) => x !== s) : [...cur, s]));
+
+  const applyPreset = (preset: string) => {
+    setNewScopes(PRESETS[preset] ?? []);
+    if (!newName.trim()) setNewName(preset);
+  };
 
   const methodColor = (m: string) => {
     if (m === "GET") return "text-blue-400 bg-blue-500/10";
@@ -1225,21 +1301,40 @@ function IntegrationTab() {
     return "text-muted-foreground bg-secondary";
   };
 
+  const endpoints = [
+    { group: "Client App", method: "POST", path: "/v1/requests", scope: "requests:create",
+      desc: "Submit a customer booking. Lands in Requests for operator review then Convert to Booking." },
+    { group: "Drivers App", method: "POST", path: "/v1/driver/login", scope: "driver:auth",
+      desc: "Body: { whatsapp, pin }. Returns driver_token (use as X-Driver-Token on driver routes)." },
+    { group: "Drivers App", method: "GET",  path: "/v1/driver/me", scope: "driver:read",
+      desc: "Returns the logged-in driver's profile." },
+    { group: "Drivers App", method: "GET",  path: "/v1/driver/jobs", scope: "driver:read",
+      desc: "Returns this driver's assigned bookings. Optional ?from=&to=&status=" },
+    { group: "Drivers App", method: "GET",  path: "/v1/driver/jobs/:id", scope: "driver:read",
+      desc: "Single job detail (404 if not assigned to this driver)." },
+    { group: "Drivers App", method: "PATCH", path: "/v1/driver/jobs/:id/status", scope: "driver:update",
+      desc: "Body: { status }. Allowed: On the way, Arrived, Started, Completed." },
+    { group: "Drivers App", method: "POST", path: "/v1/driver/logout", scope: "—",
+      desc: "Revokes the current X-Driver-Token session." },
+    { group: "Public",     method: "GET",  path: "/v1/healthz", scope: "—",
+      desc: "Health probe (no auth)." },
+  ];
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
       <div>
-        <h2 className="font-semibold text-foreground mb-1">CRM Integration</h2>
+        <h2 className="font-semibold text-foreground mb-1">Traveluxe OS Public API</h2>
         <p className="text-sm text-muted-foreground">
-          Share this page with your development team. Everything they need to connect your CRM to Traveluxe OS is below.
+          Issue scoped API keys for your iOS Client App and the Drivers App. Every key can be revoked here at any time and every call is audited.
         </p>
       </div>
 
-      {/* Architecture overview */}
+      {/* Overview */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         {[
-          { label: "Database", value: "Supabase (PostgreSQL)", icon: Database },
-          { label: "API Standard", value: "REST + JSON", icon: FileText },
-          { label: "Realtime", value: "WebSocket (Supabase)", icon: Plug },
+          { label: "Standard", value: "REST + JSON", icon: FileText },
+          { label: "Auth", value: "Bearer API key + scopes", icon: Lock },
+          { label: "Audit", value: "Every call logged", icon: Activity },
         ].map(({ label, value, icon: Icon }) => (
           <div key={label} className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
             <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -1254,108 +1349,216 @@ function IntegrationTab() {
       </div>
 
       {/* Base URL */}
-      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Base API URL</p>
+      <div className="rounded-xl border border-border bg-card p-4 space-y-2">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Base URL</p>
         <div className="flex items-center gap-2 bg-background rounded-lg px-3 py-2 border border-border">
-          <code className="text-xs text-primary flex-1 break-all">{apiBase}</code>
+          <code className="text-xs text-primary flex-1 break-all" data-testid="text-api-base">{apiBase}</code>
           <CopyButton value={apiBase} />
         </div>
-        <div className="flex items-center gap-2 bg-background rounded-lg px-3 py-2 border border-border">
-          <div className="flex-1">
-            <p className="text-[10px] text-muted-foreground mb-0.5">Realtime WebSocket</p>
-            <code className="text-xs text-foreground break-all">{realtimeUrl}</code>
+        <p className="text-[11px] text-muted-foreground">Send <code className="text-foreground">Authorization: Bearer &lt;api-key&gt;</code> on every request.</p>
+      </div>
+
+      {/* Newly created key — show ONCE */}
+      {newKey && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-2" data-testid="card-new-api-key">
+          <div className="flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400" />
+            <p className="text-sm font-semibold text-foreground">Copy this key now — it won't be shown again.</p>
           </div>
-          <CopyButton value={realtimeUrl} />
+          <p className="text-xs text-muted-foreground">Key for "{newKey.name}":</p>
+          <div className="flex items-center gap-2 bg-background rounded-lg px-3 py-2 border border-border">
+            <code className="text-xs text-primary flex-1 break-all" data-testid="text-new-api-key">{newKey.key}</code>
+            <CopyButton value={newKey.key} />
+          </div>
+          <Button variant="outline" size="sm" onClick={() => setNewKey(null)} data-testid="button-dismiss-new-key">
+            I've saved it
+          </Button>
         </div>
-      </div>
+      )}
 
-      {/* Authentication */}
-      <div className="rounded-xl border border-primary/20 bg-primary/5 p-4 space-y-3">
-        <p className="text-xs font-semibold text-foreground uppercase tracking-wider">Authentication</p>
-        <p className="text-xs text-muted-foreground">All requests require two headers:</p>
+      {/* Create a key */}
+      <div className="rounded-xl border border-border bg-card p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <p className="text-sm font-semibold text-foreground">Create new API key</p>
+          <div className="flex gap-2">
+            {Object.keys(PRESETS).map((p) => (
+              <Button key={p} variant="outline" size="sm" onClick={() => applyPreset(p)} data-testid={`button-preset-${p.replace(/\s+/g, '-').toLowerCase()}`}>
+                {p}
+              </Button>
+            ))}
+          </div>
+        </div>
+        <div>
+          <Label htmlFor="api-key-name" className="text-xs">Name</Label>
+          <Input
+            id="api-key-name"
+            placeholder="e.g. Client App — Production"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            className="mt-1"
+            data-testid="input-api-key-name"
+          />
+        </div>
         <div className="space-y-2">
-          {[
-            { header: "apikey", value: "YOUR_SUPABASE_ANON_KEY", desc: "Public anon key from Supabase → Settings → API" },
-            { header: "Authorization", value: "Bearer {user_access_token}", desc: "JWT from supabase.auth.signInWithPassword() — Row Level Security enforced" },
-            { header: "Content-Type", value: "application/json", desc: "For POST/PATCH requests" },
-            { header: "Prefer", value: "return=representation", desc: "Returns the created/updated record in response" },
-          ].map(({ header, value, desc }) => (
-            <div key={header} className="bg-background rounded-lg p-3 border border-border">
-              <div className="flex items-center gap-2 mb-1">
-                <code className="text-xs text-primary">{header}:</code>
-                <code className="text-xs text-foreground">{value}</code>
-              </div>
-              <p className="text-[10px] text-muted-foreground">{desc}</p>
-            </div>
-          ))}
+          <p className="text-xs text-muted-foreground">Scopes</p>
+          {ALL_SCOPES.map((s) => {
+            const meta = SCOPE_LABELS[s];
+            return (
+              <label key={s} className="flex items-start gap-3 p-2 rounded-lg border border-border bg-background hover:border-primary/40 cursor-pointer transition-colors">
+                <input
+                  type="checkbox"
+                  checked={newScopes.includes(s)}
+                  onChange={() => toggleScope(s)}
+                  className="mt-1"
+                  data-testid={`checkbox-scope-${s.replace(/[:]/g, '-')}`}
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-foreground">{meta?.title ?? s}</p>
+                  <p className="text-[11px] text-muted-foreground">{meta?.subtitle ?? s}</p>
+                  <code className="text-[10px] text-primary">{s}</code>
+                </div>
+              </label>
+            );
+          })}
         </div>
+        <Button onClick={create} disabled={creating} className="w-full" data-testid="button-create-api-key">
+          {creating ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Creating…</> : "Create key"}
+        </Button>
       </div>
 
-      {/* Endpoints */}
+      {/* Existing keys */}
       <div className="space-y-2">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Available Endpoints</p>
-        {endpoints.map(({ method, path, desc }) => (
-          <div key={`${method}${path}`} className="flex items-center gap-3 p-3 rounded-xl border border-border bg-card">
-            <span className={`text-[10px] font-bold px-2 py-0.5 rounded font-mono flex-shrink-0 ${methodColor(method)}`}>
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Existing keys</p>
+          <Button variant="ghost" size="sm" onClick={reload} data-testid="button-reload-keys">
+            <RefreshCw className="w-3.5 h-3.5" />
+          </Button>
+        </div>
+        {loadErr && (
+          <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400">
+            Could not load keys: {loadErr}
+            <p className="mt-1 text-muted-foreground text-[11px]">Run the migration <code>artifacts/api-server/migrations/api_keys.sql</code> in Supabase if you haven't already.</p>
+          </div>
+        )}
+        {keys === null ? (
+          <Skeleton className="h-20" />
+        ) : keys.length === 0 ? (
+          <p className="text-xs text-muted-foreground p-4 text-center border border-dashed border-border rounded-xl">
+            No API keys yet. Create one above.
+          </p>
+        ) : (
+          keys.map((k) => (
+            <div key={k.id} className="p-3 rounded-xl border border-border bg-card space-y-2" data-testid={`row-api-key-${k.id}`}>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-semibold text-sm text-foreground">{k.name}</p>
+                    {k.revoked_at ? (
+                      <Badge variant="outline" className="text-red-400 border-red-500/30">Revoked</Badge>
+                    ) : (
+                      <Badge variant="outline" className="text-green-400 border-green-500/30">Active</Badge>
+                    )}
+                  </div>
+                  <code className="text-[11px] text-muted-foreground">{k.key_prefix}…</code>
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {k.scopes.map((s) => (
+                      <code key={s} className="text-[10px] text-primary bg-primary/10 px-1.5 py-0.5 rounded">{s}</code>
+                    ))}
+                  </div>
+                </div>
+                {!k.revoked_at && (
+                  <Button variant="ghost" size="sm" onClick={() => revoke(k.id, k.name)} data-testid={`button-revoke-${k.id}`}>
+                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                  </Button>
+                )}
+              </div>
+              <div className="text-[10px] text-muted-foreground flex flex-wrap gap-x-3">
+                <span>Created {format(new Date(k.created_at), "d MMM yyyy")}</span>
+                <span>Last used {k.last_used_at ? format(new Date(k.last_used_at), "d MMM, HH:mm") : "never"}</span>
+                {k.last_used_ip && <span>IP {k.last_used_ip}</span>}
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Endpoint reference */}
+      <div className="space-y-2">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Endpoint reference</p>
+        {endpoints.map(({ group, method, path, scope, desc }) => (
+          <div key={`${method}${path}`} className="flex items-start gap-3 p-3 rounded-xl border border-border bg-card">
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded font-mono flex-shrink-0 mt-0.5 ${methodColor(method)}`}>
               {method}
             </span>
             <div className="flex-1 min-w-0">
-              <code className="text-xs text-foreground">{path}</code>
+              <div className="flex items-center gap-2 flex-wrap">
+                <code className="text-xs text-foreground">{path}</code>
+                <Badge variant="outline" className="text-[9px] py-0 px-1.5 border-primary/30">{group}</Badge>
+              </div>
               <p className="text-[10px] text-muted-foreground mt-0.5">{desc}</p>
+              {scope !== "—" && <code className="text-[10px] text-primary">scope: {scope}</code>}
             </div>
-            <CopyButton value={`${apiBase}${path}`} />
+            <CopyButton value={`${apiBase}${path.replace('/v1','')}`} />
           </div>
         ))}
       </div>
 
-      {/* Realtime example */}
+      {/* Quick examples */}
       <div className="rounded-xl border border-border bg-card p-4 space-y-3">
-        <p className="text-xs font-semibold text-foreground">Realtime Sync (for live CRM updates)</p>
-        <p className="text-xs text-muted-foreground">Subscribe to any table change using the Supabase client. Your CRM will receive instant updates when a booking is created, a client is added, or status changes.</p>
-        <div className="bg-background rounded-lg p-3 border border-border overflow-x-auto">
-          <pre className="text-[10px] text-green-400 whitespace-pre">{`supabase
-  .channel('crm-sync')
-  .on('postgres_changes', {
-    event: '*',          // INSERT | UPDATE | DELETE | *
-    schema: 'public',
-    table: 'bookings',   // or 'clients', 'quotes', etc.
-  }, (payload) => {
-    console.log('Change received:', payload)
-  })
-  .subscribe()`}</pre>
-        </div>
-      </div>
-
-      {/* Filtering & sorting */}
-      <div className="rounded-xl border border-border bg-card p-4 space-y-2">
-        <p className="text-xs font-semibold text-foreground">Query Examples</p>
+        <p className="text-sm font-semibold text-foreground">Quick examples</p>
         <div className="space-y-2">
-          {[
-            { label: "Filter by status", ex: `${apiBase}/bookings?status=eq.Confirmed` },
-            { label: "Get VIP clients only", ex: `${apiBase}/clients?vip_tier=eq.VVIP` },
-            { label: "Sort + limit bookings", ex: `${apiBase}/bookings?order=date_time.desc&limit=50` },
-            { label: "Search by WhatsApp", ex: `${apiBase}/clients?whatsapp=eq.+447700000000` },
-            { label: "Join client on booking", ex: `${apiBase}/bookings?select=*,clients(name,vip_tier)` },
-          ].map(({ label, ex }) => (
-            <div key={label} className="bg-background rounded-lg p-3 border border-border">
-              <p className="text-[10px] text-muted-foreground mb-1">{label}</p>
-              <div className="flex items-center gap-2">
-                <code className="text-[10px] text-primary flex-1 break-all">{ex}</code>
-                <CopyButton value={ex} />
-              </div>
-            </div>
-          ))}
+          <p className="text-[11px] text-muted-foreground">Client App — submit a booking</p>
+          <div className="bg-background rounded-lg p-3 border border-border overflow-x-auto">
+            <pre className="text-[10px] text-green-400 whitespace-pre">{`curl -X POST ${apiBase}/requests \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "service_type": "Airport Transfer",
+    "client_name": "Sheikha Al-Maktoum",
+    "client_whatsapp": "+447700111222",
+    "pickup": "LHR T5",
+    "dropoff": "Mayfair",
+    "flight_number": "EK001",
+    "passengers": 2,
+    "luggage": 4,
+    "requested_date_time": "2026-06-01T10:00:00Z",
+    "notes": "Booster seat needed"
+  }'`}</pre>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-3">Drivers App — log in then update status</p>
+          <div className="bg-background rounded-lg p-3 border border-border overflow-x-auto">
+            <pre className="text-[10px] text-green-400 whitespace-pre">{`# 1. Log in (returns driver_token)
+curl -X POST ${apiBase}/driver/login \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "Content-Type: application/json" \\
+  -d '{"whatsapp":"+447700123456","pin":"1234"}'
+
+# 2. Get assigned jobs
+curl ${apiBase}/driver/jobs \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "X-Driver-Token: <driver_token>"
+
+# 3. Update status
+curl -X PATCH ${apiBase}/driver/jobs/<job_id>/status \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -H "X-Driver-Token: <driver_token>" \\
+  -H "Content-Type: application/json" \\
+  -d '{"status":"On the way"}'`}</pre>
+          </div>
         </div>
       </div>
 
-      <div className="rounded-xl border border-border bg-muted/20 p-4 text-xs text-muted-foreground space-y-1">
-        <p className="font-semibold text-foreground">For your developers</p>
-        <p>Use the official <strong className="text-foreground">Supabase JavaScript client</strong> (<code>@supabase/supabase-js</code>) or any HTTP client. All data access is protected by Row Level Security — your CRM must authenticate as an active Traveluxe OS operator to read or write data.</p>
-        <p className="mt-2">Recommended integration pattern: create a dedicated <strong className="text-foreground">service account</strong> in Traveluxe OS (operator role) for your CRM. This keeps CRM traffic audited separately from human operators.</p>
+      <div className="rounded-xl border border-border bg-muted/20 p-4 text-xs text-muted-foreground space-y-2">
+        <p className="font-semibold text-foreground">Setup checklist</p>
+        <p>1. Run <code className="text-foreground">artifacts/api-server/migrations/api_keys.sql</code> in your Supabase SQL Editor (creates <code>api_keys</code>, <code>driver_sessions</code>, and adds <code>drivers.pin_hash</code>).</p>
+        <p>2. For the Drivers App: open each driver's profile and set their PIN under "Drivers App Access".</p>
+        <p>3. Create a key here for each app and paste it into the app's environment.</p>
       </div>
     </div>
   );
 }
+
+void SCOPE_LABELS;
 
 // ─── Products Management tab ──────────────────────────────────────────────────
 const PRODUCT_CATEGORIES = ["Vehicle", "Meet & Greet", "Tour", "Add-on", "Accommodation"];

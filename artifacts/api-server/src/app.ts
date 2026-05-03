@@ -3,6 +3,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import { jwtVerify } from "jose";
 import router from "./routes";
+import publicV1Router from "./routes/public-v1";
 import { logger } from "./lib/logger";
 import cookieParser from "cookie-parser";
 import { authStorage } from "./lib/supabase";
@@ -117,5 +118,10 @@ function withAuthContext(req: Request, _res: Response, next: NextFunction): void
 }
 
 app.use("/api", requireJwt, withAuthContext, router);
+
+// Public Traveluxe OS API surface for external apps (Client App, Drivers App).
+// Auth is per-route via requireApiKey() / requireDriverSession() — NOT the
+// Supabase JWT used by the OS web app.
+app.use("/v1", publicV1Router);
 
 export default app;
