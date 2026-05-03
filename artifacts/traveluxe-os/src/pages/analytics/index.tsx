@@ -345,9 +345,7 @@ export default function Analytics() {
   const [lostLeadPeriod, setLostLeadPeriod] = useState<LostLeadPeriod>("this_month");
   const lostLeadStats = useLostLeadStats(lostLeadPeriod);
 
-  const [activeFilters, setActiveFilters] = useState<Set<EventType>>(new Set());
   const [selectedEvent, setSelectedEvent] = useState<CalEvent | null>(null);
-  const [showAllEvents, setShowAllEvents] = useState(false);
 
   // Section 3 Client Intelligence UI state
   const [natSortMode, setNatSortMode] = useState<"clients" | "avg">("clients");
@@ -1076,13 +1074,7 @@ export default function Analytics() {
       return acc;
     }, []);
 
-  // Filtered events (by active filter chips)
-  const filteredEvents = activeFilters.size === 0
-    ? upcomingEvents
-    : upcomingEvents.filter(e => activeFilters.has(e.type));
-
   const nextEvent    = upcomingEvents[0];
-  const shownEvents  = showAllEvents ? filteredEvents : filteredEvents.slice(0, 3);
   const topNat       = natStats[0];
 
   const daysUntil = (d: Date) => {
@@ -1094,15 +1086,6 @@ export default function Analytics() {
     const d = daysUntil(e.startDate);
     return (e.type === "gulf-holiday" || e.type === "gulf-national-day") && d >= 0 && d <= 14;
   });
-
-  const toggleFilter = (type: EventType) => {
-    setActiveFilters(prev => {
-      const next = new Set(prev);
-      if (next.has(type)) next.delete(type); else next.add(type);
-      return next;
-    });
-    setShowAllEvents(false);
-  };
 
   // ── Demand XAxis formatter (robust) ────────────────────────────────────────
   function fmtWeekOf(v: unknown): string {
@@ -1378,131 +1361,7 @@ export default function Analytics() {
         );
       })()}
 
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
-      {/* ─── MARKET INTELLIGENCE ─────────────────────────────────────────────  */}
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
-      <div className="flex items-center gap-3">
-        <div className="h-px flex-1 bg-border/60" />
-        <div className="flex items-center gap-2 px-2">
-          <Globe className="w-3.5 h-3.5 text-primary" />
-          <span className="text-xs font-semibold text-primary uppercase tracking-widest">Market Intelligence</span>
-        </div>
-        <div className="h-px flex-1 bg-border/60" />
-      </div>
-
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
-      {/* 2. GULF & SEASON CALENDAR                                              */}
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
-      <Card className="border-primary/10">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-semibold flex items-center gap-2">
-            <CalendarDays className="w-4 h-4 text-primary" />
-            Gulf & Season Calendar
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="pt-0 space-y-3">
-          {/* Countdown to most imminent event */}
-          {nextEvent && (
-            <button
-              className="w-full text-left rounded-xl border border-primary/30 bg-primary/5 p-3 hover:border-primary/50 hover:bg-primary/8 transition-all"
-              onClick={() => setSelectedEvent(nextEvent)}
-            >
-              <div className="text-xs text-muted-foreground uppercase tracking-wider mb-1">Coming up next — tap for detail</div>
-              <div className="text-base font-bold text-foreground">{nextEvent.name}</div>
-              <div className="flex items-end justify-between mt-1">
-                <div className="text-xs text-muted-foreground">
-                  {format(nextEvent.startDate, "EEE d MMM yyyy")}
-                  {nextEvent.approximate && <span className="ml-1 opacity-60">(approx.)</span>}
-                </div>
-                <div className="text-2xl font-black text-primary leading-none">
-                  {daysUntil(nextEvent.startDate) <= 0 ? "Ongoing" : `${daysUntil(nextEvent.startDate)}d`}
-                </div>
-              </div>
-            </button>
-          )}
-
-          {/* Filter chips (interactive) */}
-          <div className="space-y-1.5">
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider">Filter by type</div>
-            <div className="flex flex-wrap gap-2">
-              {(["gulf-holiday","gulf-national-day","london-peak","school-holiday"] as EventType[]).map(type => {
-                const active = activeFilters.has(type);
-                return (
-                  <button
-                    key={type}
-                    onClick={() => toggleFilter(type)}
-                    className={`text-[10px] px-2.5 py-1 rounded-full border font-semibold transition-all ${
-                      active ? EVENT_TYPE_ACTIVE[type] : EVENT_TAG_STYLE[type] + " opacity-60 hover:opacity-100"
-                    }`}
-                  >
-                    {active && <span className="mr-1">✓</span>}
-                    {EVENT_TAG_LABEL[type]}
-                  </button>
-                );
-              })}
-              {activeFilters.size > 0 && (
-                <button
-                  onClick={() => { setActiveFilters(new Set()); setShowAllEvents(false); }}
-                  className="text-[10px] px-2.5 py-1 rounded-full border border-border/60 text-muted-foreground hover:text-foreground transition-colors font-medium"
-                >
-                  Clear
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Filtered event list */}
-          {filteredEvents.length === 0 ? (
-            <div className="text-xs text-muted-foreground py-4 text-center">No events match the selected filters.</div>
-          ) : (
-            <div className="space-y-2">
-              {shownEvents.map((ev, i) => {
-                const du = daysUntil(ev.startDate);
-                const ongoing = du < 0;
-                return (
-                  <button
-                    key={`${ev.name}-${i}`}
-                    onClick={() => setSelectedEvent(ev)}
-                    className="w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl bg-muted/30 border border-border/50 hover:border-primary/30 hover:bg-primary/5 transition-all"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-semibold text-foreground truncate">{ev.name}</div>
-                      <div className="text-xs text-muted-foreground mt-0.5">
-                        {format(ev.startDate, "d MMM")}
-                        {ev.endDate.toDateString() !== ev.startDate.toDateString() && ` – ${format(ev.endDate, "d MMM")}`}
-                        {ev.approximate && <span className="ml-1 opacity-50">(approx.)</span>}
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-1.5">
-                      <span className={`text-[10px] px-2 py-0.5 rounded-full border font-medium ${EVENT_TAG_STYLE[ev.type]}`}>
-                        {ev.tag}
-                      </span>
-                      <span className="text-xs font-bold text-foreground">
-                        {ongoing ? "Now" : `${du}d`}
-                      </span>
-                    </div>
-                  </button>
-                );
-              })}
-
-              {filteredEvents.length > 3 && (
-                <button
-                  onClick={() => setShowAllEvents(v => !v)}
-                  className="w-full text-xs text-muted-foreground hover:text-foreground transition-colors py-1 select-none"
-                >
-                  {showAllEvents
-                    ? "▲ Show fewer"
-                    : `▼ Show all ${filteredEvents.length} upcoming events ▼`}
-                </button>
-              )}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
-      {/* 3. DEMAND TRACKER                                                      */}
-      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {/* ── Gulf Luxury Travel Demand (moved under Market Signals) ────────────── */}
       <Card className="border-primary/10">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold flex items-center gap-2">
@@ -1904,6 +1763,22 @@ export default function Analytics() {
                   </div>
                 </div>
               </div>
+            </div>
+          )}
+          {/* Plain-English insight — only shown when there is data */}
+          {repeatVsNew.total > 0 && (
+            <div className="rounded-xl border border-border/40 bg-muted/20 px-4 py-3">
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                {(() => {
+                  const pct = Math.round((repeatVsNew.repeatCount / repeatVsNew.total) * 100);
+                  const label = repeatPeriod === "this_month" ? "this month" : repeatPeriod === "last_30" ? "in the last 30 days" : "this year";
+                  if (pct === 100) return `Every booking ${label} came from a returning client — strong loyalty, but push to grow new clients too.`;
+                  if (pct >= 70) return `${pct}% repeat rate ${label} — very healthy loyalty. Focus on selective new-client acquisition to keep growing.`;
+                  if (pct >= 50) return `${pct}% of bookings ${label} are from returning clients — a solid base. Target the ${repeatVsNew.newCount} new client${repeatVsNew.newCount !== 1 ? "s" : ""} for follow-up to convert them into regulars.`;
+                  if (pct >= 30) return `${pct}% repeat rate ${label} — you're bringing in new clients well. Work retention: follow up with the ${repeatVsNew.repeatCount} returning client${repeatVsNew.repeatCount !== 1 ? "s" : ""} to keep them engaged.`;
+                  return `Only ${pct}% of bookings ${label} are from returning clients — prioritise retention outreach via WhatsApp to convert new clients into regulars.`;
+                })()}
+              </p>
             </div>
           )}
         </CardContent>
@@ -2751,27 +2626,29 @@ export default function Analytics() {
                 </div>
               )}
 
-              <div>
-                <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Day by Day</div>
-                <div className="space-y-0.5 max-h-[400px] overflow-y-auto">
-                  {forecast.by_day.map(d => {
-                    const empty = d.count === 0;
-                    return (
-                      <div key={d.date} className={`flex items-center justify-between text-xs px-3 py-2 rounded-lg ${empty ? "bg-muted/20" : ""}`}>
-                        <span className={`font-medium ${empty ? "text-muted-foreground" : ""}`}>
+              {forecast.by_day.some(d => d.count > 0) && (
+                <div>
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                    Booked Days
+                    <span className="ml-2 font-normal text-[10px]">({forecast.by_day.filter(d => d.count > 0).length} of 30)</span>
+                  </div>
+                  <div className="space-y-0.5">
+                    {forecast.by_day.filter(d => d.count > 0).map(d => (
+                      <div key={d.date} className="flex items-center justify-between text-xs px-3 py-2 rounded-lg bg-muted/20">
+                        <span className="font-medium text-foreground">
                           {format(parseISO(d.date), "EEE dd MMM")}
                         </span>
                         <div className="flex items-center gap-3">
                           <span className="text-muted-foreground">{d.count} job{d.count !== 1 ? "s" : ""}</span>
-                          <span className={`font-semibold w-20 text-right ${empty ? "text-muted-foreground" : "text-foreground"}`}>
-                            {d.revenue > 0 ? `£${d.revenue.toLocaleString()}` : "—"}
+                          <span className="font-semibold w-20 text-right text-primary">
+                            £{d.revenue.toLocaleString()}
                           </span>
                         </div>
                       </div>
-                    );
-                  })}
+                    ))}
+                  </div>
                 </div>
-              </div>
+              )}
             </>
           )}
         </CardContent>

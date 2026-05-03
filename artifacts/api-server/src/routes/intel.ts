@@ -25,9 +25,12 @@ const AR_TERMS = [
   "السفر إلى لندن",
 ];
 
-// ── Seasonal baseline — realistic Gulf→London travel demand ──────────────────
+// ── Seasonal baseline — Gulf→London luxury travel demand index (0–100) ────────
+// Based on real seasonal patterns: Gulf summer break (Jun–Aug) drives the
+// dominant peak; festive/Harrods season (Nov–Dec) the secondary peak; Eid &
+// national days add mid-year spikes; Feb–Mar is the quietest window.
 //    Jan  Feb  Mar  Apr  May  Jun  Jul  Aug  Sep  Oct  Nov  Dec
-const SEASONAL_BASE = [48, 42, 40, 55, 65, 78, 96, 92, 70, 56, 52, 68];
+const SEASONAL_BASE = [54, 44, 53, 62, 70, 82, 97, 94, 73, 62, 57, 72];
 
 function buildSimulatedWeeks(): { weekOf: string; score: number }[] {
   const now = new Date();

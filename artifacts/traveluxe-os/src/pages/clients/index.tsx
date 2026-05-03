@@ -14,6 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { supabase } from "@/lib/supabase";
+import { detectNat } from "@/lib/nationalities";
 
 export default function Clients() {
   const { user } = useAuth();
@@ -33,22 +34,34 @@ export default function Clients() {
   const [nationalityFilter, setNationalityFilter] = useFilterState<string>("nationality", "");
   const bulk = useBulkSelect();
 
+  // Nationality is filtered client-side (not sent to API) so the filter uses
+  // exactly the same detectNat() logic as the Intel page. This guarantees that
+  // tapping a nationality row on /analytics always lands on the matching set.
   const listParams = {
     search: search || undefined,
     vip_tier: tierFilter !== "all" ? tierFilter : undefined,
-    nationality: nationalityFilter || undefined,
   };
   const { data: clientsRaw, isLoading } = useListClients(
     listParams,
     { query: { enabled: true, queryKey: getListClientsQueryKey(listParams) } }
   );
 
-  // Fix 3 — default Most Recent first across all list pages.
-  const clients = (clientsRaw ?? []).slice().sort((a: any, b: any) => {
-    const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
-    const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
-    return tb - ta;
-  });
+  // Sort newest-first, then apply nationality filter client-side.
+  const clients = (() => {
+    let list = (clientsRaw ?? []).slice().sort((a: any, b: any) => {
+      const ta = a?.created_at ? new Date(a.created_at).getTime() : 0;
+      const tb = b?.created_at ? new Date(b.created_at).getTime() : 0;
+      return tb - ta;
+    });
+    if (nationalityFilter) {
+      const want = nationalityFilter.trim().toLowerCase();
+      list = list.filter((c: any) => {
+        const detected = detectNat(null, c.whatsapp ?? null, c.nationality ?? null);
+        return detected.country.toLowerCase() === want;
+      });
+    }
+    return list;
+  })();
 
   const TIER_FILTERS: { value: string; label: string }[] = [
     { value: "all",      label: "All" },
