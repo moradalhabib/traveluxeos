@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -296,6 +296,17 @@ export default function NewBooking() {
     }
   };
 
+  // Pre-fill date_time with today at 12:00 local time so opening "+ New
+  // Booking" doesn't dump the operator into an empty datetime field — they
+  // can still change it before saving.
+  const todayDefaultIso = useMemo(() => {
+    const d = new Date();
+    d.setHours(12, 0, 0, 0);
+    // datetime-local expects "yyyy-MM-ddTHH:mm" with no timezone suffix.
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }, []);
+
   const bookingForm = useForm<z.infer<typeof bookingSchema>>({
     resolver: zodResolver(bookingSchema),
     defaultValues: {
@@ -308,7 +319,8 @@ export default function NewBooking() {
       passengers: 1,
       luggage: 0,
       direction: "Arrival",
-    },
+      date_time: todayDefaultIso,
+    } as any,
   });
 
   const serviceType = bookingForm.watch("service_type");

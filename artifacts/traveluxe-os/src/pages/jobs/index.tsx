@@ -217,14 +217,16 @@ export default function Jobs() {
     });
   }, [bookings, now]);
 
-  // Active jobs THIS MONTH (for the header counter).
+  // Active jobs THIS MONTH (for the header counter). Respects the
+  // "Completed hidden" toggle so the header total matches the visible list.
   const activeJobsThisMonth = useMemo(
     () => (bookings ?? []).filter(b => {
       if (!b.date_time || b.status === "Cancelled") return false;
+      if (hideCompleted && b.status === "Completed") return false;
       const d = new Date(b.date_time);
       return isSameMonth(d, monthStart);
     }),
-    [bookings, monthStart],
+    [bookings, monthStart, hideCompleted],
   );
 
   // Group by date.
@@ -264,8 +266,9 @@ export default function Jobs() {
             {statusFilter ? `${statusFilter} Jobs · ${monthLabel}` : `${monthLabel} Jobs`}
           </h1>
           <p className="text-xs text-muted-foreground">
-            {filteredBookings.length} job{filteredBookings.length !== 1 ? "s" : ""}
-            {!statusFilter && ` · ${activeJobsThisMonth.length} this month`}
+            {statusFilter
+              ? `${filteredBookings.length} job${filteredBookings.length !== 1 ? "s" : ""}`
+              : `${activeJobsThisMonth.length} job${activeJobsThisMonth.length !== 1 ? "s" : ""} this month`}
           </p>
         </div>
         <div className="flex items-center gap-2">

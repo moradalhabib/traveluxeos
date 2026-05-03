@@ -3,22 +3,12 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Search, Plus, MessageSquare, Car, RefreshCw, Loader2, CheckSquare, X } from "lucide-react";
+import { Search, Plus, MessageSquare, Car, CheckSquare, X } from "lucide-react";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { Skeleton } from "@/components/ui/skeleton";
 import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Link } from "wouter";
 import { useState, useMemo } from "react";
 import { useAuth } from "@/hooks/use-auth";
@@ -37,10 +27,7 @@ export default function Drivers() {
   const { user } = useAuth();
   const { toast } = useToast();
   const queryClient = useQueryClient();
-  const isSuperAdmin = user?.role === "super_admin";
-  const isAdmin = user?.role === "admin" || isSuperAdmin;
-  const [resetOpen, setResetOpen] = useState(false);
-  const [resetting, setResetting] = useState(false);
+  const isAdmin = user?.role === "admin" || user?.role === "super_admin";
   const bulk = useBulkSelect();
 
   const handleBulkDelete = async () => {
@@ -80,36 +67,6 @@ export default function Drivers() {
     { query: { enabled: true, queryKey: getListDriversQueryKey({}) } }
   );
 
-  const handleReset = async () => {
-    setResetting(true);
-    try {
-      const { data: { session } } = await supabase.auth.getSession();
-      const token = session?.access_token;
-      if (!token) throw new Error("Not signed in");
-      const base = (import.meta as any).env?.VITE_API_URL ?? "";
-      const res = await fetch(`${base}/api/drivers/reset-staff-numbers`, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const body = await res.json().catch(() => ({} as any));
-      if (!res.ok) throw new Error(body?.error || "Reset failed");
-      toast({
-        title: "TVL numbers reset",
-        description: `Cleared TVL staff numbers on ${body?.cleared ?? 0} driver(s). Bookings & commissions are untouched.`,
-      });
-      queryClient.invalidateQueries({ queryKey: getListDriversQueryKey({}) });
-      setResetOpen(false);
-    } catch (e: any) {
-      toast({
-        title: "Could not reset TVL numbers",
-        description: e?.message ?? "Try again",
-        variant: "destructive",
-      });
-    } finally {
-      setResetting(false);
-    }
-  };
-
   const filtered = useMemo(() => {
     const list = drivers ?? [];
     return list.filter((d: any) => {
@@ -131,17 +88,6 @@ export default function Drivers() {
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <h1 className="text-3xl font-bold tracking-tight text-foreground">Drivers</h1>
         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          {isSuperAdmin && (
-            <Button
-              variant="outline"
-              className="w-full sm:w-auto h-9 border-destructive/40 text-destructive hover:bg-destructive/10"
-              onClick={() => setResetOpen(true)}
-              data-testid="button-reset-tvl-numbers"
-            >
-              <RefreshCw className="w-4 h-4 mr-2" />
-              Reset TVL Numbers
-            </Button>
-          )}
           {isAdmin && (
             bulk.selectMode ? (
               <Button
@@ -173,37 +119,6 @@ export default function Drivers() {
           </Link>
         </div>
       </div>
-
-      <AlertDialog open={resetOpen} onOpenChange={setResetOpen}>
-        <AlertDialogContent data-testid="dialog-reset-tvl">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Reset all TVL Staff Numbers?</AlertDialogTitle>
-            <AlertDialogDescription className="space-y-2">
-              <span className="block">
-                This clears the <strong>TVL Staff Number</strong> on every driver so you can re-assign them
-                cleanly (TVL 01, TVL 02, …) from each driver's profile.
-              </span>
-              <span className="block text-foreground">
-                ✅ Bookings, commissions, ratings and job history are <strong>not</strong> affected — they link to drivers by ID, not by TVL number.
-              </span>
-              <span className="block text-destructive">
-                This action is logged in the audit trail. Only Super Admin can do this.
-              </span>
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={resetting} data-testid="button-reset-cancel">Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(e) => { e.preventDefault(); handleReset(); }}
-              disabled={resetting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              data-testid="button-reset-confirm"
-            >
-              {resetting ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Resetting…</> : "Yes, clear all TVL numbers"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
 
       <div className="relative">
         <Search className="absolute left-3 top-3.5 h-5 w-5 text-muted-foreground" />
@@ -287,8 +202,11 @@ export default function Drivers() {
               </div>
 
               <div className="mt-auto text-sm text-muted-foreground mb-2">
-                <span className="block text-xs uppercase opacity-70">Total Jobs</span>
-                <span className="font-medium text-foreground">{driver.total_jobs || 0}</span>
+                <span className="block text-xs uppercase opacity-70">Jobs</span>
+                <span className="font-medium text-foreground">
+                  {(driver as any).jobs_this_month ?? 0} this month
+                </span>
+                <span className="text-muted-foreground"> · {driver.total_jobs || 0} total</span>
               </div>
 
               {!bulk.selectMode && (

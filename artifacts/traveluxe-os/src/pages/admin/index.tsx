@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useListUsers, getListUsersQueryKey, useListAuditLog, getListAuditLogQueryKey, useListDrivers, getListDriversQueryKey } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -2584,12 +2585,100 @@ export default function Admin() {
         )}
 
         {canEditSettings && (
-          <TabsContent value="settings" className="mt-3">
+          <TabsContent value="settings" className="mt-3 space-y-4">
             <SettingsTab />
+            {isSuperAdmin && <ResetTvlNumbersCard />}
           </TabsContent>
         )}
       </Tabs>
     </div>
+  );
+}
+
+// ─── Reset TVL staff numbers (Super Admin · Settings tab) ─────────────────
+// Moved here from the main Drivers page where it was too prominent and one
+// tap away from a destructive bulk update. Now hidden behind: super_admin
+// role + Settings tab + typed-confirmation phrase + audit log on the server.
+function ResetTvlNumbersCard() {
+  const { toast } = useToast();
+  const qc = useQueryClient();
+  const [confirmPhrase, setConfirmPhrase] = useState("");
+  const [busy, setBusy] = useState(false);
+  const REQUIRED = "RESET TVL";
+  const armed = confirmPhrase.trim().toUpperCase() === REQUIRED;
+
+  const handleReset = async () => {
+    if (!armed) return;
+    setBusy(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const token = session?.access_token;
+      if (!token) throw new Error("Not signed in");
+      const res = await fetch(`/api/drivers/reset-staff-numbers`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const body = await res.json().catch(() => ({} as any));
+      if (!res.ok) throw new Error(body?.error || "Reset failed");
+      toast({
+        title: "TVL numbers reset",
+        description: `Cleared TVL staff numbers on ${body?.cleared ?? 0} driver(s). Bookings & commissions are untouched.`,
+      });
+      qc.invalidateQueries({ queryKey: getListDriversQueryKey({}) });
+      setConfirmPhrase("");
+    } catch (e: any) {
+      toast({
+        title: "Could not reset TVL numbers",
+        description: e?.message ?? "Try again",
+        variant: "destructive",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Card className="border-destructive/40 bg-destructive/5">
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base text-destructive flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4" />
+          Danger zone — Reset TVL Staff Numbers
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Clears the TVL Staff Number on every driver so you can re-assign them
+          cleanly (TVL 01, TVL 02, …) from each driver's profile.
+        </p>
+        <p className="text-xs text-foreground">
+          ✅ Bookings, commissions, ratings and job history are <strong>not</strong> affected — they link to drivers by ID, not by TVL number.
+        </p>
+        <p className="text-xs text-destructive">
+          This action is logged in the audit trail. Only Super Admin can do this.
+        </p>
+        <div className="space-y-1.5 pt-1">
+          <Label htmlFor="reset-tvl-confirm" className="text-xs">
+            Type <code className="px-1 py-0.5 rounded bg-muted text-foreground">{REQUIRED}</code> to enable the button
+          </Label>
+          <Input
+            id="reset-tvl-confirm"
+            value={confirmPhrase}
+            onChange={(e) => setConfirmPhrase(e.target.value)}
+            placeholder={REQUIRED}
+            autoComplete="off"
+            data-testid="input-reset-tvl-confirm"
+          />
+        </div>
+        <Button
+          onClick={handleReset}
+          disabled={!armed || busy}
+          className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50"
+          data-testid="button-reset-tvl-execute"
+        >
+          {busy ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Resetting…</> : "Yes, clear all TVL numbers"}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
 

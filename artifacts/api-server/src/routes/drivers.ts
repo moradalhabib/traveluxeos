@@ -16,23 +16,35 @@ function staffNoOrder(staff: string | null | undefined): number {
 
 router.get("/", async (req, res) => {
   const { status } = req.query;
-  let query = supabase.from("drivers").select("*, driver_ratings(rating), bookings(id, status)");
+  // Pull date_time so we can compute jobs_this_month per driver alongside
+  // the existing total_jobs count — needed by the drivers list cards.
+  let query = supabase.from("drivers").select("*, driver_ratings(rating), bookings(id, status, date_time)");
 
   if (status) query = query.eq("status", String(status));
 
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
 
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+  const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
+
   const result = (data ?? []).map((d: any) => {
     const ratings = d.driver_ratings ?? [];
     const avg_rating = ratings.length > 0 ? ratings.reduce((s: number, r: any) => s + r.rating, 0) / ratings.length : 0;
     const bookings = (d.bookings ?? []).filter((b: any) => b.status !== "Cancelled");
+    const jobsThisMonth = bookings.filter((b: any) => {
+      if (!b.date_time) return false;
+      const t = new Date(b.date_time).getTime();
+      return t >= monthStart && t < monthEnd;
+    }).length;
     return {
       ...d,
       driver_ratings: undefined,
       bookings: undefined,
       avg_rating: Math.round(avg_rating * 10) / 10,
       total_jobs: bookings.length,
+      jobs_this_month: jobsThisMonth,
     };
   });
 
