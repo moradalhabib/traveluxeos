@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, ClipboardList, CalendarRange,
   Briefcase, PlaneTakeoff, Car, Calculator, MessageSquare,
   LineChart, Search, Settings, LogOut, Plus, X, Lock, Receipt, Layers, Home,
-  Megaphone, PhoneCall, Building2
+  Megaphone, PhoneCall, Building2, Calendar
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -27,6 +27,7 @@ import { useListBookings, getListBookingsQueryKey } from "@workspace/api-client-
 const OPERATOR_SIDEBAR = [
   { href: "/",             label: "Dashboard",    icon: LayoutDashboard },
   { href: "/jobs",         label: "Jobs Board",   icon: Briefcase },
+  { href: "/upcoming",     label: "Upcoming",     icon: Calendar },
   { href: "/bookings",     label: "Bookings",     icon: CalendarRange },
   { href: "/follow-ups",   label: "Follow-Ups",   icon: PhoneCall, badge: true },
   { href: "/services",     label: "Service",      icon: Layers },
@@ -46,6 +47,8 @@ const OPERATOR_SIDEBAR = [
 ];
 
 const OPERATOR_MORE = [
+  { href: "/bookings",     label: "Bookings",     icon: CalendarRange },
+  { href: "/services",     label: "Service",      icon: Layers },
   { href: "/follow-ups",   label: "Follow-Ups",   icon: PhoneCall, badge: true },
   { href: "/analytics",    label: "Intel",        icon: LineChart },
   { href: "/requests",     label: "Requests",     icon: ClipboardList },
@@ -433,9 +436,9 @@ export function Shell({ children }: { children: ReactNode }) {
               <span className="text-[9px] font-medium text-primary mt-0.5">Book</span>
             </div>
 
-            <Link href="/services" className={`flex flex-col items-center justify-center w-14 h-16 ${location.startsWith('/services') ? 'text-primary' : 'text-muted-foreground'}`}>
-              <Layers className="w-5 h-5 mb-1" />
-              <span className="text-[10px] font-medium">Service</span>
+            <Link href="/upcoming" className={`flex flex-col items-center justify-center w-14 h-16 ${location.startsWith('/upcoming') ? 'text-primary' : 'text-muted-foreground'}`}>
+              <Calendar className="w-5 h-5 mb-1" />
+              <span className="text-[10px] font-medium">Upcoming</span>
             </Link>
 
             <button

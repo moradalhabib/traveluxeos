@@ -1,82 +1,38 @@
 import { useState, useMemo } from "react";
-import { useListBookings, getListBookingsQueryKey, useDeleteBooking } from "@workspace/api-client-react";
+import {
+  useListBookings, getListBookingsQueryKey, useDeleteBooking,
+} from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Briefcase, Home, X, StickyNote, Trash2, CheckSquare, MapPin, Car, MessageCircle, Clock, AlertTriangle, Plane } from "lucide-react";
-import {
-  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
-  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Plus, Home, X, CheckSquare, Search, ChevronDown, ChevronRight, Archive } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { supabase } from "@/lib/supabase";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Link, useSearch, useLocation } from "wouter";
-import { format, startOfDay, endOfDay, addDays, isBefore, isAfter, isToday, isTomorrow } from "date-fns";
-import { Input } from "@/components/ui/input";
+import { Link } from "wouter";
+import { format } from "date-fns";
 import { FilterDropdown, useFilterState } from "@/components/ui/filter-dropdown";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import { useAuth } from "@/hooks/use-auth";
+import { JobCard } from "@/components/booking/JobCard";
+import { useJobCardContext } from "@/lib/booking-data";
 
-// Bookings now mirrors the Jobs Board: a single Time filter
-// (Today / Tomorrow / This Week / All Upcoming), sticky date-section headers
-// and within each date pickup time ascending. Past bookings auto-hidden in
-// "All Upcoming" view (recently-completed within 14 days kept visible so a
-// finished morning run doesn't vanish at midnight).
-type TimeFilter = "today" | "tomorrow" | "this_week" | "all";
-
-const STATUS_COLORS: Record<string, string> = {
-  Pending:   "bg-amber-500/20 text-amber-400 border-amber-500/50",
-  Confirmed: "bg-blue-500/20 text-blue-400 border-blue-500/50",
-  Active:    "bg-green-500/20 text-green-400 border-green-500/50",
-  Completed: "bg-gray-500/20 text-gray-400 border-gray-500/50",
-  Cancelled: "bg-destructive/20 text-destructive border-destructive/50",
-};
-
-const PAYMENT_COLORS: Record<string, string> = {
-  Paid:    "bg-green-500/20 text-green-400 border-green-500/40",
-  Partial: "bg-amber-500/20 text-amber-400 border-amber-500/40",
-  Unpaid:  "bg-orange-500/15 text-orange-400 border-orange-500/40",
-};
-
-function getVipBadgeColor(tier?: string) {
-  switch (tier) {
-    case "VVIP":    return "border-yellow-500/50 text-yellow-400 bg-yellow-500/10";
-    case "VIP":     return "border-purple-500/50 text-purple-400 bg-purple-500/10";
-    case "Regular": return "border-blue-500/40 text-blue-400 bg-blue-500/10";
-    default:        return "border-border text-muted-foreground";
-  }
-}
-
-function getFlightBadgeClass(status?: string) {
-  switch (status) {
-    case "Delayed":   return "bg-amber-500/15 text-amber-400 border-amber-500/40";
-    case "Early":     return "bg-emerald-500/15 text-emerald-400 border-emerald-500/40";
-    case "Cancelled": return "bg-destructive/15 text-destructive border-destructive/40";
-    case "Landed":    return "bg-blue-500/15 text-blue-400 border-blue-500/30";
-    case "On Time":   return "bg-green-500/15 text-green-400 border-green-500/30";
-    default:          return "bg-blue-500/10 text-blue-400 border-blue-500/30";
-  }
-}
-
+/**
+ * Bookings = the full archive. Drill-down: Year → Month → Date → Job card.
+ * Search + status filter span the whole archive. Current/upcoming work
+ * lives on /jobs and /upcoming respectively.
+ */
 export default function Bookings() {
   const { user } = useAuth();
   const { toast } = useToast();
-  const [, setLocation] = useLocation();
   const queryClient = useQueryClient();
   const isResidenceManager = user?.role === "residence_manager";
   const isSuperAdmin = user?.role === "super_admin";
-  // Admin + Super Admin can hard-delete bookings; every deletion is
-  // captured in the audit log + activity feed and broadcast to all staff.
   const canDeleteBookings = user?.role === "admin" || user?.role === "super_admin";
 
-  // Hard delete — Super Admin only. Backend purges all dependent rows
-  // (invoices, follow-ups, products, amendments, ratings, email log) then
-  // the booking itself. Used to clean up test bookings.
   const deleteBookingMut = useDeleteBooking({
     mutation: {
       onSuccess: (data: any) => {
@@ -97,9 +53,6 @@ export default function Bookings() {
     const ids = bulk.ids;
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
-    // ?silent=1 suppresses the per-row staff broadcast; we emit ONE
-    // aggregated notification at the end so the bell doesn't show 10
-    // duplicate "Booking Deleted" entries for a single bulk action.
     const results = await Promise.allSettled(
       ids.map(id => fetch(`/api/bookings/${id}?silent=1`, {
         method: "DELETE",
@@ -111,10 +64,7 @@ export default function Bookings() {
     if (ok > 0) {
       fetch("/api/notifications/broadcast-staff", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify({
           type: "booking_cancelled",
           title: "Bookings Deleted",
@@ -129,48 +79,26 @@ export default function Bookings() {
       description: fail === 0 ? `${ok} booking${ok === 1 ? "" : "s"} permanently removed` : "Some deletions failed — check audit log",
       variant: fail === 0 ? undefined : "destructive",
     });
-    // Bulk delete touches bookings, invoices, follow-ups, dashboard
-    // forecasts, analytics rollups and audit log — invalidate everything
-    // so every counter on every page re-derives from the new truth.
     queryClient.invalidateQueries();
     bulk.exitSelectMode();
   };
 
-  // URL-backed filters so a refresh / shared link restores the same view.
   const [status, setStatus] = useFilterState<string>("status", "");
   const [search, setSearch] = useFilterState<string>("q", "");
   const [source, setSource] = useFilterState<"active" | "imported">("source", "active");
-  const [timeFilter, setTimeFilter] = useFilterState<TimeFilter>("time", "all");
-  const urlSearch = useSearch();
-  const upcomingOnly = new URLSearchParams(urlSearch).get("upcoming") === "1";
 
-  // The "Imported (Odoo)" sub-tab pulls archived legacy bookings; the default
-  // "Active" tab excludes them so day-to-day operations aren't cluttered with
-  // historic records that no longer require attention.
   const importedParam = source === "imported" ? ("only" as const) : ("exclude" as const);
   const params = { status: status || undefined, imported: importedParam };
   const { data: rawBookings, isLoading } = useListBookings(
     params,
-    { query: { enabled: true, queryKey: getListBookingsQueryKey(params) } }
+    { query: { enabled: true, queryKey: getListBookingsQueryKey(params) } },
   );
 
-  // Residence Managers only ever see Apartment bookings
+  // RM scope: apartments only.
   const bookings = useMemo(() => {
     if (!rawBookings) return [];
     let list = rawBookings as any[];
-    if (isResidenceManager) {
-      list = list.filter((b) => b.service_type === "Apartment");
-    }
-    // ?upcoming=1 → only show future bookings that aren't already running/finished
-    if (upcomingOnly) {
-      const today = startOfDay(new Date());
-      const exclude = new Set(["Active", "Completed", "Cancelled"]);
-      list = list.filter((b) => {
-        if (exclude.has(b.status)) return false;
-        if (!b.date_time) return true;
-        return !isBefore(new Date(b.date_time), today);
-      });
-    }
+    if (isResidenceManager) list = list.filter((b) => b.service_type === "Apartment");
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(
@@ -178,99 +106,100 @@ export default function Bookings() {
           (b.client_name ?? "").toLowerCase().includes(q) ||
           (b.tvl_ref ?? "").toLowerCase().includes(q) ||
           (b.pickup ?? "").toLowerCase().includes(q) ||
-          (b.dropoff ?? "").toLowerCase().includes(q)
+          (b.dropoff ?? "").toLowerCase().includes(q),
       );
     }
     return list;
-  }, [rawBookings, isResidenceManager, search, upcomingOnly]);
+  }, [rawBookings, isResidenceManager, search]);
 
-  // Time filter: hides past bookings in "All Upcoming" (the default) so the
-  // operator's view starts at Today. When a Status filter is active the time
-  // filter is bypassed so e.g. "show me all Cancelled bookings ever" works.
-  const timeFilteredBookings = useMemo(() => {
-    if (!bookings) return [];
-    if (status) return bookings;            // status filter active → show all matching
-    const now = new Date();
-    return bookings.filter((b: any) => {
-      if (!b.date_time) return timeFilter === "all";
-      const d = new Date(b.date_time);
-      switch (timeFilter) {
-        case "today": return isToday(d);
-        case "tomorrow": return isTomorrow(d);
-        case "this_week": {
-          const weekEnd = endOfDay(addDays(now, 7));
-          return !isBefore(d, startOfDay(now)) && !isAfter(d, weekEnd);
-        }
-        case "all":
-        default:
-          // Keep recently-completed bookings visible for 14 days so a finished
-          // job doesn't vanish at midnight.
-          if (b.status === "Completed" && !isBefore(d, startOfDay(addDays(now, -14)))) return true;
-          return !isBefore(d, startOfDay(now));
-      }
-    });
-  }, [bookings, timeFilter, status]);
+  const visibleBookingIds = useMemo(
+    () => bookings.map((b: any) => b.id).filter(Boolean),
+    [bookings],
+  );
+  const { driversById, suppliersById, vehiclesByBooking } = useJobCardContext(visibleBookingIds);
 
-  // Group bookings by date for date-section headings. Within each day,
-  // finished-past jobs sink to the bottom so the next upcoming booking is
-  // always at the top of its day.
-  const groupedByDate = useMemo(() => {
-    const groups = new Map<string, { label: string; sortKey: string; items: any[] }>();
+  // Year → Month → Date hierarchy.
+  type DayBucket = { dayKey: string; dayLabel: string; jobs: any[] };
+  type MonthBucket = { monthKey: string; monthLabel: string; days: Map<string, DayBucket>; total: number };
+  type YearBucket = { yearKey: string; months: Map<string, MonthBucket>; total: number };
+
+  const grouped = useMemo(() => {
+    const years = new Map<string, YearBucket>();
     const undated: any[] = [];
-    for (const b of timeFilteredBookings) {
+    for (const b of bookings) {
       if (!b.date_time) { undated.push(b); continue; }
       const d = new Date(b.date_time);
-      const sortKey = format(d, "yyyy-MM-dd");
-      const label = isToday(d) ? `Today · ${format(d, "EEE d MMMM yyyy")}`
-        : isTomorrow(d) ? `Tomorrow · ${format(d, "EEE d MMMM yyyy")}`
-        : format(d, "EEEE d MMMM yyyy");
-      if (!groups.has(sortKey)) groups.set(sortKey, { label, sortKey, items: [] });
-      groups.get(sortKey)!.items.push(b);
+      const yearKey = format(d, "yyyy");
+      const monthKey = format(d, "yyyy-MM");
+      const monthLabel = format(d, "MMMM yyyy");
+      const dayKey = format(d, "yyyy-MM-dd");
+      const dayLabel = format(d, "EEEE d MMMM yyyy");
+      if (!years.has(yearKey)) years.set(yearKey, { yearKey, months: new Map(), total: 0 });
+      const y = years.get(yearKey)!;
+      if (!y.months.has(monthKey)) y.months.set(monthKey, { monthKey, monthLabel, days: new Map(), total: 0 });
+      const m = y.months.get(monthKey)!;
+      if (!m.days.has(dayKey)) m.days.set(dayKey, { dayKey, dayLabel, jobs: [] });
+      m.days.get(dayKey)!.jobs.push(b);
+      m.total++;
+      y.total++;
     }
-    const sorted = [...groups.values()].sort((a, b) => a.sortKey.localeCompare(b.sortKey));
-    const nowMs = Date.now();
-    const isFinishedPast = (b: any) =>
-      b.status === "Completed" && b.date_time && new Date(b.date_time).getTime() < nowMs;
-    for (const g of sorted) {
-      g.items.sort((a, b) => {
-        const aDone = isFinishedPast(a);
-        const bDone = isFinishedPast(b);
-        if (aDone !== bDone) return aDone ? 1 : -1;
-        return new Date(a.date_time!).getTime() - new Date(b.date_time!).getTime();
-      });
+    // Sort newest year first, newest month first within year, newest day first within month.
+    const yearsSorted = [...years.values()].sort((a, b) => b.yearKey.localeCompare(a.yearKey));
+    for (const y of yearsSorted) {
+      const monthsSorted = [...y.months.values()].sort((a, b) => b.monthKey.localeCompare(a.monthKey));
+      for (const m of monthsSorted) {
+        const daysSorted = [...m.days.values()].sort((a, b) => b.dayKey.localeCompare(a.dayKey));
+        for (const day of daysSorted) {
+          day.jobs.sort((a: any, b: any) => new Date(a.date_time!).getTime() - new Date(b.date_time!).getTime());
+        }
+        (m as any).daysSorted = daysSorted;
+      }
+      (y as any).monthsSorted = monthsSorted;
     }
-    if (undated.length > 0) sorted.push({ label: "Date TBC", sortKey: "zzz", items: undated });
-    return sorted;
-  }, [timeFilteredBookings]);
+    return { years: yearsSorted as Array<YearBucket & { monthsSorted: Array<MonthBucket & { daysSorted: DayBucket[] }> }>, undated };
+  }, [bookings]);
+
+  const totalBookings = useMemo(
+    () => grouped.years.reduce((s, y) => s + y.total, 0) + grouped.undated.length,
+    [grouped],
+  );
+
+  // Default expansion: current year + current month.
+  const currentYear = format(new Date(), "yyyy");
+  const currentMonthKey = format(new Date(), "yyyy-MM");
+  const [expandedYears, setExpandedYears] = useState<Record<string, boolean>>({});
+  const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>({});
+  const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
+
+  // While searching/filtering by status, force-expand everything so results
+  // aren't hidden behind closed accordions.
+  const expandAll = !!search.trim() || !!status;
+  const isYearOpen = (k: string) => expandAll || (expandedYears[k] ?? (k === currentYear));
+  const isMonthOpen = (k: string) => expandAll || (expandedMonths[k] ?? (k === currentMonthKey));
+  const isDayOpen = (k: string) => expandAll || (expandedDays[k] ?? false);
+
+  const toggleYear = (k: string) => setExpandedYears(p => ({ ...p, [k]: !isYearOpen(k) }));
+  const toggleMonth = (k: string) => setExpandedMonths(p => ({ ...p, [k]: !isMonthOpen(k) }));
+  const toggleDay = (k: string) => setExpandedDays(p => ({ ...p, [k]: !isDayOpen(k) }));
 
   return (
     <div className="space-y-4">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-2">
-            {isResidenceManager && <Home className="w-7 h-7 text-primary" />}
-            {isResidenceManager
-              ? "Apartment Bookings"
-              : upcomingOnly
-                ? "Upcoming Bookings"
-                : "Bookings"}
+          <h1 className="text-2xl font-bold tracking-tight text-foreground flex items-center gap-2">
+            {isResidenceManager ? <Home className="w-6 h-6 text-primary" /> : <Archive className="w-6 h-6 text-primary" />}
+            {isResidenceManager ? "Apartment Bookings" : "Bookings Archive"}
           </h1>
-          {isResidenceManager && (
-            <p className="text-sm text-muted-foreground mt-0.5">
-              View and update status on apartment bookings
-            </p>
-          )}
-          {upcomingOnly && !isResidenceManager && (
-            <div className="flex items-center gap-2 mt-2">
-              <Badge variant="outline" className="border-primary/40 text-primary bg-primary/10">
-                Showing only: future bookings (excl. Active / Completed)
-              </Badge>
-              <Link href="/bookings">
-                <Button variant="ghost" size="sm" className="text-muted-foreground gap-1 h-8">
-                  <X className="w-3.5 h-3.5" /> Clear
-                </Button>
-              </Link>
+          <p className="text-xs text-muted-foreground mt-1">
+            {totalBookings} booking{totalBookings !== 1 ? "s" : ""} on file
+            {!isResidenceManager && " · drill down by year → month → day"}
+          </p>
+          {!isResidenceManager && (
+            <div className="flex items-center gap-2 text-[11px] text-muted-foreground mt-2">
+              <Link href="/jobs" className="underline hover:text-primary">{format(new Date(), "MMMM")} Jobs Board →</Link>
+              <span>·</span>
+              <Link href="/upcoming" className="underline hover:text-primary">Upcoming months →</Link>
             </div>
           )}
         </div>
@@ -290,8 +219,7 @@ export default function Bookings() {
             {!bulk.selectMode && (
               <Link href="/bookings/new" className="flex-1 sm:flex-initial">
                 <Button className="w-full h-12 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
-                  <Plus className="w-4 h-4 mr-2" />
-                  New Booking
+                  <Plus className="w-4 h-4 mr-2" /> New Booking
                 </Button>
               </Link>
             )}
@@ -299,46 +227,30 @@ export default function Bookings() {
         )}
       </div>
 
-      {/* Search + filter row */}
+      {/* Search + filters */}
       <div className="flex flex-col md:flex-row md:items-center gap-3">
-        <Input
-          placeholder="Search by client, ref, pickup…"
-          className="md:w-64"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
+        <div className="relative md:w-72">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search across all bookings…"
+            className="pl-8"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            data-testid="input-bookings-search"
+          />
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {!isResidenceManager && isSuperAdmin && (
             <FilterDropdown
               label="Source:"
               value={source}
-              onChange={(v) => {
-                if (v === "active" || v === "imported") setSource(v);
-              }}
+              onChange={(v) => { if (v === "active" || v === "imported") setSource(v); }}
               options={[
                 { value: "active",   label: "Active" },
                 { value: "imported", label: "Imported (Odoo)" },
               ]}
               widthClass="w-44"
               testId="filter-bookings-source"
-            />
-          )}
-          {/* Time filter is bypassed when a Status is explicitly chosen
-              (so the user sees ALL matching bookings regardless of date),
-              so we hide the dropdown to avoid implying it's still active. */}
-          {!status && (
-            <FilterDropdown
-              label="Time:"
-              value={timeFilter}
-              onChange={(v) => setTimeFilter(v as TimeFilter)}
-              options={[
-                { value: "today",     label: "Today" },
-                { value: "tomorrow",  label: "Tomorrow" },
-                { value: "this_week", label: "This Week" },
-                { value: "all",       label: "All Upcoming" },
-              ]}
-              widthClass="w-40"
-              testId="filter-bookings-time"
             />
           )}
           <FilterDropdown
@@ -359,269 +271,144 @@ export default function Bookings() {
       </div>
 
       {(() => {
-        const TIME_LABELS: Record<string, string> = { today: "Today", tomorrow: "Tomorrow", this_week: "This Week", all: "All Upcoming" };
         const chips: ActiveFilter[] = [];
         if (isSuperAdmin && !isResidenceManager && source !== "active") {
           chips.push({ key: "source", label: "Source", value: "Imported (Odoo)", onClear: () => setSource("active") });
-        }
-        // Show the Time chip whenever it's narrower than the default — but
-        // also when status is active (the time filter is bypassed in that
-        // case so the chip would be misleading; we hide it).
-        if (!status && timeFilter !== "all") {
-          chips.push({ key: "time", label: "Time", value: TIME_LABELS[timeFilter] ?? timeFilter, onClear: () => setTimeFilter("all") });
         }
         if (status !== "") chips.push({ key: "status", label: "Status", value: status, onClear: () => setStatus("") });
         return <ActiveFilterChips filters={chips} onClearAll={() => {
           if (isSuperAdmin && !isResidenceManager) setSource("active");
           setStatus("");
-          setTimeFilter("all");
         }} />;
       })()}
 
-      {/* Grid (grouped) */}
+      {/* Drill-down */}
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-          {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-48" />)}
+        <div className="space-y-3">
+          {[...Array(6)].map((_, i) => <Skeleton key={i} className="h-14" />)}
+        </div>
+      ) : grouped.years.length === 0 && grouped.undated.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center" data-testid="empty-bookings">
+          <Archive className="w-12 h-12 text-muted-foreground/30 mb-4" />
+          <p className="text-muted-foreground font-medium">No bookings match your filters</p>
+          <p className="text-sm text-muted-foreground/70 mt-1 mb-6">Try clearing filters or check the Jobs Board for current activity.</p>
+          <Button variant="outline" onClick={() => { setStatus(""); setSearch(""); }}>
+            <X className="w-4 h-4 mr-2" /> Clear filters
+          </Button>
         </div>
       ) : (
-        <div className="space-y-4">
-          {groupedByDate.map(group => (
-            <div key={group.sortKey} className="space-y-3">
-              <div className="flex items-center gap-3 sticky top-0 bg-background/95 backdrop-blur-sm py-1.5 z-10">
-                <h2 className="text-sm font-bold text-primary uppercase tracking-wide">{group.label}</h2>
-                <div className="flex-1 h-px bg-border" />
-                <Badge variant="outline" className="text-[10px] text-muted-foreground border-border">
-                  {group.items.length} booking{group.items.length !== 1 ? "s" : ""}
-                </Badge>
-              </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-                {group.items.map((booking: any) => {
-          const selected = bulk.isSelected(booking.id);
-          return (
-          <Card
-            key={booking.id}
-            className={`border-border hover:border-primary/40 hover:bg-secondary/10 transition-all bg-card overflow-hidden ${
-              bulk.selectMode
-                ? (selected ? "ring-2 ring-primary border-primary cursor-pointer" : "cursor-pointer")
-                : "cursor-pointer"
-            }`}
-            onClick={bulk.selectMode ? () => bulk.toggle(booking.id) : () => setLocation(`/bookings/${booking.id}`)}
-            data-testid={bulk.selectMode ? `select-booking-${booking.id}` : undefined}
-          >
-            <CardContent className="p-3">
-              {/* Top row: ref + badges | status badge + time */}
-              <div className="flex items-start justify-between mb-1">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    {bulk.selectMode && (
-                      <div className={`flex-shrink-0 w-4 h-4 rounded border-2 flex items-center justify-center ${selected ? "bg-primary border-primary" : "border-muted-foreground/40"}`}>
-                        {selected && <CheckSquare className="w-2.5 h-2.5 text-primary-foreground" />}
-                      </div>
-                    )}
-                    <span className="text-xs text-muted-foreground font-mono">{booking.tvl_ref}</span>
-                    {booking.service_type && (
-                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-secondary/40 text-foreground border-border">
-                        {booking.service_type}{(booking as any).direction ? ` · ${(booking as any).direction}` : ""}
-                      </Badge>
-                    )}
-                    {/* Flight badge with live status colour */}
-                    {(booking as any).flight_number && (() => {
-                      const fs = (booking as any).flight_status;
-                      const st = fs?.status as string | undefined;
-                      const delayMins = fs?.delay_minutes ?? 0;
-                      const note = st === "Delayed" && delayMins > 0 ? ` +${delayMins}m`
-                                 : st === "Early"   && delayMins < 0 ? ` ${Math.abs(delayMins)}m early` : "";
-                      return (
-                        <Badge variant="outline" className={`text-[10px] py-0 px-1.5 flex items-center gap-0.5 ${getFlightBadgeClass(st)}`}>
-                          <Plane className="w-2.5 h-2.5" />
-                          {(booking as any).flight_number}
-                          {st && st !== "Unknown" && <span className="ml-0.5 font-normal opacity-80">{st}{note}</span>}
-                        </Badge>
-                      );
-                    })()}
-                    {/* Email status */}
-                    {(booking as any).last_email_status === "sent" && (
-                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
-                        title={`Email sent${(booking as any).last_email_kind ? ` · ${(booking as any).last_email_kind.replace(/_/g, " ")}` : ""}`}>
-                        ✓ Email
-                      </Badge>
-                    )}
-                    {(booking as any).last_email_status === "failed" && (
-                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-destructive/10 text-destructive border-destructive/40"
-                        title="Last email failed — open booking to retry">
-                        ⚠ Email failed
-                      </Badge>
-                    )}
-                    {/* Notes */}
-                    {((booking as any).notes || (booking as any).special_requests) && (
-                      <Badge variant="outline" className="text-[10px] py-0 px-1.5 bg-amber-500/10 text-amber-300 border-amber-500/40 gap-1"
-                        title={(booking as any).special_requests || (booking as any).notes}
-                        data-testid={`badge-notes-${booking.id}`}>
-                        <StickyNote className="w-2.5 h-2.5" /> Notes
-                      </Badge>
-                    )}
-                  </div>
-
-                  {/* Client name + VIP */}
-                  <div className="flex items-center gap-2 mt-1">
-                    {booking.client_id ? (
-                      <span
-                        className="font-bold text-sm text-primary hover:underline"
-                        onClick={(e) => { e.stopPropagation(); setLocation(`/clients/${booking.client_id}`); }}
-                      >
-                        {booking.client_name || "Unknown Client"}
-                      </span>
-                    ) : (
-                      <span className="font-bold text-sm text-foreground">{booking.client_name || "Unknown Client"}</span>
-                    )}
-                    {(booking as any).client_vip_tier && (booking as any).client_vip_tier !== "Standard" && (
-                      <Badge variant="outline" className={`text-[10px] py-0 px-1.5 ${getVipBadgeColor((booking as any).client_vip_tier)}`}>
-                        {(booking as any).client_vip_tier}
-                      </Badge>
-                    )}
-                  </div>
-                </div>
-
-                {/* Right: status + time */}
-                <div className="flex flex-col items-end gap-1 ml-3 flex-shrink-0">
-                  <Badge variant="outline" className={`text-[11px] font-semibold ${STATUS_COLORS[booking.status] ?? "bg-secondary text-secondary-foreground border-border"}`}>
-                    {booking.status}
+        <div className="space-y-3">
+          {grouped.years.map((year) => {
+            const yearOpen = isYearOpen(year.yearKey);
+            return (
+              <div key={year.yearKey} className="border border-border rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => toggleYear(year.yearKey)}
+                  className="w-full flex items-center gap-3 px-4 py-3 hover:bg-secondary/20 transition-colors"
+                  data-testid={`year-toggle-${year.yearKey}`}
+                >
+                  {yearOpen ? <ChevronDown className="w-5 h-5 text-primary" /> : <ChevronRight className="w-5 h-5 text-primary" />}
+                  <span className="font-bold text-base text-foreground">{year.yearKey}</span>
+                  <Badge variant="outline" className="text-[10px] text-muted-foreground border-border">
+                    {year.total} booking{year.total !== 1 ? "s" : ""}
                   </Badge>
-                  {booking.date_time && (
-                    <div className="flex flex-col items-end gap-0">
-                      <div className="flex items-center gap-1 text-sm font-semibold text-foreground">
-                        <Clock className="w-3 h-3 text-primary" />
-                        {format(new Date(booking.date_time), "HH:mm")}
-                      </div>
-                      <span className="text-[10px] text-muted-foreground">
-                        {format(new Date(booking.date_time), "EEE d MMM yyyy")}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
+                  <div className="flex-1" />
+                </button>
 
-              {/* Route */}
-              {(booking.pickup || (booking as any).dropoff || (booking as any).destination) && (
-                <div className="flex items-start gap-2 text-sm mb-2">
-                  <MapPin className="w-3.5 h-3.5 mt-0.5 text-primary flex-shrink-0" />
-                  <span className="text-muted-foreground line-clamp-1">
-                    <span className="text-foreground">{booking.pickup || "—"}</span>
-                    <span className="mx-1.5 text-muted-foreground">→</span>
-                    <span className="text-foreground">{(booking as any).dropoff || (booking as any).destination || "—"}</span>
-                  </span>
-                </div>
-              )}
-
-              {/* Driver + price row */}
-              {!isResidenceManager && (
-                <div className="flex items-center justify-between pt-2.5 border-t border-border/60">
-                  <div className="flex items-center gap-2 text-sm">
-                    <Car className="w-3.5 h-3.5 text-muted-foreground" />
-                    {booking.driver_name ? (
-                      <span className="font-medium text-primary flex items-center gap-1.5">
-                        {(booking as any).driver_staff_no && (
-                          <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-primary/15 text-primary border border-primary/30">
-                            {(booking as any).driver_staff_no}
-                          </span>
-                        )}
-                        {booking.driver_name}
-                      </span>
-                    ) : (
-                      <span className="text-destructive font-medium flex items-center gap-1 text-xs">
-                        <AlertTriangle className="w-3 h-3" /> No Driver
-                      </span>
-                    )}
-                    {(booking as any).driver_whatsapp && booking.driver_name && (() => {
-                      const phone = ((booking as any).driver_whatsapp || "").replace(/[^0-9+]/g, "");
-                      if (!phone) return null;
-                      const msg = `Hi ${booking.driver_name}, I've just sent you booking ${booking.tvl_ref}. Please confirm receipt. Thanks.`;
+                {yearOpen && (
+                  <div className="border-t border-border bg-card/30 divide-y divide-border">
+                    {year.monthsSorted.map((month) => {
+                      const monthOpen = isMonthOpen(month.monthKey);
                       return (
-                        <a href={`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`}
-                          target="_blank" rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
-                          className="text-green-500 hover:text-green-400" title="WhatsApp Driver">
-                          <MessageCircle className="w-3.5 h-3.5" />
-                        </a>
+                        <div key={month.monthKey}>
+                          <button
+                            type="button"
+                            onClick={() => toggleMonth(month.monthKey)}
+                            className="w-full flex items-center gap-3 px-5 py-2.5 hover:bg-secondary/20 transition-colors"
+                            data-testid={`month-toggle-${month.monthKey}`}
+                          >
+                            {monthOpen ? <ChevronDown className="w-4 h-4 text-primary/80" /> : <ChevronRight className="w-4 h-4 text-primary/80" />}
+                            <span className="font-semibold text-sm text-foreground">{format(new Date(month.monthKey + "-01"), "MMMM")}</span>
+                            <Badge variant="outline" className="text-[10px] text-muted-foreground border-border">
+                              {month.total} booking{month.total !== 1 ? "s" : ""}
+                            </Badge>
+                          </button>
+
+                          {monthOpen && (
+                            <div className="px-3 sm:px-5 pb-3 space-y-2.5">
+                              {(month as any).daysSorted.map((day: DayBucket) => {
+                                const dayOpen = isDayOpen(day.dayKey);
+                                return (
+                                  <div key={day.dayKey} className="border border-border/60 rounded-lg overflow-hidden">
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleDay(day.dayKey)}
+                                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-secondary/20 transition-colors text-left"
+                                      data-testid={`day-toggle-${day.dayKey}`}
+                                    >
+                                      {dayOpen ? <ChevronDown className="w-3.5 h-3.5 text-primary/70" /> : <ChevronRight className="w-3.5 h-3.5 text-primary/70" />}
+                                      <span className="text-[12px] font-bold text-primary uppercase tracking-wide">{day.dayLabel}</span>
+                                      <Badge variant="outline" className="text-[10px] text-muted-foreground border-border ml-auto">
+                                        {day.jobs.length}
+                                      </Badge>
+                                    </button>
+                                    {dayOpen && (
+                                      <div className="p-2 space-y-1.5 bg-background/50">
+                                        {day.jobs.map((job) => (
+                                          <JobCard
+                                            key={job.id}
+                                            job={job}
+                                            driversById={driversById}
+                                            suppliersById={suppliersById}
+                                            extras={vehiclesByBooking.get(job.id) ?? []}
+                                            selectMode={bulk.selectMode}
+                                            isSelected={bulk.isSelected(job.id)}
+                                            onToggleSelect={(id) => bulk.toggle(id)}
+                                            canDelete={canDeleteBookings}
+                                            onDelete={(id) => deleteBookingMut.mutate({ id })}
+                                          />
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
                       );
-                    })()}
+                    })}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold text-foreground text-sm">£{Number(booking.price ?? 0).toLocaleString()}</span>
-                    <Badge variant="outline" className={`text-[10px] py-0 px-1.5 ${PAYMENT_COLORS[booking.payment_status ?? "Unpaid"] ?? PAYMENT_COLORS.Unpaid}`}>
-                      {booking.payment_status || "Unpaid"}
-                    </Badge>
-                  </div>
-                </div>
-              )}
-
-              {/* Residence manager: simplified pickup */}
-              {isResidenceManager && (
-                <div className="flex items-center gap-2 pt-2.5 border-t border-border/60 text-sm">
-                  <span className="text-xs uppercase text-muted-foreground opacity-70">Check-in</span>
-                  <span className="font-medium text-foreground">
-                    {booking.date_time ? format(new Date(booking.date_time), "d MMM") : "—"}
-                  </span>
-                </div>
-              )}
-
-              {/* Action row — stop propagation so card click (navigate) doesn't fire */}
-              <div className="flex gap-2 mt-3 pt-3 border-t border-border/50" onClick={(e) => e.stopPropagation()}>
-                <Link href={`/bookings/${booking.id}`} className="flex-1">
-                  <Button variant="outline" className="w-full h-9 text-sm">
-                    <Briefcase className="w-4 h-4 mr-2" />
-                    {isResidenceManager ? "View Details" : "Job Sheet"}
-                  </Button>
-                </Link>
-                {canDeleteBookings && !bulk.selectMode && (
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button
-                        variant="outline"
-                        size="icon"
-                        className="h-10 w-10 text-destructive hover:bg-destructive/10 hover:text-destructive border-destructive/40"
-                        title="Delete booking"
-                        data-testid={`button-delete-${booking.id}`}
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Delete {booking.tvl_ref}?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          This permanently removes the booking and all related records (invoice, follow-ups, products, ratings, email log). This cannot be undone. For real cancellations, use the Cancel action on the job sheet instead.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Keep booking</AlertDialogCancel>
-                        <AlertDialogAction
-                          className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                          onClick={() => deleteBookingMut.mutate({ id: booking.id })}
-                          data-testid={`button-confirm-delete-${booking.id}`}
-                        >
-                          Delete permanently
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
                 )}
               </div>
-            </CardContent>
-          </Card>
-                  );
-                })}
+            );
+          })}
+
+          {grouped.undated.length > 0 && (
+            <div className="border border-border rounded-xl overflow-hidden">
+              <div className="px-4 py-3 flex items-center gap-3">
+                <span className="font-bold text-base text-foreground">Date TBC</span>
+                <Badge variant="outline" className="text-[10px] text-muted-foreground border-border">
+                  {grouped.undated.length} booking{grouped.undated.length !== 1 ? "s" : ""}
+                </Badge>
               </div>
-            </div>
-          ))}
-          {timeFilteredBookings.length === 0 && (
-            <div className="py-12 text-center text-muted-foreground border border-dashed rounded-lg">
-              {isResidenceManager
-                ? "No apartment bookings in this view."
-                : timeFilter === "today" ? "No bookings scheduled for today."
-                : timeFilter === "tomorrow" ? "No bookings scheduled for tomorrow."
-                : timeFilter === "this_week" ? "No upcoming bookings this week."
-                : "No upcoming bookings."}
+              <div className="p-3 space-y-1.5 border-t border-border">
+                {grouped.undated.map((job: any) => (
+                  <JobCard
+                    key={job.id}
+                    job={job}
+                    driversById={driversById}
+                    suppliersById={suppliersById}
+                    extras={vehiclesByBooking.get(job.id) ?? []}
+                    selectMode={bulk.selectMode}
+                    isSelected={bulk.isSelected(job.id)}
+                    onToggleSelect={(id) => bulk.toggle(id)}
+                    canDelete={canDeleteBookings}
+                    onDelete={(id) => deleteBookingMut.mutate({ id })}
+                  />
+                ))}
+              </div>
             </div>
           )}
         </div>
@@ -632,6 +419,7 @@ export default function Bookings() {
         noun="booking"
         onClear={bulk.clear}
         onDelete={handleBulkDelete}
+        warning="This permanently removes the selected bookings and all related records (invoices, follow-ups, email logs). This cannot be undone."
       />
     </div>
   );

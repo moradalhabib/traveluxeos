@@ -28,6 +28,7 @@ import NewBooking from "@/pages/bookings/new";
 import BookingDetail from "@/pages/bookings/[id]";
 import JobSheet from "@/pages/bookings/JobSheet";
 import Jobs from "@/pages/jobs/index";
+import Upcoming from "@/pages/upcoming/index";
 import Flights from "@/pages/flights/index";
 import Drivers from "@/pages/drivers/index";
 import NewDriver from "@/pages/drivers/new";
@@ -113,6 +114,7 @@ function Router() {
       <ProtectedRoute path="/bookings/:id" component={BookingDetail} />
       <ProtectedRoute path="/bookings/:id/job-sheet" component={JobSheet} />
       <ProtectedRoute path="/jobs" component={Jobs} blockResidenceManager={true} />
+      <ProtectedRoute path="/upcoming" component={Upcoming} blockResidenceManager={true} />
       <ProtectedRoute path="/flights" component={Flights} blockResidenceManager={true} />
       <ProtectedRoute path="/drivers" component={Drivers} blockResidenceManager={true} />
       <ProtectedRoute path="/drivers/new" component={NewDriver} blockResidenceManager={true} />
