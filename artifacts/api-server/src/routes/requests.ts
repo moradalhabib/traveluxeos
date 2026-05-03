@@ -157,6 +157,89 @@ router.post("/", async (req, res) => {
   });
 });
 
+// POST /requests/bulk-cancel — operator+. Cancels a batch of requests with
+// one shared reason. Mirrors POST /follow-ups/bulk-cancel exactly:
+// • Already-Cancelled rows are silently skipped (stale selections don't error)
+// • Notes are APPENDed, never overwritten — same as the per-row PUT cancel path
+// • cancelled_at / cancelled_by stamped so attribution works everywhere
+// Must be registered before /:id routes so Express doesn't treat "bulk-cancel"
+// as an id param.
+router.post("/bulk-cancel", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user) return res.status(401).json({ error: "Unauthorised" });
+
+  const { ids, cancellation_reason } = req.body ?? {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "ids must be a non-empty array" });
+  }
+  const reason = (cancellation_reason ?? "").toString().trim();
+  if (!reason) {
+    return res.status(400).json({ error: "cancellation_reason is required" });
+  }
+
+  const cleanIds = ids.map((id: any) => String(id)).filter(Boolean);
+  if (cleanIds.length === 0) {
+    return res.status(400).json({ error: "ids must contain at least one id" });
+  }
+
+  const { data: rows, error: fetchErr } = await supabase
+    .from("requests")
+    .select("id, status, notes")
+    .in("id", cleanIds);
+  if (fetchErr) return res.status(400).json({ error: fetchErr.message });
+
+  const rowMap = new Map<string, any>((rows ?? []).map((r: any) => [r.id, r]));
+
+  const cancelledIds: string[] = [];
+  const skippedIds: string[] = [];
+  const failedIds: string[] = [];
+  const missingIds: string[] = [];
+
+  const nowIso = new Date().toISOString();
+  const stamp = new Date().toLocaleString("en-GB", { timeZone: "Europe/London" });
+
+  for (const id of cleanIds) {
+    const row = rowMap.get(id);
+    if (!row) { missingIds.push(id); continue; }
+    if (row.status === "Cancelled") { skippedIds.push(id); continue; }
+
+    const existing = (row.notes ?? "").toString().trim();
+    const appended = `Cancelled (${stamp}): ${reason}`;
+    const mergedNotes = existing ? `${existing}\n\n${appended}` : appended;
+
+    const { error: updErr } = await supabase
+      .from("requests")
+      .update({
+        status: "Cancelled",
+        cancellation_reason: reason,
+        cancelled_at: nowIso,
+        cancelled_by: user.id,
+        notes: mergedNotes,
+      })
+      .eq("id", id);
+
+    if (updErr) { failedIds.push(id); continue; }
+    cancelledIds.push(id);
+    await auditLog(
+      "update_request", "request", id, user.id,
+      `Request ${id} → Cancelled (bulk: ${reason})`,
+    );
+  }
+
+  return res.json({
+    cancelled: cancelledIds.length,
+    skipped: skippedIds.length,
+    failed: failedIds.length,
+    missing: missingIds.length,
+    ids: {
+      cancelled: cancelledIds,
+      skipped: skippedIds,
+      failed: failedIds,
+      missing: missingIds,
+    },
+  });
+});
+
 router.get("/:id", async (req, res) => {
   const { data, error } = await supabase
     .from("requests")

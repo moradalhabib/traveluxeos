@@ -27,9 +27,11 @@ import { RecentActivityFeed } from "@/components/activity/RecentActivityFeed";
 import { ActiveFilterChips, type ActiveFilter } from "@/components/ui/active-filter-chips";
 import {
   useListRequests, PRIORITY_STYLES, STATUS_STYLES,
+  useBulkCancelRequests,
   type RequestStatus, type RequestPriority, type RequestServiceType,
   type ClientRequest,
 } from "@/lib/requests-api";
+import { CancelRequestDialog } from "@/components/cancel-request-dialog";
 import { getSlaState } from "@/lib/sla";
 import { SlaPill, SlaLegend } from "@/components/sla-pill";
 
@@ -54,6 +56,10 @@ export default function Requests() {
   const queryClient = useQueryClient();
   const [bulkReopenOpen, setBulkReopenOpen] = useState(false);
   const [bulkReopenRunning, setBulkReopenRunning] = useState(false);
+  const [bulkCancelOpen, setBulkCancelOpen] = useState(false);
+  const bulkCancel = useBulkCancelRequests();
+  // Operators and above can cancel requests; admins additionally can delete.
+  const canBulkCancel = user?.role === "operator" || user?.role === "admin" || user?.role === "super_admin";
   // URL-backed filters so a refresh / shared link restores the same view.
   const [status, setStatus] = useFilterState<RequestStatus | "">("status", "");
   const [priority, setPriority] = useFilterState<RequestPriority | "">("priority", "");
@@ -103,6 +109,39 @@ export default function Requests() {
     } finally {
       setBulkReopenRunning(false);
     }
+  };
+
+  // Bulk cancel — hits POST /requests/bulk-cancel with one shared reason.
+  // Already-Cancelled rows are skipped server-side; notes are appended, never
+  // overwritten. Toast surfaces the precise count so operators on stale
+  // selections see what actually happened.
+  const handleBulkCancel = (cancelReason: string, cancelNotes: string) => {
+    const ids = bulk.ids;
+    if (ids.length === 0) { setBulkCancelOpen(false); return; }
+    const reason = `${cancelReason}${cancelNotes.trim() ? ` — ${cancelNotes.trim()}` : ""}`;
+    toast.message(`Cancelling ${ids.length} request${ids.length === 1 ? "" : "s"}…`);
+    bulkCancel.mutate(
+      { ids, cancellation_reason: reason },
+      {
+        onSuccess: result => {
+          const parts: string[] = [];
+          parts.push(`${result.cancelled} cancelled`);
+          if (result.skipped > 0) parts.push(`${result.skipped} already cancelled`);
+          if (result.failed > 0) parts.push(`${result.failed} failed`);
+          if (result.missing > 0) parts.push(`${result.missing} not found`);
+          if (result.failed > 0) toast.error(parts.join(", "));
+          else toast.success(parts.join(", "));
+          setBulkCancelOpen(false);
+          bulk.exitSelectMode();
+          queryClient.invalidateQueries({ queryKey: ["requests"] });
+          queryClient.invalidateQueries({ queryKey: ["lost-lead-stats"] });
+          queryClient.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+        },
+        onError: (e: any) => {
+          toast.error(`Bulk cancel failed: ${e?.message ?? "Unknown error"}`);
+        },
+      },
+    );
   };
 
   const handleBulkDelete = async () => {
@@ -268,6 +307,8 @@ export default function Requests() {
         onDelete={handleBulkDelete}
         onReopenSelected={allSelectedCancelled ? () => setBulkReopenOpen(true) : undefined}
         reopenSelectedLabel={`Re-open ${bulk.count}`}
+        onCancelSelected={canBulkCancel && !allSelectedCancelled ? () => setBulkCancelOpen(true) : undefined}
+        cancelSelectedLabel={`Cancel ${bulk.count}`}
       />
 
       {/* Bulk re-open confirm — shown when every selected row is Cancelled.
@@ -297,6 +338,19 @@ export default function Requests() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Bulk cancel dialog — shown when some (but not all) selected rows are
+          active. Reason is required; notes are optional and appended server-
+          side. Already-Cancelled rows are skipped silently. */}
+      <CancelRequestDialog
+        open={bulkCancelOpen}
+        onOpenChange={setBulkCancelOpen}
+        title={`Cancel ${bulk.count} request${bulk.count === 1 ? "" : "s"}?`}
+        description={`${bulk.count === 1 ? "This request" : `All ${bulk.count} requests`} will be marked Cancelled with the shared reason below. Already-cancelled rows are skipped automatically. Notes on each row are appended — nothing is overwritten.`}
+        confirmLabel={`Cancel ${bulk.count} request${bulk.count === 1 ? "" : "s"}`}
+        busy={bulkCancel.isPending}
+        onConfirm={handleBulkCancel}
+      />
     </div>
   );
 }

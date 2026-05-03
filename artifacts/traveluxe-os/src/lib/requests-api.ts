@@ -223,6 +223,39 @@ export function useReopenRequest() {
   });
 }
 
+// Bulk-cancel a batch of requests with one shared reason. Hits the dedicated
+// POST /requests/bulk-cancel route which mirrors the per-row PUT cancel logic
+// server-side (notes appended, never overwritten; already-Cancelled rows
+// silently skipped). The response carries a summary so the caller can show
+// "12 cancelled, 2 already cancelled" in the toast.
+export interface BulkCancelRequestsResult {
+  cancelled: number;
+  skipped: number;
+  failed: number;
+  missing: number;
+  ids: {
+    cancelled: string[];
+    skipped: string[];
+    failed: string[];
+    missing: string[];
+  };
+}
+
+export function useBulkCancelRequests() {
+  const qc = useQueryClient();
+  return useMutation<BulkCancelRequestsResult, Error, { ids: string[]; cancellation_reason: string }>({
+    mutationFn: ({ ids, cancellation_reason }) =>
+      authFetch("/requests/bulk-cancel", {
+        method: "POST",
+        body: JSON.stringify({ ids, cancellation_reason }),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["requests"] });
+      qc.invalidateQueries({ queryKey: ["lost-lead-stats"] });
+    },
+  });
+}
+
 // Bulk-cancel a batch of follow-ups with one shared reason. Hits the
 // dedicated POST /follow-ups/bulk-cancel route which loops the same
 // per-row cancel logic server-side (notes appended, never overwritten;
