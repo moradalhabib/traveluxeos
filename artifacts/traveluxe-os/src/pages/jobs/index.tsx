@@ -100,11 +100,22 @@ export default function Jobs() {
     bulk.exitSelectMode();
   };
 
-  // Card data context (drivers, suppliers, vehicles)
-  const visibleBookingIds = useMemo(
-    () => (bookings ?? []).map((b: any) => b.id).filter(Boolean),
-    [bookings],
-  );
+  // Card data context (drivers, suppliers, vehicles).
+  // Scope the booking_vehicles fetch to the current calendar month only —
+  // the Jobs board never shows past or future months, so fetching vehicles
+  // for the full history would be a wasted full-table scan.
+  const visibleBookingIds = useMemo(() => {
+    const ms = startOfMonth(new Date());
+    const me = endOfMonth(new Date());
+    return (bookings ?? [])
+      .filter((b: any) => {
+        if (!b.date_time) return false;
+        const d = new Date(b.date_time);
+        return !isBefore(d, ms) && !isAfter(d, me);
+      })
+      .map((b: any) => b.id)
+      .filter(Boolean);
+  }, [bookings]);
   const { driversById, suppliersById, vehiclesByBooking } = useJobCardContext(visibleBookingIds);
 
   // Long-press quick-status menu (bottom sheet)

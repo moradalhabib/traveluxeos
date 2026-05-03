@@ -35,10 +35,15 @@ export default function Upcoming() {
     { query: { queryKey: getListBookingsQueryKey({}) } },
   );
 
-  const visibleBookingIds = useMemo(
-    () => (bookings ?? []).map((b: any) => b.id).filter(Boolean),
-    [bookings],
-  );
+  // Scope vehicle fetches to future bookings only — Upcoming never shows past
+  // or current-month jobs, so fetching vehicles for all history is wasteful.
+  const visibleBookingIds = useMemo(() => {
+    const horizon = startOfMonth(addMonths(new Date(), 1));
+    return (bookings ?? [])
+      .filter((b: any) => b.date_time && !isBefore(new Date(b.date_time), horizon))
+      .map((b: any) => b.id)
+      .filter(Boolean);
+  }, [bookings]);
   const { driversById, suppliersById, vehiclesByBooking } = useJobCardContext(visibleBookingIds);
 
   const deleteBookingMut = useDeleteBooking({
