@@ -486,7 +486,7 @@ export function Shell({ children }: { children: ReactNode }) {
           {moreOpen && (
             <>
               <div className="md:hidden fixed inset-0 bg-black/60 z-50 backdrop-blur-sm" onClick={() => setMoreOpen(false)} />
-              <div className="md:hidden fixed bottom-0 left-0 right-0 bg-card rounded-t-2xl z-50 border-t border-border shadow-2xl">
+              <div className="md:hidden fixed bottom-0 left-0 right-0 bg-card rounded-t-2xl z-50 border-t border-border shadow-2xl max-h-[85vh] overflow-y-auto overscroll-contain">
                 <div className="flex justify-center pt-3 pb-2">
                   <div className="w-10 h-1 rounded-full bg-border" />
                 </div>
