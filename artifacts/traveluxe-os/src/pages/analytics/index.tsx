@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   TrendingUp, Globe, CalendarDays, Activity, AlertTriangle, Users, X, Info,
-  XCircle,
+  XCircle, ChevronDown, MessageCircle, Clock, Repeat, ArrowUp, ArrowDown,
 } from "lucide-react";
 import { useLostLeadStats, type LostLeadPeriod } from "@/lib/requests-api";
 import {
@@ -317,6 +317,11 @@ export default function Analytics() {
   const [selectedEvent, setSelectedEvent] = useState<CalEvent | null>(null);
   const [showAllEvents, setShowAllEvents] = useState(false);
 
+  // Section 3 Client Intelligence UI state
+  const [natSortMode, setNatSortMode] = useState<"clients" | "avg">("clients");
+  const [expandedNat, setExpandedNat] = useState<string | null>(null);
+  const [repeatPeriod, setRepeatPeriod] = useState<"this_month" | "last_30" | "this_year">("this_month");
+
   // ── Revenue Forecast ────────────────────────────────────────────────────────
   const forecastQuery = useQuery<ForecastResponse>({
     queryKey: ["dashboard-forecast"],
@@ -403,45 +408,115 @@ export default function Analytics() {
     .sort((a, b) => b.total - a.total)
     .slice(0, 5);
 
-  // ── Lifetime completed-booking revenue per client ──────────────────────────
-  // Fix #2: Nationality revenue must sum ALL completed bookings for clients of
-  // that nationality, not be year-scoped (which made e.g. UAE show £100 across
-  // 190 clients because only one 2026 booking happened to belong to a UAE
-  // client). We respect STATS_CUTOFF_ISO (project-wide rule excluding pre-OS
-  // legacy data) and additional_charges so it matches Finance per-client totals.
-  const lifetimeCompletedRevQuery = useQuery<Record<string, number>>({
-    queryKey: ["intel-lifetime-completed-rev-by-client"],
+  // ── Lifetime completed bookings (rich) ─────────────────────────────────────
+  // Returns one row per Completed booking (post-STATS_CUTOFF). All Section 3
+  // Client Intelligence features derive from this single query: per-client
+  // totals, per-nationality avg booking value (3A), per-nationality service
+  // breakdown (3B), repeat-vs-new ratio (3C), dormant detection (3D).
+  // We also include any bookings WITHOUT a date_time (e.g. legacy data with
+  // null date) for the dormant calc.
+  const completedBookingsQuery = useQuery<Array<{ client_id: string | null; price: number | null; additional_charges: number | null; date_time: string | null; service_type: string | null }>>({
+    queryKey: ["intel-completed-bookings-detail"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("bookings")
-        .select("client_id, price, additional_charges")
+        .select("client_id, price, additional_charges, date_time, service_type")
         .eq("status", "Completed")
         .gte("date_time", STATS_CUTOFF_ISO);
       if (error) throw error;
-      const map: Record<string, number> = {};
-      (data ?? []).forEach((b: any) => {
-        const id = b.client_id;
-        if (!id) return;
-        map[id] = (map[id] ?? 0) + (Number(b.price) || 0) + (Number(b.additional_charges) || 0);
-      });
-      return map;
+      return (data ?? []) as any;
     },
     staleTime: 10 * 60 * 1000,
   });
-  const lifetimeRevByClient = lifetimeCompletedRevQuery.data ?? {};
+  const completedBookings = completedBookingsQuery.data ?? [];
 
-  // ── Nationality stats ───────────────────────────────────────────────────────
-  const natMap: Record<string, { flag: string; country: string; ids: Set<string>; revenue: number }> = {};
+  // Future-dated bookings (any non-cancelled status) — used by 3D Dormant
+  // calc to exclude clients with upcoming activity. Year-INDEPENDENT so the
+  // year toggle doesn't change who counts as dormant.
+  const futureBookingsQuery = useQuery<Array<{ client_id: string | null; date_time: string | null }>>({
+    queryKey: ["intel-future-bookings"],
+    queryFn: async () => {
+      const nowIso = new Date().toISOString();
+      const { data, error } = await supabase
+        .from("bookings")
+        .select("client_id, date_time")
+        .gt("date_time", nowIso)
+        .not("status", "eq", "Cancelled");
+      if (error) throw error;
+      return (data ?? []) as any;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+  const futureBookings = futureBookingsQuery.data ?? [];
+
+  // Per-client lifetime aggregates derived from the rich query
+  const lifetimeRevByClient: Record<string, number> = {};
+  const lifetimeCountByClient: Record<string, number> = {};
+  const firstBookingByClient: Record<string, Date> = {};
+  const lastBookingByClient: Record<string, Date> = {};
+  // serviceByClient[clientId][serviceType] = { count, total }
+  const serviceByClient: Record<string, Record<string, { count: number; total: number }>> = {};
+  completedBookings.forEach(b => {
+    const id = b.client_id;
+    if (!id) return;
+    const value = (Number(b.price) || 0) + (Number(b.additional_charges) || 0);
+    lifetimeRevByClient[id] = (lifetimeRevByClient[id] ?? 0) + value;
+    lifetimeCountByClient[id] = (lifetimeCountByClient[id] ?? 0) + 1;
+    if (b.date_time) {
+      const d = new Date(b.date_time);
+      if (!isNaN(d.getTime())) {
+        if (!firstBookingByClient[id] || d < firstBookingByClient[id]) firstBookingByClient[id] = d;
+        if (!lastBookingByClient[id]  || d > lastBookingByClient[id])  lastBookingByClient[id]  = d;
+      }
+    }
+    const svc = b.service_type || "Other";
+    serviceByClient[id] ??= {};
+    serviceByClient[id][svc] ??= { count: 0, total: 0 };
+    serviceByClient[id][svc].count += 1;
+    serviceByClient[id][svc].total += value;
+  });
+
+  // ── Nationality stats (Sections 3A + 3B) ───────────────────────────────────
+  // Per-country aggregates: client count, revenue, booking count, avg value,
+  // and a service-type breakdown for the expandable 3B view.
+  type NatRollup = {
+    flag: string; country: string;
+    ids: Set<string>;
+    revenue: number;
+    bookings: number;
+    services: Record<string, { count: number; total: number }>;
+  };
+  const natMap: Record<string, NatRollup> = {};
   (clientsQuery.data ?? []).forEach(cl => {
     const { flag, country } = detectNat(null, cl.whatsapp, cl.nationality);
-    if (!natMap[country]) natMap[country] = { flag, country, ids: new Set(), revenue: 0 };
-    natMap[country].ids.add(cl.id);
-    if (lifetimeRevByClient[cl.id]) natMap[country].revenue += lifetimeRevByClient[cl.id];
+    natMap[country] ??= { flag, country, ids: new Set(), revenue: 0, bookings: 0, services: {} };
+    const n = natMap[country];
+    n.ids.add(cl.id);
+    n.revenue  += lifetimeRevByClient[cl.id] ?? 0;
+    n.bookings += lifetimeCountByClient[cl.id] ?? 0;
+    const svcs = serviceByClient[cl.id];
+    if (svcs) {
+      for (const [svc, agg] of Object.entries(svcs)) {
+        n.services[svc] ??= { count: 0, total: 0 };
+        n.services[svc].count += agg.count;
+        n.services[svc].total += agg.total;
+      }
+    }
   });
   const natStats = Object.values(natMap)
     .filter(n => n.ids.size > 0)
     .sort((a, b) => b.revenue - a.revenue)
-    .map(n => ({ flag: n.flag, country: n.country, count: n.ids.size, revenue: n.revenue }));
+    .map(n => ({
+      flag: n.flag,
+      country: n.country,
+      count: n.ids.size,
+      revenue: n.revenue,
+      bookings: n.bookings,
+      avgBooking: n.bookings > 0 ? n.revenue / n.bookings : null,
+      services: Object.entries(n.services)
+        .map(([service, v]) => ({ service, count: v.count, total: v.total }))
+        .sort((a, b) => b.total - a.total),
+    }));
 
   // Year-scoped nationality revenue for the Intel Summary bullet so the
   // year-labeled section ("Intel Summary — {selectedYear}") stays internally
@@ -453,6 +528,108 @@ export default function Analytics() {
     if (clientRevMap[cl.id]) natMapYear[country].revenue += clientRevMap[cl.id].total;
   });
   const topNatYearRevenue = (country: string) => natMapYear[country]?.revenue ?? 0;
+
+  // Sorted view for the nationality list (3A "By clients" / "By avg value").
+  // Avg-value sort puts nationalities with no completed bookings (avgBooking=null)
+  // at the bottom so the leaderboard isn't polluted by "—" rows.
+  const natStatsSorted = [...natStats].sort((a, b) => {
+    if (natSortMode === "avg") {
+      const av = a.avgBooking ?? -1;
+      const bv = b.avgBooking ?? -1;
+      return bv - av;
+    }
+    return b.count - a.count;
+  });
+
+  // ── 3C: Repeat vs New client ratio ─────────────────────────────────────────
+  // For the selected period, a client is COUNTED once (their newest booking in
+  // the period). They are NEW if they have no completed booking before this
+  // period; REPEAT if they have at least one earlier completed booking.
+  const repeatVsNew = (() => {
+    const now = new Date();
+    let periodStart: Date;
+    if (repeatPeriod === "this_month") {
+      periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    } else if (repeatPeriod === "last_30") {
+      periodStart = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+    } else {
+      periodStart = new Date(now.getFullYear(), 0, 1);
+    }
+    // Previous period of equal length for trend arrow
+    const periodMs = now.getTime() - periodStart.getTime();
+    const prevStart = new Date(periodStart.getTime() - periodMs);
+    const prevEnd = periodStart;
+
+    const clientsInPeriod = new Set<string>();
+    const clientsInPrev   = new Set<string>();
+    let newCount = 0, repeatCount = 0;
+    let prevNew = 0, prevRepeat = 0;
+
+    completedBookings.forEach(b => {
+      if (!b.client_id || !b.date_time) return;
+      const d = new Date(b.date_time);
+      if (isNaN(d.getTime())) return;
+      const first = firstBookingByClient[b.client_id];
+      if (d >= periodStart && d <= now && !clientsInPeriod.has(b.client_id)) {
+        clientsInPeriod.add(b.client_id);
+        if (first && first < periodStart) repeatCount += 1; else newCount += 1;
+      }
+      if (d >= prevStart && d < prevEnd && !clientsInPrev.has(b.client_id)) {
+        clientsInPrev.add(b.client_id);
+        if (first && first < prevStart) prevRepeat += 1; else prevNew += 1;
+      }
+    });
+    const total = newCount + repeatCount;
+    const prevTotal = prevNew + prevRepeat;
+    const trend = prevTotal === 0 ? null : ((total - prevTotal) / prevTotal) * 100;
+    return { newCount, repeatCount, total, prevTotal, trend };
+  })();
+
+  // ── 3D: Dormant clients (no activity in 60+ days) ──────────────────────────
+  // A client is dormant when:
+  //  - they have at least one completed booking, AND
+  //  - their most recent completed booking is more than 60 days before today,
+  //    AND
+  //  - they have no future booking of any status (excluded so we don't pester
+  //    clients who are actively booked).
+  const dormantClients = (() => {
+    const now = new Date();
+    const cutoff = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+    const futureBookers = new Set<string>();
+    futureBookings.forEach(b => {
+      if (b.client_id) futureBookers.add(b.client_id);
+    });
+    type Dormant = {
+      id: string; name: string; nationality: { flag: string; country: string };
+      lastBooking: Date; daysSince: number; lifetimeSpend: number;
+    };
+    const out: Dormant[] = [];
+    (clientsQuery.data ?? []).forEach(cl => {
+      const last = lastBookingByClient[cl.id];
+      if (!last) return;
+      if (last >= cutoff) return;
+      if (futureBookers.has(cl.id)) return;
+      const daysSince = Math.floor((now.getTime() - last.getTime()) / (24 * 60 * 60 * 1000));
+      out.push({
+        id: cl.id,
+        name: cl.name,
+        nationality: detectNat(null, cl.whatsapp, cl.nationality),
+        lastBooking: last,
+        daysSince,
+        lifetimeSpend: lifetimeRevByClient[cl.id] ?? 0,
+      });
+    });
+    return out.sort((a, b) => b.daysSince - a.daysSince);
+  })();
+
+  // Build a WhatsApp deep link from a stored phone number. Strips +, spaces,
+  // dashes; opens an empty chat (no pre-written message per spec).
+  const whatsappLink = (whatsapp: string | null): string | null => {
+    if (!whatsapp) return null;
+    const digits = whatsapp.replace(/[^\d]/g, "");
+    if (!digits) return null;
+    return `https://wa.me/${digits}`;
+  };
   const totalNatClients = natStats.reduce((s, n) => s + n.count, 0);
   const natPieData = natStats.map(n => ({ name: n.country, value: n.count }));
 
@@ -1044,9 +1221,9 @@ export default function Analytics() {
       </div>
 
       {/* ═══════════════════════════════════════════════════════════════════════ */}
-      {/* 4. NATIONALITY CHART                                                   */}
+      {/* 4. NATIONALITY CHART (3A avg booking + 3B service breakdown)           */}
       {/* ═══════════════════════════════════════════════════════════════════════ */}
-      <Card className="border-primary/10">
+      <Card className="border-primary/10" data-testid="card-nationality">
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-semibold flex items-center gap-2">
             <Globe className="w-4 h-4 text-primary" />
@@ -1107,28 +1284,281 @@ export default function Analytics() {
                 </div>
               </div>
 
-              {/* Nationality list */}
+              {/* 3A — Sort toggle */}
+              <div className="flex items-center justify-between text-[11px] text-muted-foreground">
+                <span>Sort by</span>
+                <div className="flex rounded-lg border border-border/60 overflow-hidden">
+                  {(["clients", "avg"] as const).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setNatSortMode(mode)}
+                      data-testid={`nat-sort-${mode}`}
+                      className={`px-2.5 py-1 transition-colors ${
+                        natSortMode === mode
+                          ? "bg-primary/15 text-primary font-semibold"
+                          : "text-muted-foreground hover:bg-muted/50"
+                      }`}
+                    >
+                      {mode === "clients" ? "By clients" : "By avg value"}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Nationality list with expandable service breakdown */}
               <div className="space-y-1.5">
-                {natStats.map((n, i) => (
-                  <button
-                    key={n.country}
-                    onClick={() => navigate(`/clients?nationality=${encodeURIComponent(n.country)}`)}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl bg-muted/30 border border-border/40 hover:border-primary/30 hover:bg-primary/5 transition-all text-left"
-                  >
-                    <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: NAT_COLORS[i % NAT_COLORS.length] }} />
-                    <span className="text-base leading-none flex-shrink-0">{n.flag}</span>
-                    <span className="text-sm font-semibold text-foreground flex-1">{n.country}</span>
-                    <span className="text-xs text-muted-foreground flex-shrink-0">{n.count} client{n.count !== 1 ? "s" : ""}</span>
-                    {n.revenue > 0 && (
-                      <span className="text-sm font-bold text-primary flex-shrink-0">£{n.revenue.toLocaleString()}</span>
-                    )}
-                    <svg className="w-3.5 h-3.5 text-muted-foreground flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </button>
-                ))}
+                {natStatsSorted.map((n, i) => {
+                  const colorIdx = natStats.findIndex(s => s.country === n.country);
+                  const isOpen = expandedNat === n.country;
+                  const maxSvcTotal = n.services.reduce((m, s) => Math.max(m, s.total), 0);
+                  return (
+                    <div
+                      key={n.country}
+                      className="rounded-xl bg-muted/30 border border-border/40 overflow-hidden"
+                      data-testid={`nat-row-${n.country}`}
+                    >
+                      <div className="flex items-stretch">
+                        <button
+                          onClick={() => navigate(`/clients?nationality=${encodeURIComponent(n.country)}`)}
+                          className="flex items-center gap-3 px-3 py-2.5 flex-1 text-left hover:bg-primary/5 transition-colors"
+                        >
+                          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: NAT_COLORS[colorIdx % NAT_COLORS.length] }} />
+                          <span className="text-base leading-none flex-shrink-0">{n.flag}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-semibold text-foreground truncate">{n.country}</div>
+                            <div className="text-[10px] text-muted-foreground">
+                              {n.count} client{n.count !== 1 ? "s" : ""}
+                              {n.bookings > 0 && (
+                                <> · {n.bookings} booking{n.bookings !== 1 ? "s" : ""}</>
+                              )}
+                            </div>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <div className="text-sm font-bold text-primary">
+                              {n.avgBooking !== null ? `£${Math.round(n.avgBooking).toLocaleString()}` : "—"}
+                            </div>
+                            <div className="text-[9px] text-muted-foreground uppercase tracking-wide">avg / booking</div>
+                          </div>
+                        </button>
+                        <button
+                          onClick={() => setExpandedNat(isOpen ? null : n.country)}
+                          aria-label={isOpen ? "Collapse breakdown" : "Expand service breakdown"}
+                          data-testid={`nat-expand-${n.country}`}
+                          className="px-2 flex items-center justify-center text-muted-foreground hover:text-primary hover:bg-primary/5 transition-colors border-l border-border/40"
+                        >
+                          <ChevronDown className={`w-4 h-4 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                        </button>
+                      </div>
+
+                      {/* 3B — Service breakdown */}
+                      {isOpen && (
+                        <div className="px-3 pb-3 pt-1 border-t border-border/40 bg-background/30 space-y-2" data-testid={`nat-services-${n.country}`}>
+                          {n.services.length === 0 ? (
+                            <p className="text-[11px] text-muted-foreground py-1">No completed bookings yet for this nationality.</p>
+                          ) : (
+                            <>
+                              <div className="text-[10px] uppercase tracking-wider text-muted-foreground pt-1.5">Service mix</div>
+                              {n.services.map(s => {
+                                const pctW = maxSvcTotal > 0 ? Math.max(4, Math.round((s.total / maxSvcTotal) * 100)) : 0;
+                                return (
+                                  <div key={s.service}>
+                                    <div className="flex items-center justify-between text-[11px] mb-0.5">
+                                      <span className="text-foreground font-medium truncate">
+                                        {s.service}
+                                        <span className="text-muted-foreground font-normal"> · {s.count} booking{s.count !== 1 ? "s" : ""}</span>
+                                      </span>
+                                      <span className="text-primary font-semibold flex-shrink-0">£{s.total.toLocaleString()}</span>
+                                    </div>
+                                    <div className="h-1.5 rounded-full bg-muted overflow-hidden">
+                                      <div
+                                        className="h-full rounded-full"
+                                        style={{
+                                          width: `${pctW}%`,
+                                          background: SERVICE_COLORS[s.service] ?? SERVICE_COLORS.Other,
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {/* 4B. REPEAT vs NEW (Section 3C)                                         */}
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      <Card className="border-primary/10" data-testid="card-repeat-new">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Repeat className="w-4 h-4 text-primary" />
+            Repeat vs New Clients
+            {repeatVsNew.trend !== null && repeatVsNew.total > 0 && (
+              <span
+                className={`ml-auto text-[10px] font-semibold flex items-center gap-0.5 ${
+                  repeatVsNew.trend >= 0 ? "text-emerald-400" : "text-red-400"
+                }`}
+                data-testid="repeat-trend"
+              >
+                {repeatVsNew.trend >= 0 ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
+                {Math.abs(Math.round(repeatVsNew.trend))}% vs prev
+              </span>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-3">
+          {/* Period toggle */}
+          <div className="flex flex-wrap gap-1.5">
+            {([
+              ["this_month", "This month"],
+              ["last_30",    "Last 30 days"],
+              ["this_year",  "This year"],
+            ] as const).map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setRepeatPeriod(val)}
+                data-testid={`repeat-period-${val}`}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-all ${
+                  repeatPeriod === val
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted/40 text-muted-foreground hover:bg-muted/70"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {completedBookingsQuery.isLoading ? (
+            <Skeleton className="h-44 w-full" />
+          ) : repeatVsNew.total === 0 ? (
+            <div className="py-8 text-center text-xs text-muted-foreground">
+              No completed bookings in this period yet.
+            </div>
+          ) : (
+            <div className="flex items-center gap-4">
+              <div className="relative h-36 w-36 flex-shrink-0">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={[
+                        { name: "Repeat", value: repeatVsNew.repeatCount },
+                        { name: "New",    value: repeatVsNew.newCount },
+                      ]}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={42}
+                      outerRadius={66}
+                      paddingAngle={2}
+                      dataKey="value"
+                    >
+                      <Cell fill="#C9A84C" />
+                      <Cell fill="#4B5563" />
+                    </Pie>
+                    <RechartsTip
+                      contentStyle={{ background: "#1a1a1a", border: "1px solid rgba(201,168,76,0.2)", borderRadius: 8, fontSize: 11 }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                  <div className="text-xl font-black text-foreground">
+                    {repeatVsNew.total > 0 ? Math.round((repeatVsNew.repeatCount / repeatVsNew.total) * 100) : 0}%
+                  </div>
+                  <div className="text-[9px] text-muted-foreground uppercase tracking-wide">repeat</div>
+                </div>
+              </div>
+              <div className="flex-1 space-y-2">
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/10 border border-primary/20" data-testid="repeat-count">
+                  <div className="w-2.5 h-2.5 rounded-full bg-primary" />
+                  <div className="flex-1">
+                    <div className="text-lg font-bold text-foreground">{repeatVsNew.repeatCount}</div>
+                    <div className="text-[10px] text-muted-foreground">returning client{repeatVsNew.repeatCount !== 1 ? "s" : ""}</div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-muted/30 border border-border/40" data-testid="new-count">
+                  <div className="w-2.5 h-2.5 rounded-full bg-muted-foreground" />
+                  <div className="flex-1">
+                    <div className="text-lg font-bold text-foreground">{repeatVsNew.newCount}</div>
+                    <div className="text-[10px] text-muted-foreground">new client{repeatVsNew.newCount !== 1 ? "s" : ""}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {/* 4C. DORMANT CLIENTS (Section 3D)                                       */}
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      <Card className="border-primary/10" data-testid="card-dormant">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Clock className="w-4 h-4 text-primary" />
+            Dormant Clients
+            <span className="text-[10px] text-muted-foreground font-normal">(60+ days quiet)</span>
+            {dormantClients.length > 0 && (
+              <span className="ml-auto text-[10px] font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-full" data-testid="dormant-badge">
+                {dormantClients.length}
+              </span>
+            )}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {(completedBookingsQuery.isLoading || clientsQuery.isLoading || futureBookingsQuery.isLoading) ? (
+            <Skeleton className="h-32 w-full" />
+          ) : dormantClients.length === 0 ? (
+            <div className="py-6 text-center text-xs text-muted-foreground" data-testid="dormant-empty">
+              All clients active — none quiet for 60+ days.
+            </div>
+          ) : (
+            <div className="space-y-1.5 max-h-96 overflow-y-auto pr-1" data-testid="dormant-list">
+              {dormantClients.map(c => {
+                const link = whatsappLink((clientsQuery.data ?? []).find(x => x.id === c.id)?.whatsapp ?? null);
+                return (
+                  <div
+                    key={c.id}
+                    className="flex items-center gap-3 px-3 py-2.5 rounded-xl bg-muted/30 border border-border/40"
+                    data-testid={`dormant-row-${c.id}`}
+                  >
+                    <span className="text-base leading-none flex-shrink-0">{c.nationality.flag}</span>
+                    <button
+                      onClick={() => navigate(`/clients/${c.id}`)}
+                      className="flex-1 min-w-0 text-left hover:text-primary transition-colors"
+                    >
+                      <div className="text-sm font-semibold text-foreground truncate">{c.name}</div>
+                      <div className="text-[10px] text-muted-foreground">
+                        Last booked {c.daysSince} day{c.daysSince !== 1 ? "s" : ""} ago
+                        {c.lifetimeSpend > 0 && <> · £{c.lifetimeSpend.toLocaleString()} lifetime</>}
+                      </div>
+                    </button>
+                    {link ? (
+                      <a
+                        href={link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        data-testid={`dormant-reach-${c.id}`}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-[11px] font-semibold hover:opacity-90 transition-opacity flex-shrink-0"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                        Reach Out
+                      </a>
+                    ) : (
+                      <span className="text-[10px] text-muted-foreground italic flex-shrink-0">no WhatsApp</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
