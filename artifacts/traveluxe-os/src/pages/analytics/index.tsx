@@ -502,12 +502,13 @@ export default function Analytics() {
     pickup: string | null;
     dropoff: string | null;
     vehicle_type: string | null;
+    driver_id: string | null;
   }>>({
     queryKey: ["intel-business-bookings"],
     queryFn: async () => {
       const { data, error } = await supabase
         .from("bookings")
-        .select("id, status, service_type, price, additional_charges, date_time, created_at, client_id, pickup, dropoff, vehicle_type")
+        .select("id, status, service_type, price, additional_charges, date_time, created_at, client_id, pickup, dropoff, vehicle_type, driver_id")
         .gte("date_time", STATS_CUTOFF_ISO);
       if (error) throw error;
       return (data ?? []) as any;
@@ -515,6 +516,17 @@ export default function Analytics() {
     staleTime: 10 * 60 * 1000,
   });
   const businessBookings = businessBookingsQuery.data ?? [];
+
+  // Drivers list for 4I Driver Utilisation
+  const driversQuery = useQuery<Array<{ id: string; name: string | null }>>({
+    queryKey: ["intel-drivers"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("drivers").select("id, name");
+      if (error) throw error;
+      return (data ?? []) as any;
+    },
+    staleTime: 10 * 60 * 1000,
+  });
 
   // Per-client lifetime aggregates derived from the rich query
   const lifetimeRevByClient: Record<string, number> = {};
@@ -992,6 +1004,44 @@ export default function Analytics() {
 
     return { overall, byNat, highFreq };
   }, [businessBookings, natByClient, clientsQuery.data]);
+
+  // ── 4I: Driver Utilisation (this calendar month vs last calendar month) ──
+  const driverUtilisation = useMemo(() => {
+    const now = new Date();
+    const monthStart     = new Date(now.getFullYear(), now.getMonth(),     1);
+    const lastMonthStart = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const drivers = driversQuery.data ?? [];
+    type Row = { id: string; name: string; thisMonth: number; lastMonth: number };
+    const rows: Row[] = drivers.map(d => ({
+      id: d.id,
+      name: d.name ?? "Unnamed driver",
+      thisMonth: 0,
+      lastMonth: 0,
+    }));
+    const byId: Record<string, Row> = {};
+    rows.forEach(r => { byId[r.id] = r; });
+    businessBookings.forEach(b => {
+      if (!b.driver_id || !b.date_time) return;
+      if (b.status === "Cancelled") return;
+      const r = byId[b.driver_id];
+      if (!r) return;
+      const d = new Date(b.date_time);
+      if (d >= monthStart && d < new Date(now.getFullYear(), now.getMonth() + 1, 1)) {
+        r.thisMonth += 1;
+      } else if (d >= lastMonthStart && d < monthStart) {
+        r.lastMonth += 1;
+      }
+    });
+    rows.sort((a, b) => b.thisMonth - a.thisMonth);
+    const maxThis = rows[0]?.thisMonth ?? 0;
+    return {
+      rows,
+      maxThis,
+      // honest baseline: only show last-month numbers when the previous
+      // window starts at/after the data cutoff
+      lastMonthValid: lastMonthStart >= new Date(STATS_CUTOFF_ISO),
+    };
+  }, [businessBookings, driversQuery.data]);
   const totalNatClients = natStats.reduce((s, n) => s + n.count, 0);
   const natPieData = natStats.map(n => ({ name: n.country, value: n.count }));
 
@@ -2370,6 +2420,70 @@ export default function Analytics() {
                 </div>
               )}
             </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 4I — Driver Utilisation */}
+      <Card className="border-primary/10" data-testid="card-driver-utilisation">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Users className="w-4 h-4 text-primary" />
+            Driver Utilisation
+            <span className="text-[10px] text-muted-foreground font-normal">(this month vs last)</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0">
+          {(businessBookingsQuery.isLoading || driversQuery.isLoading) ? (
+            <Skeleton className="h-32 w-full" />
+          ) : driverUtilisation.rows.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-4 text-center">No drivers on file yet.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {driverUtilisation.rows.map((d, i) => {
+                const isTop  = i === 0 && d.thisMonth > 0;
+                const isZero = d.thisMonth === 0;
+                const trend = d.thisMonth - d.lastMonth;
+                return (
+                  <div
+                    key={d.id}
+                    data-testid={`driver-row-${i}`}
+                    className={`flex items-center gap-3 px-3 py-2.5 rounded-xl border transition-colors ${
+                      isTop
+                        ? "bg-primary/15 border-primary/40"
+                        : isZero
+                          ? "bg-destructive/5 border-destructive/30"
+                          : "bg-muted/30 border-border/40"
+                    }`}
+                  >
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold flex-shrink-0 ${
+                      isTop ? "bg-primary text-primary-foreground" : isZero ? "bg-destructive/30 text-destructive" : "bg-muted text-muted-foreground"
+                    }`}>{i + 1}</div>
+                    <div className="flex-1 min-w-0">
+                      <div className={`text-sm font-semibold truncate ${isTop ? "text-primary" : isZero ? "text-destructive" : "text-foreground"}`}>
+                        {d.name}
+                        {isZero && <span className="ml-2 text-[9px] uppercase tracking-wider">idle</span>}
+                      </div>
+                      {driverUtilisation.lastMonthValid && (
+                        <div className="text-[10px] text-muted-foreground">last month: {d.lastMonth}</div>
+                      )}
+                    </div>
+                    {driverUtilisation.lastMonthValid && trend !== 0 && (
+                      <span className={`text-[10px] font-semibold flex items-center gap-0.5 ${
+                        trend > 0 ? "text-emerald-400" : "text-red-400"
+                      }`}>
+                        {trend > 0 ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}
+                        {Math.abs(trend)}
+                      </span>
+                    )}
+                    <div className={`text-right flex-shrink-0 ${isTop ? "text-primary" : isZero ? "text-destructive" : "text-foreground"}`}>
+                      <div className="text-lg font-black leading-none">{d.thisMonth}</div>
+                      <div className="text-[9px] uppercase tracking-wider text-muted-foreground">jobs</div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
         </CardContent>
       </Card>
