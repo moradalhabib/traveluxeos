@@ -2615,26 +2615,43 @@ export default function Analytics() {
               </div>
 
               {/* Tap-to-drill list — mobile-friendly alternative to clicking thin bars.
-                   Note for operators: opens the cancelled *requests* list only —
-                   it is not filtered down to the specific reason yet. */}
+                   Primary button → filtered requests list.
+                   Secondary button (follow-ups) shown when there are f/u cancellations. */}
               <div className="space-y-1">
                 <div className="text-[10px] text-muted-foreground uppercase tracking-wider">
-                  Tap a row to open all cancelled requests
+                  Tap a row to open the filtered cancelled list
                 </div>
-                {lostLeadStats.data.rows.map((r) => (
-                  <button
-                    key={r.reason}
-                    onClick={() => navigate("/requests?status=Cancelled")}
-                    className="w-full flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/20 border border-border/40 hover:border-primary/30 hover:bg-primary/5 transition-all text-left"
-                    data-testid={`button-lostlead-row-${r.reason.replace(/\s+/g,"-").toLowerCase()}`}
-                  >
-                    <span className="text-sm font-medium text-foreground flex-1 truncate">{r.reason}</span>
-                    <span className="text-[10px] text-muted-foreground flex-shrink-0">
-                      {r.request_count} req · {r.follow_up_count} f/u
-                    </span>
-                    <span className="text-sm font-bold text-primary w-7 text-right flex-shrink-0">{r.total}</span>
-                  </button>
-                ))}
+                {lostLeadStats.data.rows.map((r) => {
+                  const reasonParam = r.reason === "Unspecified" ? "__none" : encodeURIComponent(r.reason);
+                  return (
+                    <div
+                      key={r.reason}
+                      className="flex items-stretch gap-1"
+                    >
+                      <button
+                        onClick={() => navigate(`/requests?status=Cancelled&reason=${reasonParam}`)}
+                        className="flex-1 flex items-center gap-3 px-3 py-2 rounded-lg bg-muted/20 border border-border/40 hover:border-primary/30 hover:bg-primary/5 transition-all text-left min-w-0"
+                        data-testid={`button-lostlead-row-${r.reason.replace(/\s+/g,"-").toLowerCase()}`}
+                      >
+                        <span className="text-sm font-medium text-foreground flex-1 truncate">{r.reason}</span>
+                        <span className="text-[10px] text-muted-foreground flex-shrink-0">
+                          {r.request_count} req · {r.follow_up_count} f/u
+                        </span>
+                        <span className="text-sm font-bold text-primary w-7 text-right flex-shrink-0">{r.total}</span>
+                      </button>
+                      {r.follow_up_count > 0 && (
+                        <button
+                          onClick={() => navigate(`/follow-ups?status=cancelled&reason=${reasonParam}`)}
+                          className="px-2.5 rounded-lg bg-muted/20 border border-border/40 hover:border-primary/30 hover:bg-primary/5 transition-all text-[10px] text-muted-foreground hover:text-foreground flex-shrink-0"
+                          title="Open cancelled follow-ups for this reason"
+                          data-testid={`button-lostlead-followups-${r.reason.replace(/\s+/g,"-").toLowerCase()}`}
+                        >
+                          f/u
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </>
           )}

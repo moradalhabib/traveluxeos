@@ -65,6 +65,7 @@ export interface ListRequestsParams {
   client_id?: string;
   search?: string;
   sort?: "follow_up" | "created";
+  cancellation_reason?: string;
 }
 
 const REQUESTS_KEY = (params: ListRequestsParams) => ["requests", params];
@@ -79,6 +80,7 @@ export function useListRequests(params: ListRequestsParams = {}) {
       if (params.client_id) q.set("client_id", params.client_id);
       if (params.search) q.set("search", params.search);
       if (params.sort) q.set("sort", params.sort);
+      if (params.cancellation_reason) q.set("cancellation_reason", params.cancellation_reason);
       const qs = q.toString();
       return authFetch(`/requests${qs ? `?${qs}` : ""}`);
     },

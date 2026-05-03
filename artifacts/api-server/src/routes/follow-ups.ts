@@ -20,7 +20,7 @@ router.get("/", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
   if (!user) return res.status(401).json({ error: "Unauthorized" });
 
-  const { status, date: dateFilter, search, sort } = req.query as Record<string, string>;
+  const { status, date: dateFilter, search, sort, cancellation_reason } = req.query as Record<string, string>;
 
   // We deliberately avoid PostgREST FK-join syntax here. If a foreign-key
   // constraint isn't named exactly the way PostgREST expects, the whole
@@ -41,6 +41,15 @@ router.get("/", async (req, res) => {
   } else if (!status) {
     // Default: exclude archived (no_response with 3+ attempts)
     // Just show pending + recent completed
+  }
+
+  // cancellation_reason filter — __none sentinel maps to IS NULL or blank.
+  if (cancellation_reason) {
+    if (cancellation_reason === "__none") {
+      q = (q as any).or("cancellation_reason.is.null,cancellation_reason.eq.");
+    } else {
+      q = (q as any).eq("cancellation_reason", cancellation_reason);
+    }
   }
 
   // Date filter

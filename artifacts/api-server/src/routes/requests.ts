@@ -8,9 +8,10 @@ const VALID_STATUS = ["New","Following Up","Ready to Book","Converted","Declined
 const VALID_PRIORITY = ["Low","Medium","High","Urgent"];
 const VALID_SERVICE = ["Airport Transfer","Tour","Car Rental","Apartment","Hotel","Other"];
 
-// GET /api/requests?status=&priority=&client_id=&search=&sort=
+// GET /api/requests?status=&priority=&client_id=&search=&sort=&cancellation_reason=
+// cancellation_reason=__none matches rows where the column IS NULL or blank.
 router.get("/", async (req, res) => {
-  const { status, priority, client_id, search, sort } = req.query;
+  const { status, priority, client_id, search, sort, cancellation_reason } = req.query;
   let query = supabase
     .from("requests")
     .select("*, clients(name, whatsapp)");
@@ -21,6 +22,14 @@ router.get("/", async (req, res) => {
   if (search) {
     const s = String(search);
     query = query.or(`client_name.ilike.%${s}%,notes.ilike.%${s}%`);
+  }
+  if (cancellation_reason) {
+    const cr = String(cancellation_reason);
+    if (cr === "__none") {
+      query = query.or("cancellation_reason.is.null,cancellation_reason.eq.");
+    } else {
+      query = query.eq("cancellation_reason", cr);
+    }
   }
 
   // Default sort: follow-up date ascending (most urgent first)

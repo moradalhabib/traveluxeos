@@ -87,6 +87,8 @@ export default function FollowUps() {
   const [search, setSearch] = useFilterState("q", "");
   // Fix 3 — Most Recent (created_at desc) is the default across all list pages.
   const [sort, setSort] = useFilterState("sort", "recent");
+  // reason — drills into a specific cancellation_reason bucket from the Lost Leads chart.
+  const [reasonFilter, setReasonFilter] = useFilterState("reason", "");
 
   // ── Data ──────────────────────────────────────────────────────────────────
   const [followUps, setFollowUps] = useState<any[]>([]);
@@ -129,6 +131,7 @@ export default function FollowUps() {
       if (dateFilter && dateFilter !== "all") params.set("date", dateFilter);
       if (search) params.set("search", search);
       if (sort) params.set("sort", sort);
+      if (reasonFilter) params.set("cancellation_reason", reasonFilter);
 
       const [fuRes, statsRes] = await Promise.all([
         fetch(`${API_BASE}/follow-ups?${params}`, { headers: { Authorization: `Bearer ${token}` } }),
@@ -139,7 +142,7 @@ export default function FollowUps() {
     } catch { /* ignore */ } finally {
       setLoading(false);
     }
-  }, [statusFilter, dateFilter, search, sort]);
+  }, [statusFilter, dateFilter, search, sort, reasonFilter]);
 
   useEffect(() => {
     const t = setTimeout(fetchData, search ? 300 : 0);
@@ -570,7 +573,8 @@ export default function FollowUps() {
           const chips: ActiveFilter[] = [];
           if (statusFilter !== "pending") chips.push({ key: "status", label: "Status", value: STATUS_LABELS[statusFilter] ?? statusFilter, onClear: () => setStatusFilter("pending") });
           if (dateFilter !== "all") chips.push({ key: "date", label: "Date", value: DATE_LABELS[dateFilter] ?? dateFilter, onClear: () => setDateFilter("all") });
-          return <ActiveFilterChips filters={chips} onClearAll={() => { setStatusFilter("pending"); setDateFilter("all"); }} />;
+          if (reasonFilter !== "") chips.push({ key: "reason", label: "Reason", value: reasonFilter === "__none" ? "Unspecified" : reasonFilter, onClear: () => setReasonFilter("") });
+          return <ActiveFilterChips filters={chips} onClearAll={() => { setStatusFilter("pending"); setDateFilter("all"); setReasonFilter(""); }} />;
         })()}
 
         {/* Search */}

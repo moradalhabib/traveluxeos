@@ -53,6 +53,9 @@ export default function Requests() {
   const [search, setSearch] = useFilterState("q", "");
   // Fix 3 — default Most Recent (created_at desc) across all list pages.
   const [sort, setSort] = useFilterState<"follow_up" | "created">("sort", "created");
+  // reason — drills into a specific cancellation_reason bucket from the Lost Leads chart.
+  // The sentinel "__none" means IS NULL or blank (shows as "Unspecified").
+  const [reason, setReason] = useFilterState("reason", "");
 
   const handleBulkDelete = async () => {
     const ids = bulk.ids;
@@ -77,6 +80,7 @@ export default function Requests() {
     priority: priority || undefined,
     search: search || undefined,
     sort,
+    cancellation_reason: reason || undefined,
   });
 
   const counts = useMemo(() => {
@@ -164,7 +168,8 @@ export default function Requests() {
           const chips: ActiveFilter[] = [];
           if (status !== "") chips.push({ key: "status", label: "Status", value: status, onClear: () => setStatus("") });
           if (priority !== "") chips.push({ key: "priority", label: "Priority", value: priority, onClear: () => setPriority("") });
-          return <ActiveFilterChips filters={chips} onClearAll={() => { setStatus(""); setPriority(""); }} />;
+          if (reason !== "") chips.push({ key: "reason", label: "Reason", value: reason === "__none" ? "Unspecified" : reason, onClear: () => setReason("") });
+          return <ActiveFilterChips filters={chips} onClearAll={() => { setStatus(""); setPriority(""); setReason(""); }} />;
         })()}
 
         <div className="relative flex-1 min-w-[220px]">
