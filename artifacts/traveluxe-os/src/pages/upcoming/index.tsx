@@ -124,11 +124,14 @@ export default function Upcoming() {
   // Clear stale activeJump when the grouped list no longer contains that month
   // (e.g. after a data refresh that removes old bookings, or if the URL param
   // was set to a month that doesn't exist in the current dataset).
+  // Guard: skip while a search is active — grouped is narrowed by the search
+  // query and would incorrectly clear a valid month that's just filtered out.
   useEffect(() => {
+    if (searchQuery) return;
     if (activeJump && !grouped.find(m => m.monthKey === activeJump)) {
       setActiveJump(""); // "" === defaultValue → removes ?m= from URL
     }
-  }, [grouped, activeJump, setActiveJump]);
+  }, [grouped, activeJump, searchQuery, setActiveJump]);
 
   // On initial data load: if ?m=yyyy-MM is already in the URL (i.e. the
   // operator returned to this page after previously jumping), auto-expand
