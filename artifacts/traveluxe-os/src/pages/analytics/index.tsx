@@ -142,18 +142,25 @@ function buildCalEvents(): CalEvent[] {
   addFixed("Bahrain National Day 🇧🇭", "gulf-national-day", "Gulf National Day", 12, 16, 1, false, "Bahrain national day. Good window for outreach to Bahraini clients.");
   addFixed("Oman National Day 🇴🇲",   "gulf-national-day", "Gulf National Day", 11, 18, 1, false, "Oman national holiday. Activate Omani client follow-ups.");
 
-  // Gulf School Holiday Windows (approximate)
-  addFixed("Gulf Winter Break",  "school-holiday", "School Holiday", 12, 15, 21, true, "Gulf school winter holidays. Peak family travel to London — ensure fleet availability.");
-  addFixed("Gulf Spring Break",  "school-holiday", "School Holiday",  3, 25, 12, true, "Gulf spring half-term. Families travelling to London for shopping and leisure.");
-  addFixed("Gulf Summer Break",  "school-holiday", "School Holiday",  6, 20, 87, true, "Long Gulf summer break. Highest volume period — many Gulf families relocate to London for 2–3 months.");
+  // Gulf School Holiday Windows (operator-aligned approximate dates)
+  addFixed("Gulf Winter Break",  "school-holiday", "School Holiday", 12, 15, 22, true, "Gulf school winter holidays (≈Dec 15 – Jan 5). Peak family travel to London — ensure fleet availability.");
+  addFixed("Gulf Spring Break",  "school-holiday", "School Holiday",  3, 20, 17, true, "Gulf spring half-term (≈Mar 20 – Apr 5). Families travelling to London for shopping and leisure.");
+  addFixed("Gulf Summer Break",  "school-holiday", "School Holiday",  6, 15, 79, true, "Long Gulf summer break (≈Jun 15 – Sep 1). Highest volume period — many Gulf families relocate to London for 2–3 months.");
 
-  // London Peak Seasons
-  addFixed("London Summer Season",    "london-peak", "London Peak",  6,  1, 107, false, "Peak luxury travel season in London. High demand for airport transfers, shopping trips and as-directed services.");
-  addFixed("London Festive Season",   "london-peak", "London Peak", 11, 15,  52, false, "Christmas and New Year in London. Strong demand for Harrods, West End, and New Year's Eve services.");
-  addFixed("Chelsea Flower Show",     "london-peak", "London Peak",  5, 23,   5, false, "Royal Horticultural Society event. Attracts high-net-worth clients. Expect demand for Belgravia / Chelsea area transfers.");
-  addFixed("Wimbledon",               "london-peak", "London Peak",  6, 28,  14, false, "Annual tennis championship. High demand for SW19 transfers and as-directed services for the fortnight.");
-  addFixed("Harrods January Sale",    "london-peak", "London Peak",  1,  2,  10, false, "Harrods post-Christmas sale — extremely popular with Gulf clients. High demand for Knightsbridge transfers.");
-  addFixed("Harrods Summer Sale",     "london-peak", "London Peak",  7,  1,  14, false, "Harrods summer sale. Gulf clients visiting London often prioritise this. Key period for shopping trip services.");
+  // London Peak Seasons & Marquee Events
+  addFixed("London Summer Season",     "london-peak", "London Peak",  6,  1, 107, false, "Peak luxury travel season in London. High demand for airport transfers, shopping trips and as-directed services.");
+  addFixed("London Festive Season",    "london-peak", "London Peak", 11, 15,  52, false, "Christmas and New Year in London. Strong demand for Harrods, West End, and New Year's Eve services.");
+  addFixed("Chelsea Flower Show",      "london-peak", "London Peak",  5, 19,   6, false, "Royal Horticultural Society event (May). Attracts high-net-worth clients. Expect demand for Belgravia / Chelsea area transfers.");
+  addFixed("Wimbledon",                "london-peak", "London Peak",  6, 29,  14, false, "Annual tennis championship (late June – early July). High demand for SW19 transfers and as-directed services for the fortnight.");
+  addFixed("Harrods January Sale",     "london-peak", "London Peak",  1,  2,  10, false, "Harrods post-Christmas sale — extremely popular with Gulf clients. High demand for Knightsbridge transfers.");
+  addFixed("Harrods Summer Sale",      "london-peak", "London Peak",  6, 26,  14, false, "Harrods summer sale (late June). Gulf clients visiting London often prioritise this. Key period for shopping trip services.");
+  addFixed("Harrods Christmas Window", "london-peak", "London Peak", 11,  1,  60, false, "Harrods festive window unveiling through Christmas (Nov–Dec). Very strong shopping-trip demand from Gulf clients.");
+  addFixed("Frieze London",            "london-peak", "London Peak", 10, 15,   5, false, "Frieze London art fair (October). Attracts art-collector and HNW visitors — Mayfair / Regent's Park area transfers.");
+  addFixed("Art Basel London",         "london-peak", "London Peak",  3,  1,   5, false, "Art Basel London week (March). Strong HNW arrivals — gallery and hotel-circuit transfer demand.");
+  addFixed("F1 British Grand Prix",    "london-peak", "London Peak",  7,  3,   3, false, "Silverstone race weekend (early July). High demand for chauffeur transfers to/from Silverstone and helipads.");
+  addFixed("New Year's Eve London",    "london-peak", "London Peak", 12, 31,   1, false, "NYE celebrations across London. Very high demand for evening as-directed services and post-fireworks transfers.");
+  addFixed("Premier League Opening",   "london-peak", "London Peak",  8, 16,   3, false, "Premier League opening weekend (mid August). Stadium and post-match transfers in demand.");
+  addFixed("Premier League Final Day", "london-peak", "London Peak",  5, 24,   2, false, "Premier League final-day fixtures (late May). Stadium transfer demand peaks.");
 
   // Islamic holidays via Hijri calendar
   const seen = new Set<string>();
@@ -225,8 +232,11 @@ const EVENT_TYPE_ACTIVE: Record<EventType, string> = {
 function EventDetailSheet({ event, onClose, daysUntil }: { event: CalEvent | null; onClose: () => void; daysUntil: (d: Date) => number }) {
   if (!event) return null;
   const du = daysUntil(event.startDate);
-  const ongoing = du <= 0 && event.endDate >= new Date();
-  const ended   = event.endDate < new Date();
+  // Day-level comparison so an event on its final day reads "Ongoing" all day
+  // (matches the Market Signals card logic above which uses midnight `today`).
+  const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0);
+  const ongoing = du <= 0 && event.endDate >= todayMidnight;
+  const ended   = event.endDate < todayMidnight;
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center" onClick={onClose}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
@@ -379,7 +389,7 @@ export default function Analytics() {
   const demandSurge   = demandWeeks.length >= 4 && lastScore > avg4 * 1.25;
   const demandInsight = buildInsight(demandWeeks, isSimulated);
 
-  // ── Client revenue map ──────────────────────────────────────────────────────
+  // ── Client revenue map (year-scoped, used for Top Clients + Intel Summary) ─
   const clientRevMap: Record<string, { name: string; total: number; count: number }> = {};
   bookings.forEach(b => {
     const cid  = b.client_id || "unknown";
@@ -393,18 +403,56 @@ export default function Analytics() {
     .sort((a, b) => b.total - a.total)
     .slice(0, 5);
 
+  // ── Lifetime completed-booking revenue per client ──────────────────────────
+  // Fix #2: Nationality revenue must sum ALL completed bookings for clients of
+  // that nationality, not be year-scoped (which made e.g. UAE show £100 across
+  // 190 clients because only one 2026 booking happened to belong to a UAE
+  // client). We respect STATS_CUTOFF_ISO (project-wide rule excluding pre-OS
+  // legacy data) and additional_charges so it matches Finance per-client totals.
+  const lifetimeCompletedRevQuery = useQuery<Record<string, number>>({
+    queryKey: ["intel-lifetime-completed-rev-by-client"],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from("bookings")
+        .select("client_id, price, additional_charges")
+        .eq("status", "Completed")
+        .gte("date_time", STATS_CUTOFF_ISO);
+      if (error) throw error;
+      const map: Record<string, number> = {};
+      (data ?? []).forEach((b: any) => {
+        const id = b.client_id;
+        if (!id) return;
+        map[id] = (map[id] ?? 0) + (Number(b.price) || 0) + (Number(b.additional_charges) || 0);
+      });
+      return map;
+    },
+    staleTime: 10 * 60 * 1000,
+  });
+  const lifetimeRevByClient = lifetimeCompletedRevQuery.data ?? {};
+
   // ── Nationality stats ───────────────────────────────────────────────────────
   const natMap: Record<string, { flag: string; country: string; ids: Set<string>; revenue: number }> = {};
   (clientsQuery.data ?? []).forEach(cl => {
     const { flag, country } = detectNat(null, cl.whatsapp, cl.nationality);
     if (!natMap[country]) natMap[country] = { flag, country, ids: new Set(), revenue: 0 };
     natMap[country].ids.add(cl.id);
-    if (clientRevMap[cl.id]) natMap[country].revenue += clientRevMap[cl.id].total;
+    if (lifetimeRevByClient[cl.id]) natMap[country].revenue += lifetimeRevByClient[cl.id];
   });
   const natStats = Object.values(natMap)
     .filter(n => n.ids.size > 0)
     .sort((a, b) => b.revenue - a.revenue)
     .map(n => ({ flag: n.flag, country: n.country, count: n.ids.size, revenue: n.revenue }));
+
+  // Year-scoped nationality revenue for the Intel Summary bullet so the
+  // year-labeled section ("Intel Summary — {selectedYear}") stays internally
+  // consistent. The Nationality CARD itself uses the lifetime number above.
+  const natMapYear: Record<string, { revenue: number }> = {};
+  (clientsQuery.data ?? []).forEach(cl => {
+    const { country } = detectNat(null, cl.whatsapp, cl.nationality);
+    if (!natMapYear[country]) natMapYear[country] = { revenue: 0 };
+    if (clientRevMap[cl.id]) natMapYear[country].revenue += clientRevMap[cl.id].total;
+  });
+  const topNatYearRevenue = (country: string) => natMapYear[country]?.revenue ?? 0;
   const totalNatClients = natStats.reduce((s, n) => s + n.count, 0);
   const natPieData = natStats.map(n => ({ name: n.country, value: n.count }));
 
@@ -543,14 +591,17 @@ export default function Analytics() {
                 across <span className="text-foreground font-semibold">{totalBookings}</span> bookings — average value{" "}
                 <span className="text-primary font-semibold">£{avgVal.toFixed(0)}</span>.
               </p>
-              {topNat && topNat.count > 0 && (
-                <p>
-                  • Nationality intelligence: <span className="text-foreground font-semibold">{topNat.flag} {topNat.country}</span> leads with{" "}
-                  {topNat.count} client{topNat.count !== 1 ? "s" : ""}
-                  {topNat.revenue > 0 ? ` and £${topNat.revenue.toLocaleString()} in revenue` : ""}.
-                  {natStats.length > 1 ? ` ${natStats[1].flag} ${natStats[1].country} follows with ${natStats[1].count} client${natStats[1].count !== 1 ? "s" : ""}.` : ""}
-                </p>
-              )}
+              {topNat && topNat.count > 0 && (() => {
+                const yrRev = topNatYearRevenue(topNat.country);
+                return (
+                  <p>
+                    • Nationality intelligence: <span className="text-foreground font-semibold">{topNat.flag} {topNat.country}</span> leads with{" "}
+                    {topNat.count} client{topNat.count !== 1 ? "s" : ""}
+                    {yrRev > 0 ? ` and £${yrRev.toLocaleString()} in ${selectedYear} revenue` : ""}.
+                    {natStats.length > 1 ? ` ${natStats[1].flag} ${natStats[1].country} follows with ${natStats[1].count} client${natStats[1].count !== 1 ? "s" : ""}.` : ""}
+                  </p>
+                );
+              })()}
               {nextEvent && (
                 <p>
                   • Next key event:{" "}
@@ -598,6 +649,145 @@ export default function Analytics() {
           )}
         </CardContent>
       </Card>
+
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {/* ─── MARKET SIGNALS ──────────────────────────────────────────────────  */}
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      <div className="flex items-center gap-3">
+        <div className="h-px flex-1 bg-border/60" />
+        <div className="flex items-center gap-2 px-2">
+          <Activity className="w-3.5 h-3.5 text-primary" />
+          <span className="text-xs font-semibold text-primary uppercase tracking-widest">Market Signals</span>
+        </div>
+        <div className="h-px flex-1 bg-border/60" />
+      </div>
+
+      {/* 2A — London Peak Events Calendar (next 6, colour-coded countdown) */}
+      {(() => {
+        const peak = upcomingEvents
+          .filter(e => e.type === "london-peak")
+          .slice(0, 6);
+        return (
+          <Card className="border-primary/10">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <CalendarDays className="w-4 h-4 text-primary" />
+                London Peak Events
+                <span className="text-[10px] text-muted-foreground font-normal ml-auto">Next {peak.length}</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0 space-y-2">
+              {peak.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No upcoming London peak events.</p>
+              ) : peak.map(ev => {
+                const du = daysUntil(ev.startDate);
+                const ongoing = du <= 0 && ev.endDate >= today;
+                // Operator-spec colour bands: red <14, yellow 14–30, green 30+
+                const band =
+                  ongoing            ? { dot: "bg-emerald-400", ring: "border-emerald-500/40 bg-emerald-500/10", txt: "text-emerald-300", label: "Active now" }
+                  : du < 14          ? { dot: "bg-rose-500",    ring: "border-rose-500/40 bg-rose-500/10",       txt: "text-rose-300",    label: `${du}d` }
+                  : du <= 30         ? { dot: "bg-amber-400",   ring: "border-amber-500/40 bg-amber-500/10",     txt: "text-amber-300",   label: `${du}d` }
+                                     : { dot: "bg-emerald-500", ring: "border-emerald-500/30 bg-emerald-500/5",  txt: "text-emerald-300", label: `${du}d` };
+                return (
+                  <button
+                    key={`${ev.name}-${ev.startDate.toISOString()}`}
+                    onClick={() => setSelectedEvent(ev)}
+                    className={`w-full text-left rounded-xl border ${band.ring} px-3 py-2.5 hover:brightness-110 transition-all`}
+                    data-testid={`peak-event-${ev.name.replace(/\s+/g, "-").toLowerCase()}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${band.dot}`} />
+                      <div className="min-w-0 flex-1">
+                        <div className="text-sm font-semibold text-foreground truncate">{ev.name}</div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {format(ev.startDate, "EEE d MMM yyyy")}
+                          {ev.endDate.toDateString() !== ev.startDate.toDateString() && (
+                            <span> – {format(ev.endDate, "d MMM")}</span>
+                          )}
+                          <span className="opacity-70"> · High transfer demand expected</span>
+                        </div>
+                      </div>
+                      <div className={`text-base font-black leading-none flex-shrink-0 ${band.txt}`}>{band.label}</div>
+                    </div>
+                  </button>
+                );
+              })}
+            </CardContent>
+          </Card>
+        );
+      })()}
+
+      {/* 2B — Gulf & Saudi School Holidays (Active now / countdown) */}
+      {(() => {
+        // Operator-spec: school holidays + Eids (Eid drives school closures too)
+        const gulfHols = upcomingEvents
+          .filter(e =>
+            e.type === "school-holiday" ||
+            (e.type === "gulf-holiday" && (e.name.startsWith("Eid") || e.name === "Ramadan Start"))
+          )
+          .slice(0, 6);
+        // Country flags for the holiday card — Gulf school calendars track
+        // closely across SA/UAE/KW/QA, so we surface the same flag strip on
+        // each window rather than per-country variants.
+        const flags = "🇸🇦 🇦🇪 🇰🇼 🇶🇦";
+        return (
+          <Card className="border-primary/10">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-semibold flex items-center gap-2">
+                <CalendarDays className="w-4 h-4 text-primary" />
+                Gulf School Holidays
+                <span className="text-[10px] text-muted-foreground font-normal ml-auto">{flags}</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="pt-0 space-y-2">
+              {gulfHols.length === 0 ? (
+                <p className="text-xs text-muted-foreground">No upcoming Gulf school holidays.</p>
+              ) : gulfHols.map(ev => {
+                const startD = daysUntil(ev.startDate);
+                const active = startD <= 0 && ev.endDate >= today;
+                const endD   = Math.ceil((ev.endDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+                return (
+                  <button
+                    key={`${ev.name}-${ev.startDate.toISOString()}`}
+                    onClick={() => setSelectedEvent(ev)}
+                    className={`w-full text-left rounded-xl border px-3 py-2.5 transition-all hover:brightness-110 ${
+                      active
+                        ? "border-primary/60 bg-primary/10 shadow-[0_0_12px_rgba(201,168,76,0.2)]"
+                        : "border-border/40 bg-muted/30"
+                    }`}
+                    data-testid={`gulf-holiday-${ev.name.replace(/\s+/g, "-").toLowerCase()}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      {active ? (
+                        <span className="relative flex h-2.5 w-2.5 flex-shrink-0">
+                          <span className="absolute inline-flex h-full w-full rounded-full bg-primary opacity-60 animate-ping" />
+                          <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-primary" />
+                        </span>
+                      ) : (
+                        <span className="w-2.5 h-2.5 rounded-full bg-muted-foreground/50 flex-shrink-0" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className={`text-sm font-semibold truncate ${active ? "text-primary" : "text-foreground"}`}>
+                          {ev.name}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground">
+                          {format(ev.startDate, "d MMM")} – {format(ev.endDate, "d MMM yyyy")}
+                          {ev.approximate && <span className="ml-1 opacity-60">(approx.)</span>}
+                        </div>
+                      </div>
+                      <div className={`text-xs font-bold leading-tight flex-shrink-0 text-right ${active ? "text-primary" : "text-muted-foreground"}`}>
+                        {active
+                          ? <>Active now<br/><span className="font-medium opacity-80">Ends in {endD}d</span></>
+                          : <>Starts in<br/><span className="text-base">{startD}d</span></>}
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {/* ═══════════════════════════════════════════════════════════════════════ */}
       {/* ─── MARKET INTELLIGENCE ─────────────────────────────────────────────  */}

@@ -85,6 +85,12 @@ export const ListClientsQueryParams = zod.object({
   search: zod.coerce.string().optional(),
   vip_tier: zod.coerce.string().optional(),
   inactive: zod.coerce.boolean().optional(),
+  nationality: zod.coerce
+    .string()
+    .optional()
+    .describe(
+      "Filter by nationality (substring match on the nationality field, with phone-prefix fallback for Gulf\/UK clients).",
+    ),
 });
 
 export const ListClientsResponseItem = zod.object({

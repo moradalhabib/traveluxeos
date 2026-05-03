@@ -28,11 +28,15 @@ export default function Clients() {
   // below maps to the existing vip_tier query param the API already
   // supports — no backend changes needed.
   const [tierFilter, setTierFilter] = useFilterState<string>("tier", "all");
+  // Nationality filter — backed by ?nationality=... so the Intel page can
+  // deep-link from a tapped nationality row straight into the filtered list.
+  const [nationalityFilter, setNationalityFilter] = useFilterState<string>("nationality", "");
   const bulk = useBulkSelect();
 
   const listParams = {
     search: search || undefined,
     vip_tier: tierFilter !== "all" ? tierFilter : undefined,
+    nationality: nationalityFilter || undefined,
   };
   const { data: clientsRaw, isLoading } = useListClients(
     listParams,
@@ -156,7 +160,10 @@ export default function Clients() {
           const lbl = TIER_FILTERS.find((t) => t.value === tierFilter)?.label ?? tierFilter;
           chips.push({ key: "tier", label: "VIP Tier", value: lbl, onClear: () => setTierFilter("all") });
         }
-        return <ActiveFilterChips filters={chips} onClearAll={() => setTierFilter("all")} />;
+        if (nationalityFilter) {
+          chips.push({ key: "nationality", label: "Nationality", value: nationalityFilter, onClear: () => setNationalityFilter("") });
+        }
+        return <ActiveFilterChips filters={chips} onClearAll={() => { setTierFilter("all"); setNationalityFilter(""); }} />;
       })()}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">

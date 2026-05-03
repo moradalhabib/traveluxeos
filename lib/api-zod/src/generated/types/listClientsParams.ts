@@ -10,4 +10,8 @@ export type ListClientsParams = {
   search?: string;
   vip_tier?: string;
   inactive?: boolean;
+  /**
+   * Filter by nationality (substring match on the nationality field, with phone-prefix fallback for Gulf/UK clients).
+   */
+  nationality?: string;
 };

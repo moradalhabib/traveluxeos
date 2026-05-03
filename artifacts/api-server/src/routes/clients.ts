@@ -6,7 +6,7 @@ const router = Router();
 
 // List clients
 router.get("/", async (req, res) => {
-  const { search, vip_tier, inactive } = req.query;
+  const { search, vip_tier, inactive, nationality } = req.query;
   let query = supabase
     .from("clients")
     .select("*, bookings(id, price, additional_charges, date_time, status)")
@@ -29,6 +29,42 @@ router.get("/", async (req, res) => {
       c.email?.toLowerCase().includes(s) ||
       c.nationality?.toLowerCase().includes(s)
     );
+  }
+
+  // Nationality filter — Intel page deep-links here as `?nationality=Saudi Arabia`.
+  // Match must mirror the client-side detection used on Intel: prefer the
+  // explicit `nationality` field, fall back to phone/whatsapp country-code prefix.
+  // We do a best-effort substring match on the nationality field, plus a
+  // dial-code prefix match against whatsapp so clients without an explicit
+  // nationality field still surface (Intel groups by detected nationality).
+  if (nationality) {
+    const want = String(nationality).trim().toLowerCase();
+    if (want) {
+      // Build a lookup of country → dial code prefixes from a small in-route
+      // table. Kept narrow to the Gulf + UK set Intel actually surfaces; any
+      // unknown country falls back to nationality-field-only matching.
+      const DIAL_CODES: Record<string, string[]> = {
+        "saudi arabia":         ["+966"],
+        "united arab emirates": ["+971"],
+        "uae":                  ["+971"],
+        "kuwait":               ["+965"],
+        "qatar":                ["+974"],
+        "bahrain":              ["+973"],
+        "oman":                 ["+968"],
+        "united kingdom":       ["+44"],
+        "uk":                   ["+44"],
+      };
+      const codes = DIAL_CODES[want] ?? [];
+      clients = clients.filter(c => {
+        const nat = c.nationality?.toLowerCase() ?? "";
+        if (nat === want || (nat && nat.includes(want))) return true;
+        if (!nat && codes.length) {
+          const phone = (c.whatsapp ?? "").replace(/[\s\-().]/g, "");
+          return codes.some(code => phone.startsWith(code));
+        }
+        return false;
+      });
+    }
   }
 
   const result = clients.map((c: any) => {

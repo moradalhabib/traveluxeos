@@ -84,6 +84,11 @@ paths:
           in: query
           schema:
             type: boolean
+        - name: nationality
+          in: query
+          description: Filter by nationality (substring match on the nationality field, with phone-prefix fallback for Gulf/UK clients).
+          schema:
+            type: string
       responses:
         "200":
           description: List of clients
