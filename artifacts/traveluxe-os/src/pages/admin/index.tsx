@@ -933,6 +933,13 @@ function UsersTab({ currentUserId, isSuperAdmin }: { currentUserId?: string; isS
   // remain in the DB to keep historical FKs intact.
   const visibleUsers = (users ?? []).filter((u: any) => u.name !== "[removed]");
 
+  // Role summary counts
+  const roleCounts = {
+    super_admin: visibleUsers.filter((u: any) => u.role === "super_admin").length,
+    admin: visibleUsers.filter((u: any) => u.role === "admin").length,
+    operator: visibleUsers.filter((u: any) => u.role === "operator").length,
+  };
+
   return (
     <div className="space-y-3">
       <div className="flex items-start justify-between gap-4 flex-wrap">
@@ -949,7 +956,29 @@ function UsersTab({ currentUserId, isSuperAdmin }: { currentUserId?: string; isS
 
       <PermissionsGrid />
 
-      <div className="space-y-3">
+      {/* Role summary strip */}
+      {!isLoading && visibleUsers.length > 0 && (
+        <div className="grid grid-cols-3 gap-2">
+          {([
+            { role: "super_admin", count: roleCounts.super_admin },
+            { role: "admin", count: roleCounts.admin },
+            { role: "operator", count: roleCounts.operator },
+          ] as const).map(({ role, count }) => {
+            const m = roleMeta(role);
+            return (
+              <div key={role} className={`rounded-xl border ${m.border} ${m.bg} px-3 py-2 text-center`}>
+                <div className={`text-xl font-bold ${m.text}`}>{count}</div>
+                <div className="text-[11px] text-muted-foreground mt-0.5">{m.label}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
+          <Users className="w-3.5 h-3.5" /> Members ({visibleUsers.length})
+        </p>
         {isLoading ? (
           [...Array(3)].map((_, i) => <Skeleton key={i} className="h-20" />)
         ) : !visibleUsers.length ? (
@@ -957,88 +986,111 @@ function UsersTab({ currentUserId, isSuperAdmin }: { currentUserId?: string; isS
         ) : (
           visibleUsers.map((u: any) => {
             const isCurrentUser = u.id === currentUserId;
-            const isLockedSuperAdmin = u.role === "super_admin";
+            // Super admins can only be suspended/removed after demotion — this
+            // guards those two actions only. Role changing IS allowed for all users.
+            const isSuperAdminTarget = u.role === "super_admin";
             const meta = roleMeta(u.role);
             return (
               <div
                 key={u.id}
-                className={`flex items-center gap-4 p-4 rounded-xl border transition-all ${
+                className={`rounded-xl border transition-all ${
                   !u.active ? "border-destructive/30 bg-destructive/5"
-                  : isLockedSuperAdmin ? "border-amber-500/30 bg-amber-500/5"
+                  : isSuperAdminTarget ? "border-amber-500/30 bg-amber-500/5"
                   : "border-border bg-card"
                 }`}
                 data-testid={`user-card-${u.id}`}
               >
-                <div className={`w-10 h-10 rounded-full ${meta.bg} flex items-center justify-center font-bold uppercase flex-shrink-0 ${meta.text}`}>
-                  {isLockedSuperAdmin ? <Lock className="w-4 h-4" /> : (u.name?.charAt(0) || "?")}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-sm text-foreground">{u.name}</span>
-                    {isCurrentUser && <span className="text-[10px] text-muted-foreground">(you)</span>}
+                {/* Main row */}
+                <div className="flex items-center gap-3 p-4">
+                  <div className={`w-10 h-10 rounded-full ${meta.bg} flex items-center justify-center font-bold text-sm uppercase flex-shrink-0 ${meta.text}`}>
+                    {u.name?.charAt(0) || "?"}
                   </div>
-                  <div className="text-xs text-muted-foreground">{u.email}</div>
-                  <div className="flex items-center gap-2 mt-1 flex-wrap">
-                    {isSuperAdmin && !isCurrentUser && !isLockedSuperAdmin ? (
-                      <Select
-                        value={u.role}
-                        onValueChange={(v) => changeRole(u.id, v)}
-                        disabled={changingRole === u.id}
-                      >
-                        <SelectTrigger className={`h-6 px-2 py-0 text-[10px] w-[120px] ${meta.border} ${meta.text}`}>
-                          {changingRole === u.id ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <SelectValue />
-                          )}
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="super_admin" className="text-xs">Super Admin</SelectItem>
-                          <SelectItem value="admin" className="text-xs">Admin</SelectItem>
-                          <SelectItem value="operator" className="text-xs">Operator</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    ) : (
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-sm text-foreground">{u.name}</span>
+                      {isCurrentUser && <span className="text-[10px] text-muted-foreground">(you)</span>}
+                    </div>
+                    <div className="text-xs text-muted-foreground">{u.email}</div>
+                    <div className="flex items-center gap-2 mt-1 flex-wrap">
                       <Badge variant="outline" className={`${meta.border} ${meta.text} text-[10px]`}>
-                        {meta.label}{isLockedSuperAdmin && !isCurrentUser ? " · locked" : ""}
+                        {meta.label}
                       </Badge>
-                    )}
-                    <Badge
-                      variant="outline"
-                      className={u.active ? "text-green-500 border-green-500/30 text-[10px]" : "text-destructive border-destructive/30 text-[10px]"}
-                    >
-                      {u.active ? "Active" : "Suspended"}
-                    </Badge>
+                      <Badge
+                        variant="outline"
+                        className={u.active ? "text-green-500 border-green-500/30 text-[10px]" : "text-destructive border-destructive/30 text-[10px]"}
+                      >
+                        {u.active ? "Active" : "Suspended"}
+                      </Badge>
+                    </div>
                   </div>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <Button
-                    size="sm"
-                    variant={u.active ? "outline" : "outline"}
-                    disabled={isCurrentUser || toggling === u.id || isLockedSuperAdmin}
-                    onClick={() => toggleActive(u.id, u.active ?? true)}
-                    className={`text-xs ${u.active ? "border-destructive/30 text-destructive hover:bg-destructive/10" : "border-green-500/30 text-green-500 hover:bg-green-500/10"}`}
-                    data-testid={`button-toggle-${u.id}`}
-                    title={isLockedSuperAdmin ? "Super Admin accounts cannot be suspended — demote them first" : ""}
-                  >
-                    {toggling === u.id ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : u.active ? "Suspend" : "Activate"}
-                  </Button>
-                  {isSuperAdmin && !isCurrentUser && !isLockedSuperAdmin && (
+                  <div className="flex items-center gap-2 flex-shrink-0">
                     <Button
                       size="sm"
-                      variant="ghost"
-                      disabled={removing === u.id}
-                      onClick={() => setConfirmRemove({ id: u.id, email: u.email })}
-                      className="text-xs text-destructive hover:bg-destructive/10"
-                      data-testid={`button-remove-${u.id}`}
-                      title="Remove member permanently"
+                      variant="outline"
+                      disabled={isCurrentUser || toggling === u.id || isSuperAdminTarget}
+                      onClick={() => toggleActive(u.id, u.active ?? true)}
+                      className={`text-xs ${u.active ? "border-destructive/30 text-destructive hover:bg-destructive/10" : "border-green-500/30 text-green-500 hover:bg-green-500/10"}`}
+                      data-testid={`button-toggle-${u.id}`}
+                      title={isSuperAdminTarget ? "Demote to Admin first, then suspend" : ""}
                     >
-                      {removing === u.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      {toggling === u.id ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : u.active ? "Suspend" : "Activate"}
                     </Button>
-                  )}
+                    {isSuperAdmin && !isCurrentUser && !isSuperAdminTarget && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={removing === u.id}
+                        onClick={() => setConfirmRemove({ id: u.id, email: u.email })}
+                        className="text-xs text-destructive hover:bg-destructive/10"
+                        data-testid={`button-remove-${u.id}`}
+                        title="Remove member permanently"
+                      >
+                        {removing === u.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      </Button>
+                    )}
+                  </div>
                 </div>
+
+                {/* Role change row — super admin can change role for any non-self user */}
+                {isSuperAdmin && !isCurrentUser && (
+                  <div className="px-4 pb-3 flex items-center gap-2 border-t border-border/40 pt-3">
+                    <span className="text-[11px] text-muted-foreground flex-shrink-0">Change role:</span>
+                    <Select
+                      value={u.role}
+                      onValueChange={(v) => changeRole(u.id, v)}
+                      disabled={changingRole === u.id}
+                    >
+                      <SelectTrigger className={`h-7 px-2 py-0 text-[11px] w-[160px] ${meta.border} ${meta.text}`}>
+                        {changingRole === u.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <SelectValue />
+                        )}
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="super_admin" className="text-xs">
+                          <span className="text-amber-500 font-medium">Super Admin</span>
+                          <span className="text-muted-foreground ml-1">— full control + roles</span>
+                        </SelectItem>
+                        <SelectItem value="admin" className="text-xs">
+                          <span className="text-primary font-medium">Admin</span>
+                          <span className="text-muted-foreground ml-1">— ops, finance, fleet</span>
+                        </SelectItem>
+                        <SelectItem value="operator" className="text-xs">
+                          <span className="font-medium">Operator</span>
+                          <span className="text-muted-foreground ml-1">— daily ops, no finance</span>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {isSuperAdminTarget && (
+                      <span className="text-[11px] text-amber-500/80 flex items-center gap-1">
+                        <Lock className="w-3 h-3" /> Demote to Admin to unlock suspend/remove
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             );
           })
@@ -1048,8 +1100,8 @@ function UsersTab({ currentUserId, isSuperAdmin }: { currentUserId?: string; isS
       <RecentActivityPanel />
 
       <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-xs text-muted-foreground space-y-1">
-        <p className="font-semibold text-amber-500 flex items-center gap-2"><Lock className="w-3.5 h-3.5" /> Why Super Admin is locked</p>
-        <p>Super Admin accounts cannot be suspended or removed directly to prevent locking the organisation out of its own data. To remove a Super Admin, demote them to Admin first using the role selector, then suspend or remove them.</p>
+        <p className="font-semibold text-amber-500 flex items-center gap-2"><Lock className="w-3.5 h-3.5" /> Why Super Admins can't be suspended directly</p>
+        <p>To prevent accidentally locking the organisation out, Super Admin accounts must be demoted to Admin first — then they can be suspended or removed. Use the role selector on their card to demote them.</p>
       </div>
 
       <InviteMemberDialog

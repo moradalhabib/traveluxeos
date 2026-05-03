@@ -87,8 +87,16 @@ router.post("/invite", async (req, res) => {
   return res.json(created);
 });
 
-router.get("/", async (_req, res) => {
-  const { data, error } = await supabase
+router.get("/", async (req, res) => {
+  const actor = await getUserFromToken(req.headers.authorization);
+  if (!actor) return res.status(401).json({ error: "Unauthorized" });
+  if (!["super_admin", "admin", "operator"].includes(actor.role)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+
+  // Use service role to bypass RLS so all team members are visible to admins.
+  const client = getServiceRoleClient() ?? supabase;
+  const { data, error } = await client
     .from("users")
     .select("*")
     .order("name");
