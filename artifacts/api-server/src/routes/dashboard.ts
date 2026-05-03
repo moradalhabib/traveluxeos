@@ -34,6 +34,8 @@ router.get("/summary", async (_req, res) => {
     { data: upcomingBookings },
     { data: unpaidInvoices },
     { data: arrangementFeeBookings },
+    { data: openInvoices },
+    { data: recentActivity },
   ] = await Promise.all([
     supabase.from("bookings").select("price, additional_charges, status").gte("date_time", todayStart.toISOString()),
     supabase.from("bookings").select("price, additional_charges, status").gte("date_time", weekStart.toISOString()),
@@ -55,7 +57,44 @@ router.get("/summary", async (_req, res) => {
     supabase.from("bookings").select("id").gte("date_time", todayStart.toISOString()).not("status", "in", '("Cancelled","Completed")'),
     supabase.from("invoices").select("id").not("status", "in", '("Paid","Cancelled")'),
     supabase.from("bookings").select("commission_amount, arrangement_fee_status").in("service_type", ["Hotel", "Apartment"]).gt("commission_amount", 0).neq("status", "Cancelled"),
+    // Open invoices with the fields we need to detect "overdue" without a
+    // second pass — applies the same 30-day rule the GET /invoices route
+    // uses, but read-only here so we don't trigger writes from a summary
+    // endpoint. Imported Odoo invoices (number contains "/") are excluded
+    // from the overdue calc since they were already settled in the legacy
+    // system. Total amount is summed for a headline £-figure on the alert.
+    supabase
+      .from("invoices")
+      .select("id, status, generated_at, total_amount, invoice_number")
+      .not("status", "in", '("Paid","Cancelled")'),
+    // Recent activity feed — last few audit lines for the dashboard widget.
+    // Best-effort: a missing table just yields a null/empty result.
+    supabase
+      .from("activity_log")
+      .select("id, action_type, description, entity_type, entity_id, entity_label, operator_name, occurred_at")
+      .order("occurred_at", { ascending: false })
+      .limit(8),
   ]);
+
+  // Same 30-day rule as routes/invoices.ts so the dashboard alert and the
+  // /invoices page agree on what counts as Overdue. Already-Overdue rows
+  // count too. Imported Odoo invoices excluded.
+  const PAYMENT_TERMS_DAYS_LOCAL = 30;
+  const nowMsLocal = Date.now();
+  const overdueRows = (openInvoices ?? []).filter((inv: any) => {
+    if (inv.status === "Overdue") return !(inv.invoice_number && String(inv.invoice_number).includes("/"));
+    if (inv.status !== "Generated" && inv.status !== "Sent") return false;
+    if (!inv.generated_at) return false;
+    if (inv.invoice_number && String(inv.invoice_number).includes("/")) return false;
+    const dueMs = new Date(inv.generated_at).getTime() + PAYMENT_TERMS_DAYS_LOCAL * 86_400_000;
+    return nowMsLocal > dueMs;
+  });
+  const overdue_invoices_count = overdueRows.length;
+  const overdue_invoices_total = overdueRows.reduce(
+    (s: number, inv: any) => s + Number(inv.total_amount ?? 0),
+    0,
+  );
+  const recent_activity = (recentActivity ?? []).slice(0, 6);
 
   // Suppliers owe TVL — outstanding supplier commissions across the live
   // ledger. Same predicates as the /commissions/supplier-receivables route
@@ -414,6 +453,9 @@ router.get("/summary", async (_req, res) => {
         pending_payouts: pendingPayouts,
         unpaid_invoices_count: unpaidInvoicesNew.length,
         unpaid_invoices_count_total_including_odoo: (unpaidInvoices ?? []).length,
+        overdue_invoices_count,
+        overdue_invoices_total,
+        recent_activity,
         top_clients: topClients,
         top_drivers: topDrivers,
         booking_sources: bookingSources,
@@ -538,6 +580,9 @@ router.get("/summary", async (_req, res) => {
     pending_payouts: pendingPayouts,
     unpaid_invoices_count: unpaidInvoicesNew.length,
     unpaid_invoices_count_total_including_odoo: (unpaidInvoices ?? []).length,
+    overdue_invoices_count,
+    overdue_invoices_total,
+    recent_activity,
     top_clients: topClients,
     top_drivers: topDrivers,
     booking_sources: bookingSources,

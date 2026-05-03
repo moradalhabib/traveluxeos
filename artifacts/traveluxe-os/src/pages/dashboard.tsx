@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, BellRing, Car, Plane, Bell, X, Inbox, Building2 } from "lucide-react";
+import { AlertTriangle, Briefcase, ChevronRight, Layers, CalendarRange, Search, Users, Receipt, Calculator, Clock, MessageCircle, BellRing, Car, Plane, Bell, X, Inbox, Building2, TrendingUp, Activity } from "lucide-react";
 import { isSupplierDrivenJob } from "@/lib/supplierDriven";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
@@ -194,6 +194,34 @@ export default function Dashboard() {
             );
           })}
         </div>
+      )}
+
+      {/* Overdue invoices urgent alert — surfaces invoices past 30-day
+          payment terms that the /invoices page would auto-flip to Overdue.
+          Lives directly under the starting-soon strip so any cash actually
+          owed to TVL is impossible to miss on Dashboard load. */}
+      {(s?.overdue_invoices_count ?? 0) > 0 && (
+        <Link href="/invoices?status=Overdue">
+          <div
+            className="bg-red-500/10 border-2 border-red-500/40 rounded-xl p-3.5 flex items-center gap-3 cursor-pointer hover:bg-red-500/15 transition-colors"
+            data-testid="banner-overdue-invoices"
+          >
+            <div className="w-9 h-9 rounded-full bg-red-500/20 flex items-center justify-center flex-shrink-0">
+              <Receipt className="w-5 h-5 text-red-400" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-red-400/80">Overdue invoices</p>
+              <p className="text-sm font-bold text-red-400">
+                {s.overdue_invoices_count} invoice{s.overdue_invoices_count !== 1 ? "s" : ""} past due
+                {s.overdue_invoices_total > 0 && (
+                  <span className="ml-1 font-semibold"> · £{Number(s.overdue_invoices_total).toLocaleString()}</span>
+                )}
+              </p>
+              <p className="text-[10px] text-red-400/70">Tap to chase — over 30 days since invoice generated</p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-red-400 flex-shrink-0" />
+          </div>
+        </Link>
       )}
 
       {/* No-driver urgent alert */}
@@ -462,6 +490,29 @@ export default function Dashboard() {
           </Card>
         </Link>
 
+        {/* Revenue (Month) — pulled directly from the dashboard summary,
+            which uses the same calc + STATS_CUTOFF as the Finance page so
+            the numbers can never disagree. Links into Finance for the
+            full P&L breakdown. Shown to all roles since revenue is a
+            standard operations KPI; granular profit breakdown stays gated
+            on Finance/Profit. */}
+        <Link href="/finance" data-testid="link-month-revenue-card">
+          <Card className="border-border bg-card hover:border-primary/30 transition-colors cursor-pointer">
+            <CardHeader className="flex flex-row items-center justify-between pb-0 pt-3 px-3 space-y-0">
+              <CardTitle className="text-[11px] font-medium text-muted-foreground">Revenue (Month)</CardTitle>
+              <TrendingUp className="w-3.5 h-3.5 text-primary" />
+            </CardHeader>
+            <CardContent className="px-3 pb-3 pt-1">
+              <div className="text-xl font-bold text-primary" data-testid="text-month-revenue">
+                £{Number(s?.revenue_this_month ?? 0).toLocaleString()}
+              </div>
+              <p className="text-[10px] text-muted-foreground">
+                {new Date().toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })}
+              </p>
+            </CardContent>
+          </Card>
+        </Link>
+
         <Link href="/bookings?upcoming=1">
           <Card className="border-border bg-card hover:border-primary/30 transition-colors cursor-pointer">
             <CardHeader className="flex flex-row items-center justify-between pb-0 pt-3 px-3 space-y-0">
@@ -533,6 +584,67 @@ export default function Dashboard() {
           </Card>
         </Link>
       </div>
+
+      {/* Recent Activity — last 6 entries from the activity_log feed.
+          Tapping the row deep-links into the related entity (booking,
+          client, driver, supplier, invoice) so operators can pick up
+          where the audit line points. Hidden when the feed is empty. */}
+      {Array.isArray(s?.recent_activity) && s.recent_activity.length > 0 && (
+        <Card className="border-border bg-card" data-testid="card-recent-activity">
+          <CardHeader className="pb-2 pt-3 px-3 flex flex-row items-center justify-between">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Activity className="w-3.5 h-3.5 text-primary" />
+              Recent Activity
+            </CardTitle>
+            <Link href="/admin?tab=activity">
+              <span className="text-xs text-primary hover:underline cursor-pointer">View all →</span>
+            </Link>
+          </CardHeader>
+          <CardContent className="pt-0 px-3 pb-3 space-y-1">
+            {s.recent_activity.map((entry: any) => {
+              const href = (() => {
+                if (!entry.entity_id) return null;
+                switch (entry.entity_type) {
+                  case "booking":  return `/bookings/${entry.entity_id}`;
+                  case "client":   return `/clients/${entry.entity_id}`;
+                  case "driver":   return `/drivers/${entry.entity_id}`;
+                  case "supplier": return `/suppliers/${entry.entity_id}`;
+                  case "invoice":  return `/invoices/${entry.entity_id}`;
+                  case "request":  return `/requests/${entry.entity_id}`;
+                  default:         return null;
+                }
+              })();
+              const when = entry.occurred_at
+                ? new Date(entry.occurred_at).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+                : "";
+              const Row = (
+                <div className="flex items-start gap-2 py-1.5 px-2 -mx-2 rounded-lg hover:bg-secondary/30 transition-colors">
+                  <div className="w-1.5 h-1.5 rounded-full bg-primary/60 mt-1.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-foreground leading-snug">
+                      {entry.description}
+                      {entry.entity_label && (
+                        <span className="text-muted-foreground"> · {entry.entity_label}</span>
+                      )}
+                    </p>
+                    <p className="text-[10px] text-muted-foreground">
+                      {when}{entry.operator_name ? ` · ${entry.operator_name}` : ""}
+                    </p>
+                  </div>
+                  {href && <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/50 flex-shrink-0 mt-1" />}
+                </div>
+              );
+              return href ? (
+                <Link key={entry.id} href={href}>
+                  <div className="cursor-pointer">{Row}</div>
+                </Link>
+              ) : (
+                <div key={entry.id}>{Row}</div>
+              );
+            })}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Top Clients & Drivers — side by side if both present */}
       {(s?.top_clients?.length > 0 || s?.top_drivers?.length > 0) && (

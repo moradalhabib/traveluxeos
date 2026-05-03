@@ -1013,6 +1013,17 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/BookingSourceStat"
+        overdue_invoices_count:
+          type: integer
+          description: Count of invoices past their 30-day payment terms (excludes legacy Odoo invoices).
+        overdue_invoices_total:
+          type: number
+          description: Sum of total_amount across overdue invoices (£).
+        recent_activity:
+          type: array
+          description: Most recent activity-log entries for the dashboard feed.
+          items:
+            $ref: "#/components/schemas/ActivityEntry"
       required:
         - bookings_today
         - bookings_this_week
@@ -1063,6 +1074,31 @@ components:
         count:
           type: integer
       required: [source, count]
+
+    ActivityEntry:
+      type: object
+      properties:
+        id:
+          type: string
+        action_type:
+          type: string
+        description:
+          type: string
+        entity_type:
+          type: string
+          nullable: true
+        entity_id:
+          type: string
+          nullable: true
+        entity_label:
+          type: string
+          nullable: true
+        operator_name:
+          type: string
+          nullable: true
+        occurred_at:
+          type: string
+      required: [id, action_type, description, occurred_at]
 
     Client:
       type: object

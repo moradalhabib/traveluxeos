@@ -5,6 +5,7 @@
  * Traveluxe OS API specification
  * OpenAPI spec version: 0.1.0
  */
+import type { ActivityEntry } from "./activityEntry";
 import type { BookingSourceStat } from "./bookingSourceStat";
 import type { ClientStat } from "./clientStat";
 import type { DriverStat } from "./driverStat";
@@ -24,4 +25,10 @@ export interface DashboardSummary {
   top_clients: ClientStat[];
   top_drivers: DriverStat[];
   booking_sources: BookingSourceStat[];
+  /** Count of invoices past their 30-day payment terms (excludes legacy Odoo invoices). */
+  overdue_invoices_count?: number;
+  /** Sum of total_amount across overdue invoices (£). */
+  overdue_invoices_total?: number;
+  /** Most recent activity-log entries for the dashboard feed. */
+  recent_activity?: ActivityEntry[];
 }

@@ -28,6 +28,17 @@ export interface BookingSourceStat {
   count: number;
 }
 
+export interface ActivityEntry {
+  id: string;
+  action_type: string;
+  description: string;
+  entity_type?: string | null;
+  entity_id?: string | null;
+  entity_label?: string | null;
+  operator_name?: string | null;
+  occurred_at: string;
+}
+
 export interface DashboardSummary {
   bookings_today: number;
   bookings_this_week: number;
@@ -43,6 +54,12 @@ export interface DashboardSummary {
   top_clients: ClientStat[];
   top_drivers: DriverStat[];
   booking_sources: BookingSourceStat[];
+  /** Count of invoices past their 30-day payment terms (excludes legacy Odoo invoices). */
+  overdue_invoices_count?: number;
+  /** Sum of total_amount across overdue invoices (£). */
+  overdue_invoices_total?: number;
+  /** Most recent activity-log entries for the dashboard feed. */
+  recent_activity?: ActivityEntry[];
 }
 
 export interface Client {

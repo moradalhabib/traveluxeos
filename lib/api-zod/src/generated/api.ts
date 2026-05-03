@@ -51,6 +51,31 @@ export const GetDashboardSummaryResponse = zod.object({
       count: zod.number(),
     }),
   ),
+  overdue_invoices_count: zod
+    .number()
+    .optional()
+    .describe(
+      "Count of invoices past their 30-day payment terms (excludes legacy Odoo invoices).",
+    ),
+  overdue_invoices_total: zod
+    .number()
+    .optional()
+    .describe("Sum of total_amount across overdue invoices (£)."),
+  recent_activity: zod
+    .array(
+      zod.object({
+        id: zod.string(),
+        action_type: zod.string(),
+        description: zod.string(),
+        entity_type: zod.string().nullish(),
+        entity_id: zod.string().nullish(),
+        entity_label: zod.string().nullish(),
+        operator_name: zod.string().nullish(),
+        occurred_at: zod.string(),
+      }),
+    )
+    .optional()
+    .describe("Most recent activity-log entries for the dashboard feed."),
 });
 
 /**
