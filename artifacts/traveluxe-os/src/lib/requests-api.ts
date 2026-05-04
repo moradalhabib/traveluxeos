@@ -294,6 +294,31 @@ export function useBulkCancelFollowUps() {
   });
 }
 
+// ── SLA trend ─────────────────────────────────────────────────────────────
+// Weekly SLA performance used by the Analytics page.
+// Requests: % actioned within 12h. Follow-ups: % completed before due_date.
+export interface SLATrendWeek {
+  week_of: string;
+  req_total:   number;
+  req_on_time: number;
+  req_pct:     number | null;
+  fu_total:   number;
+  fu_on_time: number;
+  fu_pct:     number | null;
+}
+export interface SLATrendResponse {
+  weeks: SLATrendWeek[];
+}
+
+export function useSLATrend(weeks = 10) {
+  return useQuery<SLATrendResponse>({
+    queryKey: ["sla-trend", weeks],
+    queryFn: () => authFetch(`/dashboard/sla-trend?weeks=${weeks}`),
+    staleTime: 15 * 60 * 1000,
+    retry: 1,
+  });
+}
+
 // Same shape for follow-ups. The PATCH route detects cancelled→pending,
 // appends the audit line server-side, clears completed_at/_by, and
 // preserves cancellation_reason / cancelled_at. Lives here (alongside

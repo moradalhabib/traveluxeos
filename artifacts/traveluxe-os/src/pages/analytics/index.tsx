@@ -10,7 +10,7 @@ import {
   XCircle, ChevronDown, MessageCircle, Clock, Repeat, ArrowUp, ArrowDown,
   BarChart3, Building2, Route as RouteIcon, Car, Flame, Ban, Hourglass, RotateCcw,
 } from "lucide-react";
-import { useLostLeadStats, type LostLeadPeriod } from "@/lib/requests-api";
+import { useLostLeadStats, type LostLeadPeriod, useSLATrend, type SLATrendWeek } from "@/lib/requests-api";
 import {
   PieChart, Pie, Cell, Tooltip as RechartsTip, ResponsiveContainer,
   LineChart, Line, XAxis, YAxis, CartesianGrid,
@@ -344,6 +344,13 @@ export default function Analytics() {
   // Event calendar state
   const [lostLeadPeriod, setLostLeadPeriod] = useState<LostLeadPeriod>("this_month");
   const lostLeadStats = useLostLeadStats(lostLeadPeriod);
+  const slaTrendQuery = useSLATrend(10);
+  const slaTrendWeeks = slaTrendQuery.data?.weeks ?? [];
+  const slaTone = (pct: number | null) =>
+    pct === null ? "text-muted-foreground"
+    : pct >= 80  ? "text-emerald-400"
+    : pct >= 60  ? "text-amber-400"
+    : "text-red-400";
 
   const [selectedEvent, setSelectedEvent] = useState<CalEvent | null>(null);
 
@@ -2652,6 +2659,122 @@ export default function Analytics() {
                     </div>
                   );
                 })}
+              </div>
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      {/* 7. SLA RESPONSE TREND — weekly lead-response performance              */}
+      {/* ═══════════════════════════════════════════════════════════════════════ */}
+      <Card className="border-primary/10" data-testid="card-sla-trend">
+        <CardHeader className="pb-2">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Activity className="w-4 h-4 text-primary" />
+            SLA Response Trend
+            {!slaTrendQuery.isLoading && slaTrendWeeks.length > 0 && (() => {
+              const last = slaTrendWeeks[slaTrendWeeks.length - 1];
+              return (
+                <span className="ml-auto flex items-center gap-2 text-[10px] font-normal">
+                  <span className={`font-semibold ${slaTone(last.req_pct)}`}>
+                    {last.req_pct !== null ? `${last.req_pct}%` : "—"} req
+                  </span>
+                  <span className="text-muted-foreground/40">·</span>
+                  <span className={`font-semibold ${slaTone(last.fu_pct)}`}>
+                    {last.fu_pct !== null ? `${last.fu_pct}%` : "—"} f/u
+                  </span>
+                </span>
+              );
+            })()}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="pt-0 space-y-3">
+          {slaTrendQuery.isLoading ? (
+            <Skeleton className="h-44 w-full" />
+          ) : slaTrendQuery.isError ? (
+            <p className="text-xs text-destructive">Failed to load SLA trend.</p>
+          ) : slaTrendWeeks.length === 0 || slaTrendWeeks.every(w => w.req_total === 0 && w.fu_total === 0) ? (
+            <div className="rounded-xl border border-border/40 bg-muted/20 p-4 text-center">
+              <p className="text-xs text-muted-foreground">
+                No SLA data yet — will appear once requests or follow-ups are recorded.
+              </p>
+            </div>
+          ) : (
+            <>
+              {/* Legend */}
+              <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-4 h-0.5 rounded" style={{ background: "#F59E0B" }} />
+                  Requests ≤ 12h
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <span className="inline-block w-4 h-0.5 rounded" style={{ background: "#3B82F6" }} />
+                  Follow-ups on time
+                </span>
+              </div>
+
+              {/* Line chart */}
+              <div className="h-44">
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart
+                    data={slaTrendWeeks}
+                    margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+                    <XAxis
+                      dataKey="week_of"
+                      tick={{ fontSize: 10, fill: "#9CA3AF" }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v: string) => format(parseISO(v), "d MMM")}
+                      interval="preserveStartEnd"
+                    />
+                    <YAxis
+                      domain={[0, 100]}
+                      tick={{ fontSize: 10, fill: "#9CA3AF" }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(v: number) => `${v}%`}
+                    />
+                    <RechartsTip
+                      contentStyle={{ background: "#1a1a1a", border: "1px solid rgba(201,168,76,0.2)", borderRadius: 8, fontSize: 11 }}
+                      labelFormatter={(v: string) => `Week of ${format(parseISO(v), "d MMM yyyy")}`}
+                      formatter={(v: any, name: string, props: any) => {
+                        const pct = Number(v);
+                        const p = props.payload as SLATrendWeek;
+                        if (name === "req_pct") return [`${pct}% (${p.req_on_time}/${p.req_total})`, "Requests ≤ 12h"];
+                        return [`${pct}% (${p.fu_on_time}/${p.fu_total})`, "Follow-ups on time"];
+                      }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="req_pct"
+                      stroke="#F59E0B"
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: "#F59E0B", strokeWidth: 0 }}
+                      activeDot={{ r: 4 }}
+                      connectNulls={false}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="fu_pct"
+                      stroke="#3B82F6"
+                      strokeWidth={2}
+                      dot={{ r: 3, fill: "#3B82F6", strokeWidth: 0 }}
+                      activeDot={{ r: 4 }}
+                      connectNulls={false}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Three-tone reference */}
+              <div className="flex items-center gap-3 text-[10px]">
+                <span className="text-emerald-400 font-semibold">■ ≥ 80% on track</span>
+                <span className="text-amber-400 font-semibold">■ 60–79% at risk</span>
+                <span className="text-red-400 font-semibold">■ &lt; 60% breach</span>
+                <span className="ml-auto text-muted-foreground">12h threshold</span>
               </div>
             </>
           )}

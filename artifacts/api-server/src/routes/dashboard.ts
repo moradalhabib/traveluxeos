@@ -763,4 +763,129 @@ router.get("/lost-leads", async (req, res) => {
   });
 });
 
+// ─── GET /dashboard/sla-trend ───────────────────────────────────────────────
+// Weekly SLA performance for the last N weeks (default 10, max 20).
+//
+// Requests metric — % of "New" requests whose first status change happened
+//   within the 12h red threshold (updated_at − created_at ≤ 12h).
+//   Rows still "New" after 12h, or that Expired without action, count as
+//   breaches. Cancelled/converted rows updated within 12h count as on-time.
+//
+// Follow-ups metric — % of follow-ups completed (done/booked_return/
+//   no_response) on or before their due_date. Pending past-due rows count
+//   as breaches; cancelled rows are excluded so closed leads don't skew it.
+//
+// Both series are gated by STATS_CUTOFF_ISO so legacy Odoo data is excluded.
+router.get("/sla-trend", async (req, res) => {
+  const rawWeeks = parseInt(String(req.query.weeks ?? "10"), 10);
+  const weeksBack = isNaN(rawWeeks) ? 10 : Math.min(20, Math.max(4, rawWeeks));
+
+  const now = new Date();
+  const windowStart = new Date(now);
+  windowStart.setDate(now.getDate() - weeksBack * 7);
+  windowStart.setHours(0, 0, 0, 0);
+  const effectiveStart = windowStart < new Date(STATS_CUTOFF_ISO)
+    ? STATS_CUTOFF_ISO
+    : windowStart.toISOString();
+
+  const [reqRes, fuRes] = await Promise.all([
+    supabase
+      .from("requests")
+      .select("id, created_at, updated_at, status")
+      .gte("created_at", effectiveStart),
+    supabase
+      .from("follow_ups")
+      .select("id, due_date, status, completed_at")
+      .gte("due_date", effectiveStart.slice(0, 10))
+      .not("status", "eq", "cancelled"),
+  ]);
+
+  if (reqRes.error) return res.status(500).json({ error: reqRes.error.message });
+  if (fuRes.error)  return res.status(500).json({ error: fuRes.error.message });
+
+  // ISO Monday of the week containing `d`
+  function weekMonday(d: Date): string {
+    const dow = d.getDay(); // 0=Sun, 1=Mon …
+    const mon = new Date(d);
+    mon.setDate(d.getDate() - ((dow + 6) % 7));
+    mon.setHours(0, 0, 0, 0);
+    return mon.toISOString().slice(0, 10);
+  }
+
+  // Build the ordered bucket list — one per week that falls inside the window
+  const bucketSet = new Set<string>();
+  const cur = new Date(effectiveStart);
+  while (cur <= now) {
+    bucketSet.add(weekMonday(cur));
+    cur.setDate(cur.getDate() + 7);
+  }
+  bucketSet.add(weekMonday(now));
+  const buckets = Array.from(bucketSet).sort();
+
+  const SLA_RED_HOURS = 12;
+
+  // ── Requests ────────────────────────────────────────────────────────────
+  const reqBuckets: Record<string, { total: number; on_time: number }> = {};
+  for (const b of buckets) reqBuckets[b] = { total: 0, on_time: 0 };
+
+  for (const r of (reqRes.data ?? []) as any[]) {
+    if (!r.created_at) continue;
+    const created = new Date(r.created_at);
+    const bk = weekMonday(created);
+    if (!reqBuckets[bk]) reqBuckets[bk] = { total: 0, on_time: 0 };
+    reqBuckets[bk].total += 1;
+    // On-time: status changed away from "New" within 12 h of creation
+    const isActioned = r.status !== "New" && r.status !== "Expired";
+    if (isActioned && r.updated_at) {
+      const hours = (new Date(r.updated_at).getTime() - created.getTime()) / 3_600_000;
+      if (hours >= 0 && hours <= SLA_RED_HOURS) {
+        reqBuckets[bk].on_time += 1;
+      }
+    }
+    // Still "New" or "Expired" without timely action → breach (on_time unchanged)
+  }
+
+  // ── Follow-ups ───────────────────────────────────────────────────────────
+  const fuBuckets: Record<string, { total: number; on_time: number }> = {};
+  for (const b of buckets) fuBuckets[b] = { total: 0, on_time: 0 };
+
+  const FU_TERMINAL = new Set(["done", "booked_return", "no_response"]);
+  const todayStr = now.toISOString().slice(0, 10);
+
+  for (const f of (fuRes.data ?? []) as any[]) {
+    if (!f.due_date) continue;
+    const dueDateStr = String(f.due_date).slice(0, 10);
+    // Exclude future due-dates — they haven't been assessed yet
+    if (dueDateStr > todayStr) continue;
+    // Midday avoids UTC midnight → previous-day shift in weekMonday
+    const bk = weekMonday(new Date(`${dueDateStr}T12:00:00`));
+    if (!fuBuckets[bk]) fuBuckets[bk] = { total: 0, on_time: 0 };
+    fuBuckets[bk].total += 1;
+    // On-time: completed on or before the due date
+    if (FU_TERMINAL.has(f.status) && f.completed_at) {
+      const completedStr = String(f.completed_at).slice(0, 10);
+      if (completedStr <= dueDateStr) {
+        fuBuckets[bk].on_time += 1;
+      }
+    }
+    // pending past due, or completed after due → breach
+  }
+
+  const weeks = buckets.map(weekOf => {
+    const rq = reqBuckets[weekOf] ?? { total: 0, on_time: 0 };
+    const fu = fuBuckets[weekOf] ?? { total: 0, on_time: 0 };
+    return {
+      week_of: weekOf,
+      req_total:   rq.total,
+      req_on_time: rq.on_time,
+      req_pct: rq.total > 0 ? Math.round((rq.on_time / rq.total) * 100) : null,
+      fu_total:   fu.total,
+      fu_on_time: fu.on_time,
+      fu_pct: fu.total > 0 ? Math.round((fu.on_time / fu.total) * 100) : null,
+    };
+  });
+
+  return res.json({ weeks });
+});
+
 export default router;
