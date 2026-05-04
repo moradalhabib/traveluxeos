@@ -506,7 +506,7 @@ export default function BookingDetail() {
   const invalidateBookingDetail = useCallback(() => {
     qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
     qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-    qc.invalidateQueries({ queryKey: getListBookingsQueryKey() });
+    qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) });
   }, [qc, id]);
 
   // Broader sweep used after status / driver / completion / invoice changes.
@@ -518,7 +518,7 @@ export default function BookingDetail() {
   const invalidateBookingFanout = useCallback((driverId?: string | null) => {
     qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
     qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-    qc.invalidateQueries({ queryKey: getListBookingsQueryKey() });
+    qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) });
     qc.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
     qc.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
     qc.invalidateQueries({ queryKey: getListTasksQueryKey() });
@@ -645,7 +645,7 @@ export default function BookingDetail() {
       if (!res.ok) throw new Error(body.error ?? "Failed to send invoice email");
       // Refresh the email-status badge on this booking and the global list.
       qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
-      qc.invalidateQueries({ queryKey: getListBookingsQueryKey() });
+      qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) });
       toast({
         title: (booking as any)?.is_amended ? "Amended invoice sent" : "Invoice sent",
         description: `Emailed to ${body.sent_to ?? "the client"}.`,
@@ -1277,7 +1277,7 @@ export default function BookingDetail() {
         // the detail (via refetch for instant UI), the list (price/date
         // visible in cards), commission ledger, and dashboard KPIs.
         refetch();
-        qc.invalidateQueries({ queryKey: getListBookingsQueryKey() });
+        qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) });
         qc.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
         qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
       },
@@ -3313,7 +3313,7 @@ export default function BookingDetail() {
             // so TanStack Query matches array keys by deep-equal — string
             // prefix predicates are unreliable (key arrays aren't strings).
             qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
-            qc.invalidateQueries({ queryKey: getListBookingsQueryKey() });
+            qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) });
             qc.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
             qc.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
             qc.invalidateQueries({ queryKey: getGetFinanceSummaryQueryKey() });
