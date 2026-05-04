@@ -341,6 +341,11 @@ paths:
           schema:
             type: string
             enum: [exclude, only, all]
+        - name: cancellation_reason
+          in: query
+          description: "Filter cancelled bookings by reason. Use __none for bookings with NULL/blank reason."
+          schema:
+            type: string
       responses:
         "200":
           description: List of bookings

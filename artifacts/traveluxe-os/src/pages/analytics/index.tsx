@@ -2678,6 +2678,14 @@ export default function Analytics() {
                           f/u
                         </button>
                       )}
+                      <button
+                        onClick={() => navigate(`/bookings?status=Cancelled&reason=${reasonParam}`)}
+                        className="px-2.5 rounded-lg bg-muted/20 border border-border/40 hover:border-primary/30 hover:bg-primary/5 transition-all text-[10px] text-muted-foreground hover:text-foreground flex-shrink-0"
+                        title="Open cancelled bookings for this reason"
+                        data-testid={`button-lostlead-bookings-${r.reason.replace(/\s+/g,"-").toLowerCase()}`}
+                      >
+                        bk
+                      </button>
                     </div>
                   );
                 })}

@@ -558,6 +558,10 @@ export type ListBookingsParams = {
    * Filter for legacy Odoo imports. exclude (default) hides them, only shows just them, all returns both.
    */
   imported?: ListBookingsImported;
+  /**
+   * Filter cancelled bookings by reason. Use __none for bookings with NULL/blank reason.
+   */
+  cancellation_reason?: string;
 };
 
 export type ListBookingsImported =

@@ -492,7 +492,7 @@ export async function sendPaymentReceiptEmail(
 }
 
 router.get("/", async (req, res) => {
-  const { status, service_type, date_from, date_to, driver_id, operator_id, payment_status, imported } = req.query;
+  const { status, service_type, date_from, date_to, driver_id, operator_id, payment_status, imported, cancellation_reason } = req.query;
   const db = getDbClient(req.headers.authorization);
 
   let query = db
@@ -523,6 +523,15 @@ router.get("/", async (req, res) => {
   if (driver_id) query = query.eq("driver_id", String(driver_id));
   if (operator_id) query = query.eq("operator_id", String(operator_id));
   if (payment_status) query = query.eq("payment_status", String(payment_status));
+  if (cancellation_reason) {
+    const r = String(cancellation_reason);
+    // __none sentinel → IS NULL or empty string (unspecified reason)
+    if (r === "__none") {
+      query = query.or("cancellation_reason.is.null,cancellation_reason.eq.");
+    } else {
+      query = query.eq("cancellation_reason", r);
+    }
+  }
 
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });

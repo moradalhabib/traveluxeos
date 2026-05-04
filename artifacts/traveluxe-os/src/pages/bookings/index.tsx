@@ -79,9 +79,14 @@ export default function Bookings() {
   const [status, setStatus] = useFilterState<string>("status", "");
   const [search, setSearch] = useFilterState<string>("q", "");
   const [source, setSource] = useFilterState<"active" | "imported">("source", "active");
+  const [reason, setReason] = useFilterState<string>("reason", "");
 
   const importedParam = source === "imported" ? ("only" as const) : ("exclude" as const);
-  const params = { status: status || undefined, imported: importedParam };
+  const params = {
+    status: status || undefined,
+    imported: importedParam,
+    cancellation_reason: reason || undefined,
+  };
   const { data: rawBookings, isLoading } = useListBookings(
     params,
     { query: { enabled: true, queryKey: getListBookingsQueryKey(params) } },
@@ -164,9 +169,9 @@ export default function Bookings() {
   const [expandedMonths, setExpandedMonths] = useState<Record<string, boolean>>({});
   const [expandedDays, setExpandedDays] = useState<Record<string, boolean>>({});
 
-  // While searching/filtering by status, force-expand everything so results
-  // aren't hidden behind closed accordions.
-  const expandAll = !!search.trim() || !!status;
+  // While searching/filtering by status or reason, force-expand everything so
+  // results aren't hidden behind closed accordions.
+  const expandAll = !!search.trim() || !!status || !!reason;
   const isYearOpen = (k: string) => expandAll || (expandedYears[k] ?? (k === currentYear));
   const isMonthOpen = (k: string) => expandAll || (expandedMonths[k] ?? (k === currentMonthKey));
   const isDayOpen = (k: string) => expandAll || (expandedDays[k] ?? false);
@@ -269,9 +274,11 @@ export default function Bookings() {
           chips.push({ key: "source", label: "Source", value: "Imported (Odoo)", onClear: () => setSource("active") });
         }
         if (status !== "") chips.push({ key: "status", label: "Status", value: status, onClear: () => setStatus("") });
+        if (reason !== "") chips.push({ key: "reason", label: "Reason", value: reason === "__none" ? "Unspecified" : reason, onClear: () => setReason("") });
         return <ActiveFilterChips filters={chips} onClearAll={() => {
           if (isSuperAdmin && !isResidenceManager) setSource("active");
           setStatus("");
+          setReason("");
         }} />;
       })()}
 
@@ -285,7 +292,7 @@ export default function Bookings() {
           <Archive className="w-12 h-12 text-muted-foreground/30 mb-4" />
           <p className="text-muted-foreground font-medium">No bookings match your filters</p>
           <p className="text-sm text-muted-foreground/70 mt-1 mb-6">Try clearing filters or check the Jobs Board for current activity.</p>
-          <Button variant="outline" onClick={() => { setStatus(""); setSearch(""); }}>
+          <Button variant="outline" onClick={() => { setStatus(""); setSearch(""); setReason(""); }}>
             <X className="w-4 h-4 mr-2" /> Clear filters
           </Button>
         </div>

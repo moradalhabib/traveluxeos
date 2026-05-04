@@ -440,6 +440,7 @@ export const ListBookingsQueryParams = zod.object({
     .describe(
       "Filter for legacy Odoo imports. exclude (default) hides them, only shows just them, all returns both.",
     ),
+  cancellation_reason: zod.coerce.string().optional(),
 });
 
 export const ListBookingsResponseItem = zod.object({
