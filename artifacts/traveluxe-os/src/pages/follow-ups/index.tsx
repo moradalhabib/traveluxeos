@@ -870,15 +870,17 @@ export default function FollowUps() {
                           on a single wrapping line. Mirrors the request
                           banner so two-admin teams can see at a glance who
                           pulled the trigger and why. */}
-                      {fu.status === "cancelled" && (fu.cancelled_by_name || fu.cancelled_at || fu.cancellation_reason) && (
-                        <p className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-1.5">
-                          <span>{fu.cancelled_by_name ? "Cancelled by" : "Cancelled"}</span>
-                          {fu.cancelled_by_name && (
+                      {fu.status === "cancelled" && (
+                        <p
+                          className="text-[11px] text-muted-foreground flex flex-wrap items-center gap-x-1.5"
+                          data-testid={`text-cancelled-by-${fu.id}`}
+                        >
+                          <span>Cancelled by</span>
+                          {fu.cancelled_by_name ? (
                             <Tooltip>
                               <TooltipTrigger asChild>
                                 <span
                                   className="font-medium text-foreground/90 cursor-help underline decoration-dotted decoration-muted-foreground/40 underline-offset-2"
-                                  data-testid={`text-cancelled-by-${fu.id}`}
                                 >
                                   {fu.cancelled_by_name}
                                 </span>
@@ -887,6 +889,8 @@ export default function FollowUps() {
                                 {fu.cancelled_by_email ?? fu.cancelled_by_name}
                               </TooltipContent>
                             </Tooltip>
+                          ) : (
+                            <span className="font-medium text-muted-foreground">—</span>
                           )}
                           {fu.cancelled_at && (
                             <>
