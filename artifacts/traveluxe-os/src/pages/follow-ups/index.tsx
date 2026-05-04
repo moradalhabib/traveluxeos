@@ -892,7 +892,7 @@ export default function FollowUps() {
                           ) : (
                             <span className="font-medium text-muted-foreground">—</span>
                           )}
-                          {fu.cancelled_at && (
+                          {fu.cancelled_by_name && fu.cancelled_at && (
                             <>
                               <span aria-hidden="true">·</span>
                               <span>{fmtLondon(fu.cancelled_at, "d MMM HH:mm")}</span>
