@@ -46,14 +46,15 @@ export default function Drivers() {
       toast({ title: "Delete failed", description: body.error ?? "Unknown error", variant: "destructive" });
       return;
     }
-    const { deleted = 0, failed = 0 } = body;
+    const { deleted = 0, failed = 0, missing = 0 } = body;
+    const missedNote = missing > 0 ? ` (${missing} already gone)` : "";
     queryClient.invalidateQueries();
     bulk.exitSelectMode();
     if (failed === 0) {
-      toast({ title: `Deleted ${deleted} driver${deleted === 1 ? "" : "s"}` });
+      toast({ title: `Deleted ${deleted} driver${deleted === 1 ? "" : "s"}${missedNote}` });
     } else {
       toast({
-        title: `Deleted ${deleted}, ${failed} failed`,
+        title: `Deleted ${deleted}, ${failed} failed${missedNote}`,
         description: body.error ?? "Some drivers could not be deleted.",
         variant: "destructive",
       });

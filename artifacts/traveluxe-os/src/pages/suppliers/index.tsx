@@ -100,7 +100,7 @@ export default function SuppliersList() {
       toast.error(body.error ?? "Delete failed");
       return;
     }
-    const { deleted = 0, deactivated = 0, failed = 0 } = body;
+    const { deleted = 0, deactivated = 0, failed = 0, missing = 0 } = body;
     let msg: string;
     if (deactivated > 0 && deleted === 0 && failed === 0) {
       msg = `Deactivated — ${deactivated} supplier${deactivated === 1 ? "" : "s"} had bookings`;
@@ -111,6 +111,7 @@ export default function SuppliersList() {
       if (failed) parts.push(`${failed} failed`);
       msg = parts.join(", ") || "No changes";
     }
+    if (missing > 0) msg += ` · ${missing} already gone`;
     if (failed > 0) toast.error(msg);
     else if (deactivated > 0 && deleted === 0) toast.warning(msg);
     else toast.success(msg);

@@ -158,9 +158,10 @@ export default function Requests() {
       toast.error(body.error ?? "Delete failed");
       return;
     }
-    const { deleted = 0, failed = 0 } = body;
-    if (failed === 0) toast.success(`${deleted} request${deleted === 1 ? "" : "s"} deleted`);
-    else toast.error(`${deleted} deleted, ${failed} failed`);
+    const { deleted = 0, failed = 0, missing = 0 } = body;
+    const missedNote = missing > 0 ? ` (${missing} already gone)` : "";
+    if (failed === 0) toast.success(`${deleted} request${deleted === 1 ? "" : "s"} deleted${missedNote}`);
+    else toast.error(`${deleted} deleted, ${failed} failed${missedNote}`);
     queryClient.invalidateQueries();
     bulk.exitSelectMode();
   };

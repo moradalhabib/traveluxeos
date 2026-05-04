@@ -66,10 +66,11 @@ export default function Invoices() {
       toast({ title: "Delete failed", description: body.error ?? "Unknown error", variant: "destructive" });
       return;
     }
-    const { deleted = 0, failed = 0 } = body;
+    const { deleted = 0, failed = 0, missing = 0 } = body;
+    const missedNote = missing > 0 ? ` · ${missing} already gone` : "";
     toast({
       title: failed === 0 ? "Invoices deleted" : `${deleted} deleted, ${failed} failed`,
-      description: failed === 0 ? `${deleted} invoice${deleted === 1 ? "" : "s"} permanently removed` : "Some deletions failed",
+      description: (failed === 0 ? `${deleted} invoice${deleted === 1 ? "" : "s"} permanently removed` : "Some deletions failed") + missedNote,
       variant: failed === 0 ? undefined : "destructive",
     });
     queryClient.invalidateQueries();

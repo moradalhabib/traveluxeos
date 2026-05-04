@@ -176,14 +176,15 @@ export default function FollowUps() {
       toast({ title: "Delete failed", description: body.error ?? "Unknown error", variant: "destructive" });
       return;
     }
-    const { deleted = 0, failed = 0 } = body;
+    const { deleted = 0, failed = 0, missing = 0 } = body;
     bulk.exitSelectMode();
     fetchData();
     qc.invalidateQueries();
+    const missedNote = missing > 0 ? ` (${missing} already gone)` : "";
     if (failed === 0) {
-      toast({ title: `Deleted ${deleted} follow-up${deleted === 1 ? "" : "s"}` });
+      toast({ title: `Deleted ${deleted} follow-up${deleted === 1 ? "" : "s"}${missedNote}` });
     } else {
-      toast({ title: `Deleted ${deleted}, ${failed} failed`, variant: "destructive" });
+      toast({ title: `Deleted ${deleted}, ${failed} failed${missedNote}`, variant: "destructive" });
     }
   };
 
