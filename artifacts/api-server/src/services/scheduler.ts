@@ -1165,13 +1165,27 @@ async function scanSlaBreach() {
   const now    = new Date();
   const nowMs  = now.getTime();
 
-  const redCutoff  = new Date(nowMs - SLA_BREACH_RED_HOURS * 3_600_000).toISOString();
-  const maxAgeCut  = new Date(nowMs - SLA_BREACH_MAX_AGE_HOURS * 3_600_000).toISOString();
-  const yesterdayStr    = new Date(nowMs - 24 * 3_600_000).toISOString().slice(0, 10);
+  const redCutoff      = new Date(nowMs - SLA_BREACH_RED_HOURS * 3_600_000).toISOString();
+  const maxAgeCut      = new Date(nowMs - SLA_BREACH_MAX_AGE_HOURS * 3_600_000).toISOString();
+  const yesterdayStr   = new Date(nowMs - 24 * 3_600_000).toISOString().slice(0, 10);
   const sevenDaysAgoStr = new Date(nowMs - SLA_BREACH_MAX_AGE_HOURS * 3_600_000).toISOString().slice(0, 10);
 
   // ── Requests ────────────────────────────────────────────────────────────────
-  const { data: breachedReqs, error: reqErr } = await schedDb()
+  // Step 1: Fetch ALL already-notified request IDs (no limit) so we can
+  // exclude them from the candidate query.  Doing the dedup IN the DB query
+  // (rather than post-filtering a fixed-size result page) prevents "backlog
+  // starvation" where the same oldest-N rows occupy the limit window every
+  // hour and newer breaches are never reached.
+  const { data: reqSentRows } = await schedDb()
+    .from("audit_log")
+    .select("entity_id")
+    .eq("action", "sla_breach_notified")
+    .eq("entity_type", "request");
+  const reqSentIds = [...new Set((reqSentRows ?? []).map((r: any) => r.entity_id).filter(Boolean))];
+
+  // Step 2: Candidate query excludes already-notified IDs so limit(50) always
+  // returns up to 50 *unnotified* breached rows.
+  let reqQuery = schedDb()
     .from("requests")
     .select("id, client_name, service_type, created_at")
     .eq("status", "New")
@@ -1179,26 +1193,25 @@ async function scanSlaBreach() {
     .gte("created_at", maxAgeCut)  // cap to 7 days of history
     .order("created_at", { ascending: true })
     .limit(50);
+  if (reqSentIds.length > 0) {
+    reqQuery = reqQuery.not("id", "in", `(${reqSentIds.join(",")})`);
+  }
+
+  const { data: unsent, error: reqErr } = await reqQuery;
 
   if (reqErr) {
     console.warn("[Scheduler] SLA breach scan (requests) error:", reqErr.message);
-  } else if (breachedReqs && breachedReqs.length > 0) {
-    const ids = breachedReqs.map((r: any) => r.id);
-    const { data: alreadySent } = await schedDb()
-      .from("audit_log")
-      .select("entity_id")
-      .eq("action", "sla_breach_notified")
-      .eq("entity_type", "request")
-      .in("entity_id", ids);
-    const sentSet = new Set((alreadySent ?? []).map((r: any) => r.entity_id));
-    const unsent = breachedReqs.filter((r: any) => !sentSet.has(r.id));
-
-    for (const req of unsent) {
+  } else {
+    for (const req of (unsent ?? [])) {
       const ageH = Math.round((nowMs - new Date(req.created_at).getTime()) / 3_600_000);
       const clientLabel = req.client_name ?? "Unknown";
       const title = "SLA Breach — Lead not actioned";
       const body  = `${clientLabel} (${req.service_type ?? "—"}) has been waiting ${ageH}h`;
-      await notifyByRoles(ADMIN_ROLES, {
+
+      // Step 3: Only stamp the audit log when the notification actually lands.
+      // If notifyByRoles returns false (DB error) we skip the stamp so the
+      // next hourly scan can retry rather than silently dropping the alert.
+      const notified = await notifyByRoles(ADMIN_ROLES, {
         type:       "sla_breach",
         title,
         message:    body,
@@ -1207,16 +1220,28 @@ async function scanSlaBreach() {
         entityId:   req.id,
         severity:   "urgent",
         dedupeKey:  `sla-breach-req-${req.id}`,
-      }).catch(() => {});
-      await auditLog("sla_breach_notified", "request", req.id, null,
-        `SLA breach notified: ${clientLabel} ${ageH}h unactioned`).catch(() => {});
-      console.info(`[Scheduler] SLA breach: request ${req.id} (${clientLabel}) ${ageH}h unactioned`);
+      }).catch(() => false as boolean);
+
+      if (notified) {
+        await auditLog("sla_breach_notified", "request", req.id, null,
+          `SLA breach notified: ${clientLabel} ${ageH}h unactioned`).catch(() => {});
+        console.info(`[Scheduler] SLA breach: request ${req.id} (${clientLabel}) ${ageH}h unactioned`);
+      }
     }
   }
 
   // ── Follow-ups ───────────────────────────────────────────────────────────────
   // Red zone = due_date is yesterday or earlier (≥1 full calendar day overdue).
-  const { data: breachedFUs, error: fuErr } = await schedDb()
+  // Same two-step pattern: fetch all already-notified IDs first, then exclude
+  // them from the candidate query so limit(50) always covers fresh breaches.
+  const { data: fuSentRows } = await schedDb()
+    .from("audit_log")
+    .select("entity_id")
+    .eq("action", "sla_breach_notified")
+    .eq("entity_type", "follow_up");
+  const fuSentIds = [...new Set((fuSentRows ?? []).map((r: any) => r.entity_id).filter(Boolean))];
+
+  let fuQuery = schedDb()
     .from("follow_ups")
     .select("id, due_date, clients(name)")
     .eq("status", "pending")
@@ -1224,30 +1249,26 @@ async function scanSlaBreach() {
     .gte("due_date", sevenDaysAgoStr) // cap to 7 days of history
     .order("due_date", { ascending: true })
     .limit(50);
+  if (fuSentIds.length > 0) {
+    fuQuery = fuQuery.not("id", "in", `(${fuSentIds.join(",")})`);
+  }
+
+  const { data: fuUnsent, error: fuErr } = await fuQuery;
 
   if (fuErr) {
     console.warn("[Scheduler] SLA breach scan (follow-ups) error:", fuErr.message);
-  } else if (breachedFUs && breachedFUs.length > 0) {
-    const fuIds = breachedFUs.map((f: any) => f.id);
-    const { data: fuAlreadySent } = await schedDb()
-      .from("audit_log")
-      .select("entity_id")
-      .eq("action", "sla_breach_notified")
-      .eq("entity_type", "follow_up")
-      .in("entity_id", fuIds);
-    const fuSentSet = new Set((fuAlreadySent ?? []).map((r: any) => r.entity_id));
-    const fuUnsent = breachedFUs.filter((f: any) => !fuSentSet.has(f.id));
-
+  } else {
     const todayMidnight = new Date(now);
     todayMidnight.setUTCHours(0, 0, 0, 0);
 
-    for (const fu of fuUnsent) {
+    for (const fu of (fuUnsent ?? [])) {
       const clientName  = (fu as any).clients?.name ?? "Unknown";
       const dueMidnight = new Date(`${fu.due_date}T00:00:00Z`);
       const daysOverdue = Math.round((todayMidnight.getTime() - dueMidnight.getTime()) / 86_400_000);
       const title = "SLA Breach — Follow-up overdue";
       const body  = `${clientName} follow-up was due ${fu.due_date} (${daysOverdue}d overdue)`;
-      await notifyByRoles(ADMIN_ROLES, {
+
+      const notified = await notifyByRoles(ADMIN_ROLES, {
         type:       "sla_breach",
         title,
         message:    body,
@@ -1256,10 +1277,13 @@ async function scanSlaBreach() {
         entityId:   fu.id,
         severity:   "urgent",
         dedupeKey:  `sla-breach-fu-${fu.id}`,
-      }).catch(() => {});
-      await auditLog("sla_breach_notified", "follow_up", fu.id, null,
-        `SLA breach notified: ${clientName} follow-up ${daysOverdue}d overdue`).catch(() => {});
-      console.info(`[Scheduler] SLA breach: follow-up ${fu.id} (${clientName}) ${daysOverdue}d overdue`);
+      }).catch(() => false as boolean);
+
+      if (notified) {
+        await auditLog("sla_breach_notified", "follow_up", fu.id, null,
+          `SLA breach notified: ${clientName} follow-up ${daysOverdue}d overdue`).catch(() => {});
+        console.info(`[Scheduler] SLA breach: follow-up ${fu.id} (${clientName}) ${daysOverdue}d overdue`);
+      }
     }
   }
 }

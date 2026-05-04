@@ -108,15 +108,21 @@ export async function notifyUser(userId: string, opts: NotifyOpts): Promise<void
   await insertRows([userId], opts);
 }
 
-/** Insert one notification per user across the given roles (active users only).
- *  Pass `excludeUserId` to skip a single recipient — used by broadcast endpoints
- *  so the actor (who already saw the local success toast) doesn't get pinged
- *  again about their own action. */
+/**
+ * Insert one notification per user across the given roles (active users only).
+ * Returns `true` if the DB insert succeeded (or was a harmless dedupe),
+ * `false` if there was a genuine insert error — callers that need reliable
+ * "did it actually land?" semantics (e.g. the SLA breach scheduler) can use
+ * the return value to decide whether to write a dedup audit-log entry.
+ *
+ * Pass `excludeUserId` to skip a single recipient — used by broadcast
+ * endpoints so the actor doesn't get pinged about their own action.
+ */
 export async function notifyByRoles(
   roles: string[],
   opts: NotifyOpts,
   excludeUserId?: string | null,
-): Promise<void> {
+): Promise<boolean> {
   const { data: users } = await notifClient()
     .from("users")
     .select("id")
@@ -125,15 +131,19 @@ export async function notifyByRoles(
 
   let ids = (users ?? []).map((u: any) => u.id).filter(Boolean);
   if (excludeUserId) ids = ids.filter(id => id !== excludeUserId);
-  if (ids.length === 0) return;
+  if (ids.length === 0) return true; // no eligible recipients — not a failure
 
   const allowed = await filterByPrefs(ids, opts.type);
-  if (allowed.length === 0) return;
+  if (allowed.length === 0) return true; // all opted out — not a failure
 
-  await insertRows(allowed, opts);
+  return insertRows(allowed, opts);
 }
 
-async function insertRows(userIds: string[], opts: NotifyOpts): Promise<void> {
+/**
+ * Returns `true` if the rows were inserted successfully (or a dedupe hit),
+ * `false` on a genuine DB error so callers can decide whether to retry.
+ */
+async function insertRows(userIds: string[], opts: NotifyOpts): Promise<boolean> {
   const rows = userIds.map(uid => ({
     user_id: uid,
     type: opts.type,
@@ -157,11 +167,12 @@ async function insertRows(userIds: string[], opts: NotifyOpts): Promise<void> {
   const { error } = await client.from("notifications").insert(rows);
   if (error) {
     if (opts.dedupeKey && (error as any).code === "23505") {
-      // duplicate against the partial unique index — expected, swallow.
-      return;
+      // duplicate against the partial unique index — already delivered; treat
+      // as success so the caller doesn't retry unnecessarily.
+      return true;
     }
     console.error("[notify] insert error:", error.message);
-    return;
+    return false;
   }
 
   // Fire-and-forget Web Push for background delivery (when app is closed/backgrounded).
@@ -176,6 +187,7 @@ async function insertRows(userIds: string[], opts: NotifyOpts): Promise<void> {
       requireInteraction: opts.severity === "urgent",
     }).catch(() => {});
   }
+  return true;
 }
 
 export const STAFF_ROLES = ["operator", "admin", "super_admin"];
