@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { parseISO, format } from "date-fns";
 import { useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
+import { SLA_THRESHOLDS } from "@/lib/sla";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -348,7 +349,7 @@ export default function Analytics() {
   const slaTrendWeeks = slaTrendQuery.data?.weeks ?? [];
   const slaTone = (pct: number | null) =>
     pct === null ? "text-muted-foreground"
-    : pct >= 80  ? "text-emerald-400"
+    : pct >= 80  ? "text-foreground"
     : pct >= 60  ? "text-amber-400"
     : "text-red-400";
 
@@ -2706,7 +2707,7 @@ export default function Analytics() {
               <div className="flex items-center gap-4 text-[10px] text-muted-foreground">
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block w-4 h-0.5 rounded" style={{ background: "#F59E0B" }} />
-                  Requests ≤ 12h
+                  Requests ≤ {SLA_THRESHOLDS.request.redHours}h
                 </span>
                 <span className="flex items-center gap-1.5">
                   <span className="inline-block w-4 h-0.5 rounded" style={{ background: "#3B82F6" }} />
@@ -2743,7 +2744,7 @@ export default function Analytics() {
                       formatter={(v: any, name: string, props: any) => {
                         const pct = Number(v);
                         const p = props.payload as SLATrendWeek;
-                        if (name === "req_pct") return [`${pct}% (${p.req_on_time}/${p.req_total})`, "Requests ≤ 12h"];
+                        if (name === "req_pct") return [`${pct}% (${p.req_on_time}/${p.req_total})`, `Requests ≤ ${SLA_THRESHOLDS.request.redHours}h`];
                         return [`${pct}% (${p.fu_on_time}/${p.fu_total})`, "Follow-ups on time"];
                       }}
                     />
@@ -2769,12 +2770,12 @@ export default function Analytics() {
                 </ResponsiveContainer>
               </div>
 
-              {/* Three-tone reference */}
+              {/* Three-tone reference — aligns with SlaTone: neutral / amber / red */}
               <div className="flex items-center gap-3 text-[10px]">
-                <span className="text-emerald-400 font-semibold">■ ≥ 80% on track</span>
+                <span className="text-foreground font-semibold">■ ≥ 80% on track</span>
                 <span className="text-amber-400 font-semibold">■ 60–79% at risk</span>
                 <span className="text-red-400 font-semibold">■ &lt; 60% breach</span>
-                <span className="ml-auto text-muted-foreground">12h threshold</span>
+                <span className="ml-auto text-muted-foreground">{SLA_THRESHOLDS.request.redHours}h threshold</span>
               </div>
             </>
           )}

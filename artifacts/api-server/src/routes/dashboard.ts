@@ -822,6 +822,8 @@ router.get("/sla-trend", async (req, res) => {
   bucketSet.add(weekMonday(now));
   const buckets = Array.from(bucketSet).sort();
 
+  // Mirrors SLA_THRESHOLDS.request.redHours in artifacts/traveluxe-os/src/lib/sla.ts.
+  // Update both together if the threshold ever changes.
   const SLA_RED_HOURS = 12;
 
   // ── Requests ────────────────────────────────────────────────────────────
