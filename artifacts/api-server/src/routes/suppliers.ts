@@ -527,13 +527,21 @@ router.post("/bulk-delete", async (req, res) => {
   }
   const cleanIds = ids.map((id: any) => String(id)).filter(Boolean);
 
-  // One query: find which of the selected suppliers have linked bookings.
+  // Pre-check which supplier IDs actually exist for accurate missing count.
+  const { data: existingSuppliers } = await supabase
+    .from("suppliers").select("id").in("id", cleanIds);
+  const existingIds = (existingSuppliers ?? []).map((r: any) => r.id);
+  const missing = cleanIds.length - existingIds.length;
+
+  if (existingIds.length === 0) return res.json({ deleted: 0, deactivated: 0, failed: 0, missing });
+
+  // Find which existing suppliers have linked bookings (must be soft-deleted).
   const { data: linked } = await supabase
-    .from("bookings").select("supplier_id").in("supplier_id", cleanIds);
+    .from("bookings").select("supplier_id").in("supplier_id", existingIds);
   const linkedSet = new Set((linked ?? []).map((r: any) => r.supplier_id).filter(Boolean));
 
-  const toDeactivate = cleanIds.filter(id => linkedSet.has(id));
-  const toDelete = cleanIds.filter(id => !linkedSet.has(id));
+  const toDeactivate = existingIds.filter(id => linkedSet.has(id));
+  const toDelete = existingIds.filter(id => !linkedSet.has(id));
   let deleted = 0, deactivated = 0, failed = 0;
 
   if (toDeactivate.length > 0) {
@@ -555,7 +563,7 @@ router.post("/bulk-delete", async (req, res) => {
         `Bulk deleted ${toDelete.length} supplier(s) by ${user.name ?? user.email ?? user.id}`);
     }
   }
-  return res.json({ deleted, deactivated, failed });
+  return res.json({ deleted, deactivated, failed, missing });
 });
 
 // ─── DELETE /suppliers/:id ──────────────────────────────────────────────────

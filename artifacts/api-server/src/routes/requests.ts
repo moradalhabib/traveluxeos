@@ -390,14 +390,22 @@ router.post("/bulk-delete", async (req, res) => {
   }
   const cleanIds = ids.map((id: any) => String(id)).filter(Boolean);
 
-  const { error } = await supabase.from("requests").delete().in("id", cleanIds);
+  // Pre-check which request IDs actually exist so we can report missing accurately.
+  const { data: found } = await supabase
+    .from("requests").select("id").in("id", cleanIds);
+  const foundIds = (found ?? []).map((r: any) => r.id);
+  const missing = cleanIds.length - foundIds.length;
+
+  if (foundIds.length === 0) return res.json({ deleted: 0, failed: 0, missing });
+
+  const { error } = await supabase.from("requests").delete().in("id", foundIds);
   if (error) return res.status(400).json({ error: error.message });
 
   await auditLog(
-    "bulk_delete_requests", "request", cleanIds[0], user.id,
-    `Bulk deleted ${cleanIds.length} request(s) by ${user.name ?? user.email ?? user.id}`,
+    "bulk_delete_requests", "request", foundIds[0], user.id,
+    `Bulk deleted ${foundIds.length} request(s) by ${user.name ?? user.email ?? user.id}`,
   );
-  return res.json({ deleted: cleanIds.length, failed: 0, missing: 0 });
+  return res.json({ deleted: foundIds.length, failed: 0, missing });
 });
 
 router.delete("/:id", async (req, res) => {

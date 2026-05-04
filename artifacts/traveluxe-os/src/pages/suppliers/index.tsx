@@ -96,6 +96,10 @@ export default function SuppliersList() {
       body: JSON.stringify({ ids }),
     });
     const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      toast.error(body.error ?? "Delete failed");
+      return;
+    }
     const { deleted = 0, deactivated = 0, failed = 0 } = body;
     let msg: string;
     if (deactivated > 0 && deleted === 0 && failed === 0) {

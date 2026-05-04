@@ -271,9 +271,17 @@ router.post("/bulk-delete", async (req, res) => {
   }
   const cleanIds = ids.map((id: any) => String(id)).filter(Boolean);
 
-  // Collect every booking belonging to any of these clients.
+  // Pre-check which client IDs actually exist so we can report missing accurately.
+  const { data: existingClients } = await supabase
+    .from("clients").select("id").in("id", cleanIds);
+  const foundIds = (existingClients ?? []).map((r: any) => r.id);
+  const missing = cleanIds.length - foundIds.length;
+
+  if (foundIds.length === 0) return res.json({ deleted: 0, failed: 0, missing });
+
+  // Collect every booking belonging to the found clients.
   const { data: bookingRows } = await supabase
-    .from("bookings").select("id").in("client_id", cleanIds);
+    .from("bookings").select("id").in("client_id", foundIds);
   const bookingIds = (bookingRows ?? []).map((b: any) => b.id);
 
   if (bookingIds.length > 0) {
@@ -292,16 +300,16 @@ router.post("/bulk-delete", async (req, res) => {
     await supabase.from("bookings").delete().in("id", bookingIds);
   }
   // Client-scoped follow-ups that have no booking_id.
-  await supabase.from("follow_ups").delete().in("client_id", cleanIds);
+  await supabase.from("follow_ups").delete().in("client_id", foundIds);
 
-  const { error } = await supabase.from("clients").delete().in("id", cleanIds);
+  const { error } = await supabase.from("clients").delete().in("id", foundIds);
   if (error) return res.status(400).json({ error: error.message });
 
   await auditLog(
-    "bulk_delete_clients", "client", cleanIds[0], user.id,
-    `Bulk deleted ${cleanIds.length} client(s) by ${user.name ?? user.email ?? user.id}. Cascaded ${bookingIds.length} booking(s).`,
+    "bulk_delete_clients", "client", foundIds[0], user.id,
+    `Bulk deleted ${foundIds.length} client(s) by ${user.name ?? user.email ?? user.id}. Cascaded ${bookingIds.length} booking(s).`,
   );
-  return res.json({ deleted: cleanIds.length, failed: 0, missing: 0, cascaded_bookings: bookingIds.length });
+  return res.json({ deleted: foundIds.length, failed: 0, missing, cascaded_bookings: bookingIds.length });
 });
 
 // Deletes the client and EVERY booking linked to them, plus each booking's

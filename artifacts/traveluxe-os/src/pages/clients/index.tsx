@@ -91,6 +91,10 @@ export default function Clients() {
       body: JSON.stringify({ ids }),
     });
     const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      toast({ title: "Delete failed", description: body.error ?? "Unknown error", variant: "destructive" });
+      return;
+    }
     const { deleted = 0, failed = 0 } = body;
     toast({
       title: failed === 0 ? "Clients deleted" : `${deleted} deleted, ${failed} failed`,

@@ -154,6 +154,10 @@ export default function Requests() {
       body: JSON.stringify({ ids }),
     });
     const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      toast.error(body.error ?? "Delete failed");
+      return;
+    }
     const { deleted = 0, failed = 0 } = body;
     if (failed === 0) toast.success(`${deleted} request${deleted === 1 ? "" : "s"} deleted`);
     else toast.error(`${deleted} deleted, ${failed} failed`);
