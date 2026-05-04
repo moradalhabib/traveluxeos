@@ -80,28 +80,23 @@ export default function Clients() {
     }
   };
 
-  // Bulk-delete fan-out — uses the existing single-delete endpoint per id
-  // (DELETE /api/clients/:id). One bell notification per row would spam, so
-  // we toast a single roll-up here.
+  // Bulk-delete — single server round-trip, server handles full cascade.
   const handleBulkDelete = async () => {
     const ids = bulk.ids;
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
-    const results = await Promise.allSettled(
-      ids.map(id => fetch(`/api/clients/${id}`, {
-        method: "DELETE",
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      }).then(r => { if (!r.ok) throw new Error(String(r.status)); }))
-    );
-    const ok = results.filter(r => r.status === "fulfilled").length;
-    const fail = results.length - ok;
-    toast({
-      title: fail === 0 ? "Clients deleted" : `${ok} deleted, ${fail} failed`,
-      description: fail === 0 ? `${ok} client${ok === 1 ? "" : "s"} permanently removed` : "Some deletions failed — check audit log",
-      variant: fail === 0 ? undefined : "destructive",
+    const r = await fetch("/api/clients/bulk-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ ids }),
     });
-    // Client delete cascades to bookings/invoices/follow-ups on the
-    // server, so refresh every query so dashboards/intel stay in sync.
+    const body = await r.json().catch(() => ({}));
+    const { deleted = 0, failed = 0 } = body;
+    toast({
+      title: failed === 0 ? "Clients deleted" : `${deleted} deleted, ${failed} failed`,
+      description: failed === 0 ? `${deleted} client${deleted === 1 ? "" : "s"} permanently removed` : "Some deletions failed — check audit log",
+      variant: failed === 0 ? undefined : "destructive",
+    });
     queryClient.invalidateQueries();
     bulk.exitSelectMode();
   };

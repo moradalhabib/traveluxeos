@@ -1519,6 +1519,62 @@ router.put("/:id", async (req, res) => {
   return res.json(enriched);
 });
 
+// POST /bookings/bulk-delete — admin-only. Cascades the same cleanup as the
+// single-row DELETE /:id but batches all child-table deletions across the
+// full selection in one query per table (not one DELETE per booking).
+// Emits one aggregated staff notification instead of N individual ones.
+router.post("/bulk-delete", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || !["admin", "super_admin"].includes(user.role)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const { ids } = req.body ?? {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "ids must be a non-empty array" });
+  }
+  const cleanIds = ids.map((id: any) => String(id)).filter(Boolean);
+
+  // Snapshot for audit trail before deletion.
+  const { data: found } = await supabase
+    .from("bookings").select("id, tvl_ref, client_name").in("id", cleanIds);
+  const foundIds = (found ?? []).map((b: any) => b.id);
+  const missing = cleanIds.length - foundIds.length;
+
+  if (foundIds.length === 0) return res.json({ deleted: 0, failed: 0, missing });
+
+  // Batch cascade: same order as single-row delete.
+  await supabase.from("bookings")
+    .update({ return_booking_id: null }).in("return_booking_id", foundIds);
+
+  const childTables = [
+    "follow_ups", "booking_email_log", "booking_products",
+    "booking_amendments", "driver_ratings", "issues", "invoices", "requests",
+  ];
+  for (const t of childTables) {
+    const { error } = await supabase.from(t).delete().in("booking_id", foundIds);
+    if (error && !/does not exist|relation .* does not exist/i.test(error.message)) {
+      console.warn(`[bulk-delete-bookings] ${t} cleanup warning:`, error.message);
+    }
+  }
+
+  const { error: delErr } = await supabase.from("bookings").delete().in("id", foundIds);
+  if (delErr) return res.status(400).json({ error: delErr.message });
+
+  const refs = (found ?? []).map((b: any) => b.tvl_ref ?? b.id).join(", ");
+  await auditLog(
+    "bulk_delete_bookings", "booking", foundIds[0], user.id,
+    `Bulk deleted ${foundIds.length} booking(s) by ${user.name ?? user.email ?? user.id}: ${refs}`,
+  );
+  notifyByRoles(STAFF_ROLES, {
+    type: "booking_cancelled",
+    title: "Bookings Deleted",
+    message: `${foundIds.length} booking${foundIds.length === 1 ? "" : "s"} permanently removed in a bulk action`,
+    link: "/bookings",
+    severity: "warning",
+  }).catch(() => {});
+  return res.json({ deleted: foundIds.length, failed: 0, missing });
+});
+
 // ── Hard delete a booking and all its dependent rows ────────────────────────
 // Super Admin only. Used to purge test bookings cleanly. Order matters:
 // child rows first (no ON DELETE CASCADE on these FKs), then the booking.

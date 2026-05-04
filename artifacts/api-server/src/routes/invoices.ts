@@ -297,6 +297,43 @@ router.post("/:id/send-email", async (req, res) => {
 });
 
 // ── Hard delete an invoice ──────────────────────────────────────────────────
+// POST /invoices/bulk-delete — admin-only. Deletes a batch of invoices in one
+// server round-trip and emits one aggregated staff notification instead of N.
+router.post("/bulk-delete", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || !["admin", "super_admin"].includes(user.role)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const { ids } = req.body ?? {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "ids must be a non-empty array" });
+  }
+  const cleanIds = ids.map((id: any) => String(id)).filter(Boolean);
+
+  const { data: found } = await supabase
+    .from("invoices").select("id").in("id", cleanIds);
+  const foundIds = (found ?? []).map((r: any) => r.id);
+  const missing = cleanIds.length - foundIds.length;
+
+  if (foundIds.length === 0) return res.json({ deleted: 0, failed: 0, missing });
+
+  const { error } = await supabase.from("invoices").delete().in("id", foundIds);
+  if (error) return res.status(400).json({ error: error.message });
+
+  await auditLog(
+    "bulk_delete_invoices", "invoice", foundIds[0], user.id,
+    `Bulk deleted ${foundIds.length} invoice(s) by ${user.name ?? user.email ?? user.id}`,
+  );
+  notifyByRoles(STAFF_ROLES, {
+    type: "booking_cancelled",
+    title: "Invoices Deleted",
+    message: `${foundIds.length} invoice${foundIds.length === 1 ? "" : "s"} permanently removed in a bulk action`,
+    link: "/invoices",
+    severity: "warning",
+  }).catch(() => {});
+  return res.json({ deleted: foundIds.length, failed: 0, missing });
+});
+
 // Admin or Super Admin only. Snapshot is captured into the audit log before
 // deletion (immutable forensic record), an entry is written to the operator
 // activity feed, and an in-app notification is broadcast to all staff so

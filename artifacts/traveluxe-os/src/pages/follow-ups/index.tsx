@@ -162,33 +162,28 @@ export default function FollowUps() {
     return session?.access_token ?? "";
   };
 
-  // ── Bulk delete fan-out ───────────────────────────────────────────────────
+  // ── Bulk delete — single server round-trip ───────────────────────────────
   const handleBulkDelete = async () => {
     const ids = bulk.ids;
     const token = await getToken();
-    const results = await Promise.allSettled(
-      ids.map(id =>
-        fetch(`${API_BASE}/follow-ups/${id}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        }).then(async r => {
-          if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Failed");
-        })
-      )
-    );
-    const ok = results.filter(r => r.status === "fulfilled").length;
-    const fail = results.length - ok;
+    const r = await fetch(`${API_BASE}/follow-ups/bulk-delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ids }),
+    });
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      toast({ title: "Delete failed", description: body.error ?? "Unknown error", variant: "destructive" });
+      return;
+    }
+    const { deleted = 0, failed = 0 } = body;
     bulk.exitSelectMode();
     fetchData();
-    // Refresh stats counters + every other page that derives from follow-ups.
     qc.invalidateQueries();
-    if (fail === 0) {
-      toast({ title: `Deleted ${ok} follow-up${ok === 1 ? "" : "s"}` });
+    if (failed === 0) {
+      toast({ title: `Deleted ${deleted} follow-up${deleted === 1 ? "" : "s"}` });
     } else {
-      toast({
-        title: `Deleted ${ok}, ${fail} failed`,
-        variant: "destructive",
-      });
+      toast({ title: `Deleted ${deleted}, ${failed} failed`, variant: "destructive" });
     }
   };
 

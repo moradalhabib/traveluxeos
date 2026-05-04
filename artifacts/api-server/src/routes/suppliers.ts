@@ -513,6 +513,51 @@ router.post("/:id/balance/unmark-paid", async (req, res) => {
   return res.json({ updated: data?.length ?? 0 });
 });
 
+// POST /suppliers/bulk-delete — admin-only. Mirrors the single-row DELETE /:id
+// logic: suppliers linked to bookings are soft-deleted (deactivated); others
+// are hard-deleted. Batches the booking-count check in one query.
+router.post("/bulk-delete", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || !["admin", "super_admin"].includes(user.role)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const { ids } = req.body ?? {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "ids must be a non-empty array" });
+  }
+  const cleanIds = ids.map((id: any) => String(id)).filter(Boolean);
+
+  // One query: find which of the selected suppliers have linked bookings.
+  const { data: linked } = await supabase
+    .from("bookings").select("supplier_id").in("supplier_id", cleanIds);
+  const linkedSet = new Set((linked ?? []).map((r: any) => r.supplier_id).filter(Boolean));
+
+  const toDeactivate = cleanIds.filter(id => linkedSet.has(id));
+  const toDelete = cleanIds.filter(id => !linkedSet.has(id));
+  let deleted = 0, deactivated = 0, failed = 0;
+
+  if (toDeactivate.length > 0) {
+    const { error } = await supabase
+      .from("suppliers").update({ is_active: false }).in("id", toDeactivate);
+    if (error) { failed += toDeactivate.length; }
+    else {
+      deactivated = toDeactivate.length;
+      await auditLog("bulk_deactivate_suppliers", "supplier", toDeactivate[0], user.id,
+        `Bulk deactivated ${toDeactivate.length} supplier(s) with linked bookings`);
+    }
+  }
+  if (toDelete.length > 0) {
+    const { error } = await supabase.from("suppliers").delete().in("id", toDelete);
+    if (error) { failed += toDelete.length; }
+    else {
+      deleted = toDelete.length;
+      await auditLog("bulk_delete_suppliers", "supplier", toDelete[0], user.id,
+        `Bulk deleted ${toDelete.length} supplier(s) by ${user.name ?? user.email ?? user.id}`);
+    }
+  }
+  return res.json({ deleted, deactivated, failed });
+});
+
 // ─── DELETE /suppliers/:id ──────────────────────────────────────────────────
 // Default: hard delete. If the supplier is referenced by any booking, fall
 // back to a soft delete (is_active = false) so historical bookings keep

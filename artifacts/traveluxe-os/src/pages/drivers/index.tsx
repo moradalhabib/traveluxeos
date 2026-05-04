@@ -32,32 +32,25 @@ export default function Drivers() {
 
   const handleBulkDelete = async () => {
     const ids = bulk.ids;
-    const base = (import.meta as any).env?.VITE_API_URL ?? "";
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token ?? "";
-    const results = await Promise.allSettled(
-      ids.map(id =>
-        fetch(`${base}/api/drivers/${id}`, {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        }).then(async r => {
-          if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || "Failed");
-        })
-      )
-    );
-    const ok = results.filter(r => r.status === "fulfilled").length;
-    const fail = results.length - ok;
-    // Driver delete now unlinks bookings (driver_id → null) instead of refusing,
-    // so refresh every cached query so dashboards reflect the new driver list.
+    // Single server round-trip — server unlinks bookings, deletes ratings,
+    // then deletes all drivers in one batched operation.
+    const r = await fetch("/api/drivers/bulk-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ids }),
+    });
+    const body = await r.json().catch(() => ({}));
+    const { deleted = 0, failed = 0 } = body;
     queryClient.invalidateQueries();
     bulk.exitSelectMode();
-    if (fail === 0) {
-      toast({ title: `Deleted ${ok} driver${ok === 1 ? "" : "s"}` });
+    if (failed === 0) {
+      toast({ title: `Deleted ${deleted} driver${deleted === 1 ? "" : "s"}` });
     } else {
-      const firstErr = results.find(r => r.status === "rejected") as PromiseRejectedResult | undefined;
       toast({
-        title: `Deleted ${ok}, ${fail} failed`,
-        description: firstErr?.reason?.message ?? "Some drivers could not be deleted (likely have active bookings).",
+        title: `Deleted ${deleted}, ${failed} failed`,
+        description: body.error ?? "Some drivers could not be deleted.",
         variant: "destructive",
       });
     }

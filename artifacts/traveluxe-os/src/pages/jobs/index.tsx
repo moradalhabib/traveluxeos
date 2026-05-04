@@ -70,31 +70,19 @@ export default function Jobs() {
     const ids = bulk.ids;
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
-    const results = await Promise.allSettled(
-      ids.map(id => fetch(`/api/bookings/${id}?silent=1`, {
-        method: "DELETE",
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      }).then(r => { if (!r.ok) throw new Error(String(r.status)); }))
-    );
-    const ok = results.filter(r => r.status === "fulfilled").length;
-    const fail = results.length - ok;
-    if (ok > 0) {
-      fetch("/api/notifications/broadcast-staff", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-        body: JSON.stringify({
-          type: "booking_cancelled",
-          title: "Jobs Deleted",
-          message: `${ok} job${ok === 1 ? "" : "s"} permanently removed in a bulk action`,
-          link: "/jobs",
-          severity: "warning",
-        }),
-      }).catch(() => {});
-    }
+    // Single server round-trip — bookings/bulk-delete handles cascade and
+    // emits one aggregated staff notification instead of N individual ones.
+    const r = await fetch("/api/bookings/bulk-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ ids }),
+    });
+    const body = await r.json().catch(() => ({}));
+    const { deleted = 0, failed = 0 } = body;
     toast({
-      title: fail === 0 ? "Jobs deleted" : `${ok} deleted, ${fail} failed`,
-      description: fail === 0 ? `${ok} job${ok === 1 ? "" : "s"} permanently removed` : "Some deletions failed — check audit log",
-      variant: fail === 0 ? undefined : "destructive",
+      title: failed === 0 ? "Jobs deleted" : `${deleted} deleted, ${failed} failed`,
+      description: failed === 0 ? `${deleted} job${deleted === 1 ? "" : "s"} permanently removed` : "Some deletions failed — check audit log",
+      variant: failed === 0 ? undefined : "destructive",
     });
     qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) });
     bulk.exitSelectMode();

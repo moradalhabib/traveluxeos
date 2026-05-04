@@ -377,6 +377,29 @@ router.put("/:id", async (req, res) => {
   });
 });
 
+// POST /requests/bulk-delete — admin-only. Deletes a batch of requests in
+// one server round-trip. Registered before /:id routes.
+router.post("/bulk-delete", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || !["admin", "super_admin"].includes(user.role)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const { ids } = req.body ?? {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "ids must be a non-empty array" });
+  }
+  const cleanIds = ids.map((id: any) => String(id)).filter(Boolean);
+
+  const { error } = await supabase.from("requests").delete().in("id", cleanIds);
+  if (error) return res.status(400).json({ error: error.message });
+
+  await auditLog(
+    "bulk_delete_requests", "request", cleanIds[0], user.id,
+    `Bulk deleted ${cleanIds.length} request(s) by ${user.name ?? user.email ?? user.id}`,
+  );
+  return res.json({ deleted: cleanIds.length, failed: 0, missing: 0 });
+});
+
 router.delete("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);
   const { error } = await supabase

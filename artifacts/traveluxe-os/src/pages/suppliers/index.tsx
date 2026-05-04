@@ -89,21 +89,14 @@ export default function SuppliersList() {
 
   const handleBulkDelete = async () => {
     const ids = bulk.ids;
-    const results = await Promise.allSettled(
-      ids.map(async (id) => {
-        const r = await authedFetch(`/api/suppliers/${id}`, { method: "DELETE" });
-        if (!r.ok) throw new Error(String(r.status));
-        const body = await r.json().catch(() => ({}));
-        return body as { deleted?: boolean; deactivated?: boolean; reason?: string };
-      })
-    );
-    let deleted = 0, deactivated = 0, failed = 0;
-    for (const r of results) {
-      if (r.status !== "fulfilled") { failed++; continue; }
-      if (r.value.deleted) deleted++;
-      else if (r.value.deactivated) deactivated++;
-      else deleted++; // legacy/unknown success → assume deleted
-    }
+    // Single server round-trip — server checks booking links in one query
+    // and hard-deletes or soft-deactivates each supplier accordingly.
+    const r = await authedFetch("/api/suppliers/bulk-delete", {
+      method: "POST",
+      body: JSON.stringify({ ids }),
+    });
+    const body = await r.json().catch(() => ({}));
+    const { deleted = 0, deactivated = 0, failed = 0 } = body;
     let msg: string;
     if (deactivated > 0 && deleted === 0 && failed === 0) {
       msg = `Deactivated — ${deactivated} supplier${deactivated === 1 ? "" : "s"} had bookings`;

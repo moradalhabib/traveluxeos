@@ -256,6 +256,54 @@ router.put("/:id", async (req, res) => {
 });
 
 // DELETE /clients/:id — admin-only hard delete with full cascade.
+// POST /clients/bulk-delete — admin-only. Cascades the same cleanup as the
+// single-row DELETE /:id but batches sub-operations across all ids so the
+// number of DB round-trips scales with the number of child TABLES, not the
+// number of selected rows.
+router.post("/bulk-delete", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || !["admin", "super_admin"].includes(user.role)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const { ids } = req.body ?? {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "ids must be a non-empty array" });
+  }
+  const cleanIds = ids.map((id: any) => String(id)).filter(Boolean);
+
+  // Collect every booking belonging to any of these clients.
+  const { data: bookingRows } = await supabase
+    .from("bookings").select("id").in("client_id", cleanIds);
+  const bookingIds = (bookingRows ?? []).map((b: any) => b.id);
+
+  if (bookingIds.length > 0) {
+    await supabase.from("bookings")
+      .update({ return_booking_id: null }).in("return_booking_id", bookingIds);
+    const childTables = [
+      "follow_ups", "booking_email_log", "booking_products",
+      "booking_amendments", "driver_ratings", "issues", "invoices", "requests",
+    ];
+    for (const t of childTables) {
+      const { error } = await supabase.from(t).delete().in("booking_id", bookingIds);
+      if (error && !/does not exist|relation .* does not exist/i.test(error.message)) {
+        console.warn(`[bulk-delete-clients] ${t} cleanup warning:`, error.message);
+      }
+    }
+    await supabase.from("bookings").delete().in("id", bookingIds);
+  }
+  // Client-scoped follow-ups that have no booking_id.
+  await supabase.from("follow_ups").delete().in("client_id", cleanIds);
+
+  const { error } = await supabase.from("clients").delete().in("id", cleanIds);
+  if (error) return res.status(400).json({ error: error.message });
+
+  await auditLog(
+    "bulk_delete_clients", "client", cleanIds[0], user.id,
+    `Bulk deleted ${cleanIds.length} client(s) by ${user.name ?? user.email ?? user.id}. Cascaded ${bookingIds.length} booking(s).`,
+  );
+  return res.json({ deleted: cleanIds.length, failed: 0, missing: 0, cascaded_bookings: bookingIds.length });
+});
+
 // Deletes the client and EVERY booking linked to them, plus each booking's
 // dependent rows (invoices, follow_ups, booking_products, amendments,
 // driver_ratings, issues, requests, booking_email_log, return-link

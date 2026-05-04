@@ -561,6 +561,37 @@ router.post("/bulk-cancel", async (req, res) => {
   });
 });
 
+// POST /follow-ups/bulk-delete — admin-only. Deletes a batch of follow-ups
+// in one server round-trip instead of one HTTP DELETE per row.
+// Registered before /:id so "bulk-delete" is never treated as an id param.
+router.post("/bulk-delete", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || !["admin", "super_admin"].includes(user.role)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const { ids } = req.body ?? {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "ids must be a non-empty array" });
+  }
+  const cleanIds = ids.map((id: any) => String(id)).filter(Boolean);
+
+  const { data: found } = await supabase
+    .from("follow_ups").select("id").in("id", cleanIds);
+  const foundIds = (found ?? []).map((r: any) => r.id);
+  const missing = cleanIds.length - foundIds.length;
+
+  if (foundIds.length === 0) return res.json({ deleted: 0, failed: 0, missing });
+
+  const { error } = await supabase.from("follow_ups").delete().in("id", foundIds);
+  if (error) return res.status(400).json({ error: error.message });
+
+  await auditLog(
+    "bulk_delete_followups", "follow_up", foundIds[0], user.id,
+    `Bulk deleted ${foundIds.length} follow-up(s) by ${user.name ?? user.email ?? user.id}`,
+  );
+  return res.json({ deleted: foundIds.length, failed: 0, missing });
+});
+
 // DELETE /follow-ups/:id — admin-only, used by bulk-select. Audit-logged.
 router.delete("/:id", async (req, res) => {
   const user = await getUserFromToken(req.headers.authorization);

@@ -573,6 +573,31 @@ router.post("/:id/rate", async (req, res) => {
   return res.status(201).json(data);
 });
 
+// POST /drivers/bulk-delete — admin-only. Batches the same cleanup as the
+// single-row delete: unlinks bookings, deletes ratings, then deletes drivers.
+router.post("/bulk-delete", async (req, res) => {
+  const user = await getUserFromToken(req.headers.authorization);
+  if (!user || !["admin", "super_admin"].includes(user.role)) {
+    return res.status(403).json({ error: "Forbidden" });
+  }
+  const { ids } = req.body ?? {};
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "ids must be a non-empty array" });
+  }
+  const cleanIds = ids.map((id: any) => String(id)).filter(Boolean);
+
+  await supabase.from("bookings").update({ driver_id: null }).in("driver_id", cleanIds);
+  await supabase.from("driver_ratings").delete().in("driver_id", cleanIds);
+  const { error } = await supabase.from("drivers").delete().in("id", cleanIds);
+  if (error) return res.status(400).json({ error: error.message });
+
+  await auditLog(
+    "bulk_delete_drivers", "driver", cleanIds[0], user.id,
+    `Bulk deleted ${cleanIds.length} driver(s) by ${user.name ?? user.email ?? user.id}`,
+  );
+  return res.json({ deleted: cleanIds.length, failed: 0 });
+});
+
 // DELETE /drivers/:id — admin-only hard delete used by bulk-select.
 // Refuses if the driver is linked to any non-cancelled bookings so we
 // never orphan operational records. Audit-logged.

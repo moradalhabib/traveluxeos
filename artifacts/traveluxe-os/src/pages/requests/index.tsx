@@ -148,16 +148,15 @@ export default function Requests() {
     const ids = bulk.ids;
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token;
-    const results = await Promise.allSettled(
-      ids.map(id => fetch(`/api/requests/${id}`, {
-        method: "DELETE",
-        headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-      }).then(r => { if (!r.ok) throw new Error(String(r.status)); }))
-    );
-    const ok = results.filter(r => r.status === "fulfilled").length;
-    const fail = results.length - ok;
-    if (fail === 0) toast.success(`${ok} request${ok === 1 ? "" : "s"} deleted`);
-    else toast.error(`${ok} deleted, ${fail} failed`);
+    const r = await fetch("/api/requests/bulk-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: JSON.stringify({ ids }),
+    });
+    const body = await r.json().catch(() => ({}));
+    const { deleted = 0, failed = 0 } = body;
+    if (failed === 0) toast.success(`${deleted} request${deleted === 1 ? "" : "s"} deleted`);
+    else toast.error(`${deleted} deleted, ${failed} failed`);
     queryClient.invalidateQueries();
     bulk.exitSelectMode();
   };
