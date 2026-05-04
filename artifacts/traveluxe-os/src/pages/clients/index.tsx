@@ -14,7 +14,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useBulkSelect } from "@/hooks/use-bulk-select";
 import { BulkActionBar } from "@/components/bulk-action-bar";
 import { supabase } from "@/lib/supabase";
-import { detectNat } from "@/lib/nationalities";
+import { detectNat, nationalityFlag } from "@/lib/nationalities";
 
 export default function Clients() {
   const { user } = useAuth();
@@ -181,7 +181,9 @@ export default function Clients() {
           chips.push({ key: "tier", label: "VIP Tier", value: lbl, onClear: () => setTierFilter("all") });
         }
         if (nationalityFilter) {
-          chips.push({ key: "nationality", label: "Nationality", value: nationalityFilter, onClear: () => setNationalityFilter("") });
+          const natFlag = nationalityFlag(nationalityFilter);
+          const natLabel = natFlag ? `${natFlag} ${nationalityFilter}` : nationalityFilter;
+          chips.push({ key: "nationality", label: "Nationality", value: natLabel, onClear: () => setNationalityFilter("") });
         }
         return <ActiveFilterChips filters={chips} onClearAll={() => { setTierFilter("all"); setNationalityFilter(""); }} />;
       })()}
