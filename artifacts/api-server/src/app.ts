@@ -1,9 +1,6 @@
 import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import cors from "cors";
-// pino-http ships as CommonJS `export =`. Namespace import avoids the need for
-// esModuleInterop — we then cast to the correct callable type using its own
-// exported Options/HttpLogger so no type safety is lost.
-import * as pinoHttpNs from "pino-http";
+import pinoHttp from "pino-http";
 import type { IncomingMessage, ServerResponse } from "http";
 import { jwtVerify } from "jose";
 import router from "./routes";
@@ -11,11 +8,6 @@ import publicV1Router from "./routes/public-v1";
 import { logger } from "./lib/logger";
 import cookieParser from "cookie-parser";
 import { authStorage } from "./lib/supabase";
-
-type PinoHttpFactory = (opts?: pinoHttpNs.Options) => pinoHttpNs.HttpLogger;
-// For CJS modules loaded via namespace import, esbuild places module.exports
-// at `.default`. Fall back to the namespace itself for other bundlers.
-const pinoHttp = ((pinoHttpNs as any).default ?? pinoHttpNs) as unknown as PinoHttpFactory;
 
 const app: Express = express();
 
