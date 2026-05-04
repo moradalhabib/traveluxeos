@@ -499,6 +499,16 @@ export default function BookingDetail() {
   const qc = useQueryClient();
   const isResidenceManager = user?.role === "residence_manager";
 
+  // Busts every /api/bookings list query regardless of param shape.
+  // The no-arg form produces ["/api/bookings"] which TanStack Query treats as a
+  // prefix key — partialMatchKey checks only the indices present in the filter,
+  // so ["/api/bookings"] matches ["/api/bookings"], ["/api/bookings", {}], and
+  // ["/api/bookings", { status: "Active" }] alike. Centralising here prevents
+  // future key-shape divergence across call sites.
+  const invalidateBookingListAll = useCallback(() => {
+    qc.invalidateQueries({ queryKey: getListBookingsQueryKey() });
+  }, [qc]);
+
   // Targeted invalidation for inline payment-field edits — only the booking
   // detail + dashboard summary change, no need to sweep every query on the
   // page. Bigger state changes (status, driver assignment, invoice gen) keep
@@ -506,8 +516,8 @@ export default function BookingDetail() {
   const invalidateBookingDetail = useCallback(() => {
     qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
     qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-    qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) });
-  }, [qc, id]);
+    invalidateBookingListAll();
+  }, [qc, id, invalidateBookingListAll]);
 
   // Broader sweep used after status / driver / completion / invoice changes.
   // Targets only the lists/details we know depend on this booking instead of
@@ -518,7 +528,7 @@ export default function BookingDetail() {
   const invalidateBookingFanout = useCallback((driverId?: string | null) => {
     qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
     qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
-    qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) });
+    invalidateBookingListAll();
     qc.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
     qc.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
     qc.invalidateQueries({ queryKey: getListTasksQueryKey() });
@@ -645,7 +655,7 @@ export default function BookingDetail() {
       if (!res.ok) throw new Error(body.error ?? "Failed to send invoice email");
       // Refresh the email-status badge on this booking and the global list.
       qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
-      qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) });
+      invalidateBookingListAll();
       toast({
         title: (booking as any)?.is_amended ? "Amended invoice sent" : "Invoice sent",
         description: `Emailed to ${body.sent_to ?? "the client"}.`,
@@ -1277,7 +1287,7 @@ export default function BookingDetail() {
         // the detail (via refetch for instant UI), the list (price/date
         // visible in cards), commission ledger, and dashboard KPIs.
         refetch();
-        qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) });
+        invalidateBookingListAll();
         qc.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
         qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
       },
@@ -3309,11 +3319,9 @@ export default function BookingDetail() {
           onSaved={() => {
             // Supplier cost changes affect this booking detail, the list
             // (price visible in cards), invoice totals, commission ledger,
-            // finance summary, and dashboard KPIs. Use typed orval helpers
-            // so TanStack Query matches array keys by deep-equal — string
-            // prefix predicates are unreliable (key arrays aren't strings).
+            // finance summary, and dashboard KPIs.
             qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
-            qc.invalidateQueries({ queryKey: getListBookingsQueryKey({}) });
+            invalidateBookingListAll();
             qc.invalidateQueries({ queryKey: getListCommissionsQueryKey() });
             qc.invalidateQueries({ queryKey: getListInvoicesQueryKey() });
             qc.invalidateQueries({ queryKey: getGetFinanceSummaryQueryKey() });
