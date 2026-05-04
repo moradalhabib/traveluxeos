@@ -525,9 +525,12 @@ router.get("/", async (req, res) => {
   if (payment_status) query = query.eq("payment_status", String(payment_status));
   if (cancellation_reason) {
     const r = String(cancellation_reason);
-    // __none sentinel → IS NULL or empty string (unspecified reason)
+    // __none sentinel → IS NULL, empty string, or whitespace-only.
+    // The `match` predicate uses PostgreSQL ~ (regex) to also catch whitespace-only
+    // values (trim() = '' equivalent), matching the identical logic in requests.ts
+    // and follow-ups.ts so __none behaves consistently across all three routes.
     if (r === "__none") {
-      query = query.or("cancellation_reason.is.null,cancellation_reason.eq.");
+      query = query.or("cancellation_reason.is.null,cancellation_reason.eq.,cancellation_reason.match.^\\s*$");
     } else {
       query = query.eq("cancellation_reason", r);
     }
