@@ -841,80 +841,83 @@ export default function Services() {
   }
 
   // ─── Overview ──────────────────────────────────────────────────────────────
-  // The previous large category tile grid has been replaced with a single
-  // compact "Service:" dropdown to match the filter chrome used app-wide.
-  // Selecting a category drops the operator straight into the per-service
-  // detail view (which has its own dropdown to swap categories without
-  // returning here).
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
+      {/* Header */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Services</h1>
           <p className="text-sm text-muted-foreground mt-0.5">
-            {allStats.total} active bookings
+            {allStats.total} active bookings across all services
           </p>
         </div>
         <Link href="/bookings/new">
-          <Button className="h-11 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
+          <Button className="h-10 shadow-[0_0_10px_rgba(201,168,76,0.2)]">
             <Plus className="w-4 h-4 mr-2" /> New Booking
           </Button>
         </Link>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <FilterDropdown
-          label="Service:"
-          value="__placeholder__"
-          onChange={(v) => {
-            if (v && v !== "__placeholder__") setSelectedKey(v as ServiceKey);
-          }}
-          options={[
-            { value: "__placeholder__", label: "Choose a service…" },
-            ...SERVICES.map((s) => ({
-              value: s.key,
-              label: s.label,
-              count: bookings.filter(b => canonicalKey(b.service_type) === s.key).length,
-            })),
-          ]}
-          widthClass="w-56"
-          testId="filter-services-overview-category"
-        />
-        {loadingBookings && (
-          <span className="text-xs text-muted-foreground">Loading…</span>
-        )}
+      {/* Service tab pills — tap any to go straight into that service's detail */}
+      <div className="flex gap-2 flex-wrap">
+        {SERVICES.map(svc => {
+          const stats = statsFor(svc.key);
+          return (
+            <button
+              key={svc.key}
+              onClick={() => setSelectedKey(svc.key)}
+              data-testid={`tab-service-${svc.key}`}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-medium transition-all hover:border-primary/40 hover:bg-secondary/30 ${svc.iconColor.replace("bg-", "border-").replace("/10", "/30")} bg-card`}
+            >
+              <span className={svc.iconColor.split(" ")[0]}>{svc.icon}</span>
+              <span className="text-foreground">{svc.label}</span>
+              {stats.total > 0 && (
+                <span className="text-[10px] text-muted-foreground bg-secondary/60 rounded-full px-1.5 py-0.5 leading-none">
+                  {stats.total}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Compact summary list — one row per service category with active +
-          total counts. Replaces the large tile grid; tapping any row opens
-          the same per-service detail view. */}
+      {/* Summary cards — one per service with key stats */}
       {loadingBookings ? (
-        <div className="space-y-2">
-          {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12" />)}
+        <div className="grid gap-3 grid-cols-1">
+          {[...Array(5)].map((_, i) => <Skeleton key={i} className="h-24" />)}
         </div>
       ) : (
-        <div className="border border-border rounded-2xl bg-card divide-y divide-border overflow-hidden">
+        <div className="grid gap-3">
           {SERVICES.map(svc => {
             const stats = statsFor(svc.key);
             return (
               <button
                 key={svc.key}
                 onClick={() => setSelectedKey(svc.key)}
-                className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-secondary/20 transition-colors text-left"
-                data-testid={`row-service-${svc.key}`}
+                data-testid={`card-service-${svc.key}`}
+                className="w-full text-left border border-border rounded-2xl bg-card hover:border-primary/40 hover:bg-secondary/10 transition-all p-4"
               >
-                <div className="flex items-center gap-3 min-w-0">
-                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${svc.iconColor}`}>
+                <div className="flex items-center gap-4">
+                  <div className={`w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0 ${svc.iconColor}`}>
                     {svc.icon}
                   </div>
-                  <div className="min-w-0">
-                    <div className="font-semibold text-sm text-foreground truncate">{svc.label}</div>
-                    <div className="text-[11px] text-muted-foreground">
-                      {stats.total} total · <span className={stats.active > 0 ? "text-amber-400" : ""}>{stats.active} active</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-foreground">{svc.label}</div>
+                    <div className="flex items-center gap-3 mt-1 flex-wrap text-[11px] text-muted-foreground">
+                      <span>{stats.total} total</span>
+                      {stats.active > 0 && (
+                        <span className="text-amber-400 font-medium">{stats.active} active</span>
+                      )}
+                      {stats.completed > 0 && (
+                        <span className="text-green-400">{stats.completed} completed</span>
+                      )}
+                      {stats.revenue > 0 && (
+                        <span className="text-primary font-medium">£{Math.round(stats.revenue).toLocaleString()} rev</span>
+                      )}
                     </div>
                   </div>
+                  <ArrowRight className="w-4 h-4 text-muted-foreground/50 flex-shrink-0" />
                 </div>
-                <ArrowRight className="w-4 h-4 text-muted-foreground/60 flex-shrink-0" />
               </button>
             );
           })}

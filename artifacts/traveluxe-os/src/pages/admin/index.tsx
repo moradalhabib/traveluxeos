@@ -887,19 +887,30 @@ function UsersTab({ currentUserId, isSuperAdmin }: { currentUserId?: string; isS
 
   const toggleActive = async (userId: string, currentActive: boolean) => {
     if (userId === currentUserId) {
-      toast({ title: "You cannot deactivate your own account", variant: "destructive" });
+      toast({ title: "You cannot change your own account status", variant: "destructive" });
       return;
     }
     setToggling(userId);
-    const { error } = await supabase
-      .from("users")
-      .update({ active: !currentActive })
-      .eq("id", userId);
-    if (error) {
-      toast({ title: "Failed to update user", variant: "destructive" });
-    } else {
-      toast({ title: currentActive ? "Account suspended" : "Account reactivated" });
-      refetch();
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const baseUrl = import.meta.env.BASE_URL.replace(/\/$/, "");
+      const res = await fetch(`${baseUrl}/api/users/${userId}/active`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ active: !currentActive }),
+      });
+      const result = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        toast({ title: "Failed to update account", description: result?.error ?? "Unknown error", variant: "destructive" });
+      } else {
+        toast({ title: currentActive ? "Account suspended" : "Account reactivated" });
+        refetch();
+      }
+    } catch (e: any) {
+      toast({ title: "Failed to update account", description: e?.message ?? "Network error", variant: "destructive" });
     }
     setToggling(null);
   };

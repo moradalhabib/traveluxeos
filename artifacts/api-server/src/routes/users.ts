@@ -6,10 +6,13 @@ const router = Router();
 const ALLOWED_ROLES = ["super_admin", "admin", "operator"] as const;
 type Role = (typeof ALLOWED_ROLES)[number];
 
+// Helper: always use service-role for admin user lookups — the JWT-scoped
+// client is blocked by RLS from reading other users' rows.
+function adminDb() {
+  return getServiceRoleClient() ?? supabase;
+}
+
 // ─── POST /users/invite ──────────────────────────────────────────────────────
-// Sends a Supabase invite email to a new member and creates their public.users
-// row with the requested role + active=false (they activate on first sign-in).
-// Admin or Super Admin only.
 router.post("/invite", async (req, res) => {
   const actor = await getUserFromToken(req.headers.authorization);
   if (!actor) return res.status(401).json({ error: "Unauthorized" });
@@ -31,7 +34,6 @@ router.post("/invite", async (req, res) => {
   if (!ALLOWED_ROLES.includes(role)) {
     return res.status(400).json({ error: `Invalid role. Must be one of: ${ALLOWED_ROLES.join(", ")}` });
   }
-  // Only Super Admins can mint another Super Admin.
   if (role === "super_admin" && actor.role !== "super_admin") {
     return res.status(403).json({ error: "Only Super Admins can invite Super Admins" });
   }
@@ -41,8 +43,7 @@ router.post("/invite", async (req, res) => {
     return res.status(500).json({ error: "Service role key not configured on the server" });
   }
 
-  // Refuse if email already exists in public.users
-  const { data: existing } = await supabase
+  const { data: existing } = await admin
     .from("users")
     .select("id, email, active")
     .eq("email", email)
@@ -55,7 +56,6 @@ router.post("/invite", async (req, res) => {
     });
   }
 
-  // Send invite email via Supabase Auth (uses the project's configured SMTP).
   const { data: invited, error: inviteErr } = await (admin.auth.admin as any)
     .inviteUserByEmail(email, { data: { name } });
   if (inviteErr || !invited?.user) {
@@ -64,29 +64,25 @@ router.post("/invite", async (req, res) => {
     });
   }
 
-  // Create the public.users row mirroring auth.users.id, active=false until they accept.
   const { data: created, error: insErr } = await admin
     .from("users")
     .insert({ id: invited.user.id, email, name, role, active: false })
     .select()
     .single();
   if (insErr) {
-    // Roll back the auth user so the next attempt can succeed.
     await (admin.auth.admin as any).deleteUser(invited.user.id).catch(() => {});
     return res.status(400).json({ error: insErr.message });
   }
 
   await auditLog(
-    "invite_user",
-    "user",
-    created.id,
-    actor.id ?? null,
+    "invite_user", "user", created.id, actor.id ?? null,
     `${actor.email} invited ${email} as ${role}`,
   );
 
   return res.json(created);
 });
 
+// ─── GET /users ───────────────────────────────────────────────────────────────
 router.get("/", async (req, res) => {
   const actor = await getUserFromToken(req.headers.authorization);
   if (!actor) return res.status(401).json({ error: "Unauthorized" });
@@ -94,9 +90,7 @@ router.get("/", async (req, res) => {
     return res.status(403).json({ error: "Forbidden" });
   }
 
-  // Use service role to bypass RLS so all team members are visible to admins.
-  const client = getServiceRoleClient() ?? supabase;
-  const { data, error } = await client
+  const { data, error } = await adminDb()
     .from("users")
     .select("*")
     .order("name");
@@ -105,16 +99,75 @@ router.get("/", async (req, res) => {
   return res.json(data ?? []);
 });
 
-router.put("/:id/deactivate", async (req, res) => {
-  const user = await getUserFromToken(req.headers.authorization);
-  if (!user) return res.status(401).json({ error: "Unauthorized" });
-  if (user.active === false) {
+// ─── PUT /users/:id/active ────────────────────────────────────────────────────
+// Suspend (active=false) or reactivate (active=true) a member.
+// Admin or Super Admin only. Super Admin accounts must be demoted first.
+router.put("/:id/active", async (req, res) => {
+  const actor = await getUserFromToken(req.headers.authorization);
+  if (!actor) return res.status(401).json({ error: "Unauthorized" });
+  if (actor.active === false) {
     return res.status(403).json({ error: "Your account is suspended" });
   }
-  if (user.role !== "super_admin" && user.role !== "admin") {
+  if (actor.role !== "super_admin" && actor.role !== "admin") {
+    return res.status(403).json({ error: "Only Admins or Super Admins can suspend/reactivate accounts" });
+  }
+  if (actor.id === req.params.id) {
+    return res.status(400).json({ error: "You cannot change your own account status" });
+  }
+
+  const newActive = req.body?.active === true || req.body?.active === "true";
+
+  // Prevent suspending Super Admins directly — they must be demoted first.
+  if (!newActive) {
+    const { data: target } = await adminDb()
+      .from("users")
+      .select("role")
+      .eq("id", req.params.id)
+      .single();
+    if (target?.role === "super_admin") {
+      return res.status(400).json({ error: "Demote this Super Admin to Admin first, then suspend them." });
+    }
+  }
+
+  const { data, error } = await adminDb()
+    .from("users")
+    .update({ active: newActive })
+    .eq("id", req.params.id)
+    .select()
+    .single();
+
+  if (error) return res.status(400).json({ error: error.message });
+
+  await auditLog(
+    newActive ? "activate_user" : "deactivate_user",
+    "user", req.params.id, actor.id ?? null,
+    `${actor.email} ${newActive ? "reactivated" : "suspended"} ${data.email}`,
+  );
+
+  return res.json(data);
+});
+
+// Keep the old /deactivate route for backwards compatibility.
+router.put("/:id/deactivate", async (req, res) => {
+  const actor = await getUserFromToken(req.headers.authorization);
+  if (!actor) return res.status(401).json({ error: "Unauthorized" });
+  if (actor.active === false) {
+    return res.status(403).json({ error: "Your account is suspended" });
+  }
+  if (actor.role !== "super_admin" && actor.role !== "admin") {
     return res.status(403).json({ error: "Only Admins or Super Admins can deactivate accounts" });
   }
-  const { data, error } = await supabase
+
+  const { data: target } = await adminDb()
+    .from("users")
+    .select("role")
+    .eq("id", req.params.id)
+    .single();
+  if (target?.role === "super_admin") {
+    return res.status(400).json({ error: "Demote this Super Admin to Admin first, then suspend them." });
+  }
+
+  const { data, error } = await adminDb()
     .from("users")
     .update({ active: false })
     .eq("id", req.params.id)
@@ -123,12 +176,13 @@ router.put("/:id/deactivate", async (req, res) => {
 
   if (error) return res.status(400).json({ error: error.message });
 
-  await auditLog("deactivate_user", "user", req.params.id, user?.id ?? null,
-    `User ${data.email} deactivated`);
+  await auditLog("deactivate_user", "user", req.params.id, actor.id ?? null,
+    `${actor.email} suspended ${data.email}`);
 
   return res.json(data);
 });
 
+// ─── PUT /users/:id/role ──────────────────────────────────────────────────────
 router.put("/:id/role", async (req, res) => {
   const actor = await getUserFromToken(req.headers.authorization);
   if (!actor) return res.status(401).json({ error: "Unauthorized" });
@@ -149,8 +203,7 @@ router.put("/:id/role", async (req, res) => {
     });
   }
 
-  // Look up the target user so we know their current role + email for the audit
-  const { data: target, error: targetErr } = await supabase
+  const { data: target, error: targetErr } = await adminDb()
     .from("users")
     .select("id, email, role, name")
     .eq("id", req.params.id)
@@ -159,12 +212,12 @@ router.put("/:id/role", async (req, res) => {
     return res.status(404).json({ error: "User not found" });
   }
   if (target.role === newRole) {
-    return res.json(target); // no-op
+    return res.json(target);
   }
 
   // Safety: don't let the last super_admin be demoted — that would lock the org out.
   if (target.role === "super_admin" && newRole !== "super_admin") {
-    const { count, error: countErr } = await supabase
+    const { count, error: countErr } = await adminDb()
       .from("users")
       .select("id", { count: "exact", head: true })
       .eq("role", "super_admin")
@@ -177,7 +230,7 @@ router.put("/:id/role", async (req, res) => {
     }
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await adminDb()
     .from("users")
     .update({ role: newRole })
     .eq("id", req.params.id)
@@ -186,10 +239,7 @@ router.put("/:id/role", async (req, res) => {
   if (error) return res.status(400).json({ error: error.message });
 
   await auditLog(
-    "change_user_role",
-    "user",
-    req.params.id,
-    actor.id ?? null,
+    "change_user_role", "user", req.params.id, actor.id ?? null,
     `${actor.email} changed ${target.email}'s role: ${target.role} → ${newRole}`,
   );
 
@@ -197,11 +247,6 @@ router.put("/:id/role", async (req, res) => {
 });
 
 // ─── DELETE /users/:id ───────────────────────────────────────────────────────
-// "Remove member": revokes their auth identity (deletes from auth.users so they
-// can no longer sign in and the email is freed) and soft-deletes them in
-// public.users (active=false, name="[removed]"). Existing references to them
-// in bookings/jobs/audit_log are preserved for historical integrity.
-// Super Admin only. Never the current user. Never the last Super Admin.
 router.delete("/:id", async (req, res) => {
   const actor = await getUserFromToken(req.headers.authorization);
   if (!actor) return res.status(401).json({ error: "Unauthorized" });
@@ -220,16 +265,15 @@ router.delete("/:id", async (req, res) => {
     return res.status(500).json({ error: "Service role key not configured on the server" });
   }
 
-  const { data: target, error: tErr } = await supabase
+  const { data: target, error: tErr } = await admin
     .from("users")
     .select("id, email, role, name")
     .eq("id", req.params.id)
     .single();
   if (tErr || !target) return res.status(404).json({ error: "User not found" });
 
-  // Don't let the last super_admin be removed — that would lock the org out.
   if (target.role === "super_admin") {
-    const { count } = await supabase
+    const { count } = await admin
       .from("users")
       .select("id", { count: "exact", head: true })
       .eq("role", "super_admin")
@@ -241,15 +285,11 @@ router.delete("/:id", async (req, res) => {
     }
   }
 
-  // 1) Revoke auth identity. If this fails we don't proceed — we don't want a
-  //    dangling soft-deleted row whose owner can still sign in.
   const { error: authErr } = await (admin.auth.admin as any).deleteUser(target.id);
   if (authErr && !String(authErr.message ?? "").toLowerCase().includes("not found")) {
     return res.status(400).json({ error: `Failed to revoke auth identity: ${authErr.message}` });
   }
 
-  // 2) Soft-delete the public.users row. Free the email so it can be re-invited
-  //    later. Keep the id stable so historical FKs still resolve.
   const safeEmail = `removed+${target.id.slice(0, 8)}@traveluxe.local`;
   const { error: updErr } = await admin
     .from("users")
@@ -258,10 +298,7 @@ router.delete("/:id", async (req, res) => {
   if (updErr) return res.status(400).json({ error: updErr.message });
 
   await auditLog(
-    "remove_user",
-    "user",
-    target.id,
-    actor.id ?? null,
+    "remove_user", "user", target.id, actor.id ?? null,
     `${actor.email} removed ${target.email} (${target.role})`,
   );
 
