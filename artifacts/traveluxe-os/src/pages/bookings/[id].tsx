@@ -506,6 +506,7 @@ export default function BookingDetail() {
   const invalidateBookingDetail = useCallback(() => {
     qc.invalidateQueries({ queryKey: getGetBookingQueryKey(id) });
     qc.invalidateQueries({ queryKey: getGetDashboardSummaryQueryKey() });
+    qc.invalidateQueries({ queryKey: getListBookingsQueryKey() });
   }, [qc, id]);
 
   // Broader sweep used after status / driver / completion / invoice changes.
