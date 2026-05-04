@@ -287,7 +287,11 @@ export default function Upcoming() {
               >
                 <button
                   type="button"
-                  onClick={() => setCollapsedMonths(prev => ({ ...prev, [month.monthKey]: !monthCollapsed }))}
+                  onClick={() => {
+                    const willCollapse = !monthCollapsed;
+                    setCollapsedMonths(prev => ({ ...prev, [month.monthKey]: willCollapse }));
+                    if (willCollapse && activeJump === month.monthKey) setActiveJump("");
+                  }}
                   className="w-full flex items-center gap-2 sticky top-0 bg-background/95 backdrop-blur-sm py-2 z-10 hover:bg-secondary/20 rounded-md px-2 transition-colors border-b border-border"
                   data-testid={`upcoming-month-toggle-${month.monthKey}`}
                 >
