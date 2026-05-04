@@ -34,7 +34,8 @@ export type NotifType =
   | "unpaid_invoice"
   | "direct_message"
   | "announcement"
-  | "driver_declined";
+  | "driver_declined"
+  | "sla_breach";
 
 // Notif types users CANNOT disable
 const ALWAYS_ON: NotifType[] = [
@@ -67,6 +68,7 @@ const PREF_COL: Record<NotifType, string | null> = {
   direct_message:     null,
   announcement:       null,
   driver_declined:    null,
+  sla_breach:         null,  // critical alert — always on; cannot be disabled
 };
 
 interface NotifyOpts {

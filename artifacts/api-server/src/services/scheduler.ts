@@ -1,7 +1,7 @@
 import { supabase, auditLog, getServiceRoleClient } from "../lib/supabase";
 import { sendEmail } from "./email";
 import { emailDailyBackup } from "./backup";
-import { notifyByRoles, notifyUser, STAFF_ROLES } from "./notify";
+import { notifyByRoles, notifyUser, STAFF_ROLES, ADMIN_ROLES } from "./notify";
 import { sendWebPushToAll } from "./webpush";
 import { pollUpcomingFlights } from "./flightTracker";
 
@@ -845,6 +845,7 @@ let lastBackupDate = "";
 let lastFollowUpDate = "";
 let lastNoDriverTickMs = 0;
 let lastOverdueAlertDate = "";
+let lastSlaScanHour: number | null = null;
 
 // ── UK time helpers (BST/GMT-aware via Intl) ──────────────────────────
 // Returns the current hour-of-day in Europe/London regardless of server TZ.
@@ -1148,6 +1149,135 @@ async function maybeRunUnpaidInvoiceReminder() {
   }
 }
 
+// ─── Hourly SLA breach scan ───────────────────────────────────────────────────
+// For requests: fires once a "New" lead crosses the 12 h red threshold and
+// hasn't been actioned yet.  For follow-ups: fires once a pending follow-up
+// slips past its due date into the red (overdue by ≥1 full calendar day).
+// Each entity is notified at most once — deduped via an audit_log row so
+// restarts or multi-process deployments can't flood admins.
+//
+// Threshold mirrors SLA_THRESHOLDS.request.redHours in
+// artifacts/traveluxe-os/src/lib/sla.ts — update both if the value changes.
+const SLA_BREACH_RED_HOURS = 12;
+const SLA_BREACH_MAX_AGE_HOURS = 7 * 24; // ignore leads older than 7 days
+
+async function scanSlaBreach() {
+  const now    = new Date();
+  const nowMs  = now.getTime();
+
+  const redCutoff  = new Date(nowMs - SLA_BREACH_RED_HOURS * 3_600_000).toISOString();
+  const maxAgeCut  = new Date(nowMs - SLA_BREACH_MAX_AGE_HOURS * 3_600_000).toISOString();
+  const yesterdayStr    = new Date(nowMs - 24 * 3_600_000).toISOString().slice(0, 10);
+  const sevenDaysAgoStr = new Date(nowMs - SLA_BREACH_MAX_AGE_HOURS * 3_600_000).toISOString().slice(0, 10);
+
+  // ── Requests ────────────────────────────────────────────────────────────────
+  const { data: breachedReqs, error: reqErr } = await schedDb()
+    .from("requests")
+    .select("id, client_name, service_type, created_at")
+    .eq("status", "New")
+    .lte("created_at", redCutoff)  // crossed the 12 h red line
+    .gte("created_at", maxAgeCut)  // cap to 7 days of history
+    .order("created_at", { ascending: true })
+    .limit(50);
+
+  if (reqErr) {
+    console.warn("[Scheduler] SLA breach scan (requests) error:", reqErr.message);
+  } else if (breachedReqs && breachedReqs.length > 0) {
+    const ids = breachedReqs.map((r: any) => r.id);
+    const { data: alreadySent } = await schedDb()
+      .from("audit_log")
+      .select("entity_id")
+      .eq("action", "sla_breach_notified")
+      .eq("entity_type", "request")
+      .in("entity_id", ids);
+    const sentSet = new Set((alreadySent ?? []).map((r: any) => r.entity_id));
+    const unsent = breachedReqs.filter((r: any) => !sentSet.has(r.id));
+
+    for (const req of unsent) {
+      const ageH = Math.round((nowMs - new Date(req.created_at).getTime()) / 3_600_000);
+      const clientLabel = req.client_name ?? "Unknown";
+      const title = "SLA Breach — Lead not actioned";
+      const body  = `${clientLabel} (${req.service_type ?? "—"}) has been waiting ${ageH}h`;
+      await notifyByRoles(ADMIN_ROLES, {
+        type:       "sla_breach",
+        title,
+        message:    body,
+        link:       `/requests/${req.id}`,
+        entityType: "request",
+        entityId:   req.id,
+        severity:   "urgent",
+        dedupeKey:  `sla-breach-req-${req.id}`,
+      }).catch(() => {});
+      await auditLog("sla_breach_notified", "request", req.id, null,
+        `SLA breach notified: ${clientLabel} ${ageH}h unactioned`).catch(() => {});
+      console.info(`[Scheduler] SLA breach: request ${req.id} (${clientLabel}) ${ageH}h unactioned`);
+    }
+  }
+
+  // ── Follow-ups ───────────────────────────────────────────────────────────────
+  // Red zone = due_date is yesterday or earlier (≥1 full calendar day overdue).
+  const { data: breachedFUs, error: fuErr } = await schedDb()
+    .from("follow_ups")
+    .select("id, due_date, clients(name)")
+    .eq("status", "pending")
+    .lte("due_date", yesterdayStr)    // overdue by ≥1 full calendar day
+    .gte("due_date", sevenDaysAgoStr) // cap to 7 days of history
+    .order("due_date", { ascending: true })
+    .limit(50);
+
+  if (fuErr) {
+    console.warn("[Scheduler] SLA breach scan (follow-ups) error:", fuErr.message);
+  } else if (breachedFUs && breachedFUs.length > 0) {
+    const fuIds = breachedFUs.map((f: any) => f.id);
+    const { data: fuAlreadySent } = await schedDb()
+      .from("audit_log")
+      .select("entity_id")
+      .eq("action", "sla_breach_notified")
+      .eq("entity_type", "follow_up")
+      .in("entity_id", fuIds);
+    const fuSentSet = new Set((fuAlreadySent ?? []).map((r: any) => r.entity_id));
+    const fuUnsent = breachedFUs.filter((f: any) => !fuSentSet.has(f.id));
+
+    const todayMidnight = new Date(now);
+    todayMidnight.setUTCHours(0, 0, 0, 0);
+
+    for (const fu of fuUnsent) {
+      const clientName  = (fu as any).clients?.name ?? "Unknown";
+      const dueMidnight = new Date(`${fu.due_date}T00:00:00Z`);
+      const daysOverdue = Math.round((todayMidnight.getTime() - dueMidnight.getTime()) / 86_400_000);
+      const title = "SLA Breach — Follow-up overdue";
+      const body  = `${clientName} follow-up was due ${fu.due_date} (${daysOverdue}d overdue)`;
+      await notifyByRoles(ADMIN_ROLES, {
+        type:       "sla_breach",
+        title,
+        message:    body,
+        link:       `/follow-ups/${fu.id}`,
+        entityType: "follow_up",
+        entityId:   fu.id,
+        severity:   "urgent",
+        dedupeKey:  `sla-breach-fu-${fu.id}`,
+      }).catch(() => {});
+      await auditLog("sla_breach_notified", "follow_up", fu.id, null,
+        `SLA breach notified: ${clientName} follow-up ${daysOverdue}d overdue`).catch(() => {});
+      console.info(`[Scheduler] SLA breach: follow-up ${fu.id} (${clientName}) ${daysOverdue}d overdue`);
+    }
+  }
+}
+
+async function maybeRunSlaBreach() {
+  // Hourly cadence: floor(ms / 3_600_000) increments once per wall-clock hour.
+  // This survives restarts — it will fire immediately on the first tick of each
+  // hour regardless of when the server started.
+  const nowHour = Math.floor(Date.now() / 3_600_000);
+  if (lastSlaScanHour === nowHour) return;
+  lastSlaScanHour = nowHour;
+  try {
+    await scanSlaBreach();
+  } catch (e: any) {
+    console.error("[Scheduler] SLA breach scan error:", e?.message ?? e);
+  }
+}
+
 export function startScheduler() {
   if (started) return;
   started = true;
@@ -1163,6 +1293,7 @@ export function startScheduler() {
       await maybeRunBriefing();
       await maybeRunOverdueCommissionAlert();
       await maybeRunUnpaidInvoiceReminder();
+      await maybeRunSlaBreach();
       await maybeRunBackup();
       await pollUpcomingFlights();
     } catch (e: any) {
@@ -1173,7 +1304,7 @@ export function startScheduler() {
   // Run shortly after boot, then every minute
   setTimeout(tick, 5000);
   timer = setInterval(tick, TICK_MS);
-  console.info("[Scheduler] auto-activate + reminders + no-driver alerts + follow-up scan + 08:00 digest + 03:00 backup + flight-poll loop started (60s interval)");
+  console.info("[Scheduler] auto-activate + reminders + no-driver alerts + follow-up scan + SLA breach scan (hourly) + 08:00 digest + 03:00 backup + flight-poll loop started (60s interval)");
 }
 
 export function stopScheduler() {
