@@ -13,7 +13,9 @@ import cookieParser from "cookie-parser";
 import { authStorage } from "./lib/supabase";
 
 type PinoHttpFactory = (opts?: pinoHttpNs.Options) => pinoHttpNs.HttpLogger;
-const pinoHttp = pinoHttpNs as unknown as PinoHttpFactory;
+// For CJS modules loaded via namespace import, esbuild places module.exports
+// at `.default`. Fall back to the namespace itself for other bundlers.
+const pinoHttp = ((pinoHttpNs as any).default ?? pinoHttpNs) as unknown as PinoHttpFactory;
 
 const app: Express = express();
 

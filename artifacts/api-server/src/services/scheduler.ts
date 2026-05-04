@@ -14,6 +14,31 @@ function schedDb() {
   return getServiceRoleClient() ?? supabase;
 }
 
+// ─── Safe audit-log writer for the scheduler ─────────────────────────────────
+// The shared auditLog() from lib/supabase uses getClient() which reads the
+// AsyncLocalStorage JWT. In the scheduler context (no HTTP request) that store
+// is empty, so it falls back to the anon Supabase client whose RLS policy
+// blocks inserts into audit_log. This means every dedup row written via
+// auditLog() silently fails — the booking stays "unsent" and every 60-second
+// tick resends the notification. schedAuditLog() bypasses RLS by using the
+// service-role client directly, matching the pattern used by all other
+// scheduler DB queries via schedDb().
+async function schedAuditLog(
+  action: string,
+  entityType: string,
+  entityId: string,
+  detail: string,
+): Promise<{ error: any }> {
+  const { error } = await schedDb().from("audit_log").insert({
+    action,
+    entity_type: entityType,
+    entity_id: entityId,
+    operator_id: null,
+    detail,
+  });
+  return { error };
+}
+
 async function getNotifyRecipients(): Promise<string[]> {
   const { data } = await schedDb()
     .from("users")
@@ -163,13 +188,21 @@ async function sendReminders() {
     if (sentSet.has(b.id)) continue;
     const bEnriched = { ...b, client_name: (b as any).clients?.name ?? "—" };
     try {
+      // Write dedup row FIRST via service-role client. If this fails we skip
+      // rather than risk firing the same reminder email on every subsequent tick.
+      const { error: dedupeErr } = await schedAuditLog(
+        "reminder_sent", "booking", b.id,
+        `2h post-start reminder sent for ${b.tvl_ref}`,
+      );
+      if (dedupeErr) {
+        console.warn(`[Scheduler] reminder: dedup write failed for ${b.tvl_ref ?? b.id} — skipping`);
+        continue;
+      }
       await sendEmail({
         to: recipients.join(", "),
         subject: `Action Required — ${b.tvl_ref ?? ""} still Active after 2h`,
         html: reminderHtml(bEnriched),
       });
-      await auditLog("reminder_sent", "booking", b.id, null,
-        `2h post-start reminder sent for ${b.tvl_ref}`);
     } catch (e: any) {
       console.error("[Scheduler] reminder error:", e?.message);
     }
@@ -230,8 +263,30 @@ async function sendUpcomingAlerts() {
     const body  = `${clientName} · ${b.service_type ?? "—"} at ${when}${driverLabel}`;
     const link  = `/bookings/${b.id}`;
 
-    await sendWebPushToAll({ title, body, link, tag: `upcoming-${b.id}`, requireInteraction: true }).catch(() => {});
+    // ── Dedup guard (write-first pattern) ────────────────────────────────────
+    // Write the audit_log row BEFORE firing any notification. If this insert
+    // fails (or the row already exists from a concurrent tick), we skip the
+    // entire booking rather than risk sending a duplicate push.
+    //
+    // Root-cause of the duplicate-notification bug:
+    //  • auditLog() from lib/supabase uses getClient() which reads the
+    //    AsyncLocalStorage JWT. In the scheduler (no HTTP context) that store
+    //    is empty → falls back to the anon client → RLS blocks the insert
+    //    → the row is never written → every 60 s tick treats this booking as
+    //    "unsent" and fires again.
+    //  • schedAuditLog() uses schedDb() (service-role) so the insert succeeds.
+    const { error: dedupeErr } = await schedAuditLog(
+      "upcoming_push_sent", "booking", b.id,
+      `1h upcoming push sent for ${b.tvl_ref}`,
+    );
+    if (dedupeErr) {
+      console.warn(`[Scheduler] upcoming push: dedup write failed for ${b.tvl_ref ?? b.id} — skipping to avoid duplicate`);
+      continue;
+    }
 
+    // notifyByRoles → insertRows already calls sendWebPushToUser for every
+    // staff member. Calling sendWebPushToAll here as well doubled every push
+    // notification (one broadcast + one per-user). Removed.
     await notifyByRoles(STAFF_ROLES, {
       type: "booking_status",
       title,
@@ -240,9 +295,6 @@ async function sendUpcomingAlerts() {
       severity: "warning",
       dedupeKey: `upcoming-1h-${b.id}`,
     }).catch(() => {});
-
-    await auditLog("upcoming_push_sent", "booking", b.id, null,
-      `1h upcoming push sent for ${b.tvl_ref}`).catch(() => {});
 
     console.info(`[Scheduler] upcoming push: ${b.tvl_ref} at ${when}`);
   }
@@ -753,6 +805,19 @@ async function checkNoDriverAlerts() {
 
       const msg = `${b.tvl_ref ?? ""} has no driver — ${m.hours}h to departure (${timeLabel})`;
 
+      // Write dedup row FIRST via service-role client (same write-first pattern
+      // as sendUpcomingAlerts). auditLog() uses the anon client in scheduler
+      // context and is blocked by RLS — see schedAuditLog for full explanation.
+      const { error: dedupeErr } = await schedAuditLog(m.action, "booking", b.id, msg);
+      if (dedupeErr) {
+        console.warn(`[Scheduler] ${m.action}: dedup write failed for ${b.tvl_ref ?? b.id} — skipping`);
+        continue;
+      }
+      sentSet.add(key); // prevent double-fire within same tick if bookings overlap
+
+      // notifyByRoles → insertRows already calls sendWebPushToUser per staff
+      // member. The separate sendWebPushToAll was creating a second push per
+      // user per tick — removed to prevent duplicates.
       notifyByRoles(STAFF_ROLES, {
         type: "no_driver_3h",
         title: m.title,
@@ -763,17 +828,6 @@ async function checkNoDriverAlerts() {
         severity: m.severity,
         dedupeKey: `${m.action}:${b.id}`,
       }).catch(() => {});
-
-      await sendWebPushToAll({
-        title: m.title,
-        body:  msg,
-        link:  `/bookings/${b.id}`,
-        tag:   `no-driver-${b.id}`,          // same tag → replaces previous push silently
-        requireInteraction: m.requireInteraction,
-      }).catch(() => {});
-
-      await auditLog(m.action, "booking", b.id, null, msg).catch(() => {});
-      sentSet.add(key); // prevent double-fire within same tick if bookings overlap
 
       console.info(`[Scheduler] ${m.action}: ${b.tvl_ref}`);
     }
