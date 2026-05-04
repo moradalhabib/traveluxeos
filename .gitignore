@@ -47,3 +47,6 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Replit attached assets (screenshots dropped into workspace — not source code)
+attached_assets/
