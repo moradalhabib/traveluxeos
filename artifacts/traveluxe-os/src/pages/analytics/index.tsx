@@ -358,6 +358,7 @@ export default function Analytics() {
   // Season Calendar collapsible list state
   const [calListOpen, setCalListOpen] = useState(false);
   const [calTypeFilter, setCalTypeFilter] = useState<Set<EventType>>(new Set());
+  const [calWindow, setCalWindow] = useState<30 | 60 | 90>(30);
 
   // Section 3 Client Intelligence UI state
   const [natSortMode, setNatSortMode] = useState<"clients" | "avg">("clients");
@@ -1495,7 +1496,7 @@ export default function Analytics() {
       {/* 2C. SEASON CALENDAR — collapsible event list with filter chips         */}
       {/* ═══════════════════════════════════════════════════════════════════════ */}
       {(() => {
-        const windowEnd = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000);
+        const windowEnd = new Date(today.getTime() + calWindow * 24 * 60 * 60 * 1000);
         const filtered = upcomingEvents.filter(e => {
           if (calTypeFilter.size > 0 && !calTypeFilter.has(e.type)) return false;
           return e.startDate <= windowEnd;
@@ -1524,15 +1525,35 @@ export default function Analytics() {
               <CalendarDays className="w-4 h-4 text-primary flex-shrink-0" />
               <span className="text-sm font-semibold text-foreground flex-1 text-left">Season Calendar</span>
               <span className="text-[10px] text-muted-foreground mr-1">
-                Next 30 days · {filtered.length} event{filtered.length !== 1 ? "s" : ""}
+                Next {calWindow}d · {filtered.length} event{filtered.length !== 1 ? "s" : ""}
               </span>
               <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform duration-200 ${calListOpen ? "rotate-180" : ""}`} />
             </button>
 
             {calListOpen && (
               <CardContent className="pt-0 space-y-3">
+                {/* ── Window toggle ──────────────────────────────────────── */}
+                <div className="flex items-center gap-1.5 border-t border-border/40 pt-3">
+                  <span className="text-[10px] text-muted-foreground flex-shrink-0">Window:</span>
+                  {([30, 60, 90] as const).map(w => (
+                    <button
+                      key={w}
+                      type="button"
+                      onClick={() => setCalWindow(w)}
+                      data-testid={`cal-window-${w}`}
+                      className={`text-[11px] px-2.5 py-1 rounded-full border font-semibold transition-all ${
+                        calWindow === w
+                          ? "bg-primary text-primary-foreground border-primary shadow-[0_0_6px_rgba(201,168,76,0.35)]"
+                          : "bg-muted/40 text-muted-foreground border-border hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      {w}d
+                    </button>
+                  ))}
+                </div>
+
                 {/* ── Filter chips ───────────────────────────────────────── */}
-                <div className="flex flex-wrap gap-1.5 border-t border-border/40 pt-3">
+                <div className="flex flex-wrap gap-1.5">
                   {allTypes.map(t => {
                     const active = calTypeFilter.has(t);
                     return (
@@ -1564,7 +1585,7 @@ export default function Analytics() {
                 {/* ── Event rows ─────────────────────────────────────────── */}
                 {filtered.length === 0 ? (
                   <p className="text-xs text-muted-foreground py-2">
-                    No events in the next 30 days{calTypeFilter.size > 0 ? " matching the selected filter" : ""}.
+                    No events in the next {calWindow} days{calTypeFilter.size > 0 ? " matching the selected filter" : ""}.
                   </p>
                 ) : (
                   <div className="space-y-1.5 max-h-72 overflow-y-auto overscroll-contain pr-0.5">
