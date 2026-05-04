@@ -131,10 +131,10 @@ export async function notifyByRoles(
 
   let ids = (users ?? []).map((u: any) => u.id).filter(Boolean);
   if (excludeUserId) ids = ids.filter(id => id !== excludeUserId);
-  if (ids.length === 0) return true; // no eligible recipients — not a failure
+  if (ids.length === 0) return false; // no eligible recipients — nothing delivered
 
   const allowed = await filterByPrefs(ids, opts.type);
-  if (allowed.length === 0) return true; // all opted out — not a failure
+  if (allowed.length === 0) return false; // all opted out — nothing delivered
 
   return insertRows(allowed, opts);
 }

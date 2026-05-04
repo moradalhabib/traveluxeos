@@ -1181,7 +1181,15 @@ async function scanSlaBreach() {
     .select("entity_id")
     .eq("action", "sla_breach_notified")
     .eq("entity_type", "request");
-  const reqSentIds = [...new Set((reqSentRows ?? []).map((r: any) => r.entity_id).filter(Boolean))];
+  // Validate that each fetched ID is a proper UUID before interpolating into
+  // the PostgREST filter — guards against any malformed audit_log rows
+  // producing a bad query string.
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const reqSentIds = [...new Set(
+    (reqSentRows ?? [])
+      .map((r: any) => r.entity_id)
+      .filter((id: unknown): id is string => typeof id === "string" && UUID_RE.test(id)),
+  )];
 
   // Step 2: Candidate query excludes already-notified IDs so limit(50) always
   // returns up to 50 *unnotified* breached rows.
@@ -1194,6 +1202,8 @@ async function scanSlaBreach() {
     .order("created_at", { ascending: true })
     .limit(50);
   if (reqSentIds.length > 0) {
+    // UUIDs contain only hex digits and hyphens — safe to interpolate directly
+    // after the UUID_RE validation above.
     reqQuery = reqQuery.not("id", "in", `(${reqSentIds.join(",")})`);
   }
 
@@ -1239,7 +1249,11 @@ async function scanSlaBreach() {
     .select("entity_id")
     .eq("action", "sla_breach_notified")
     .eq("entity_type", "follow_up");
-  const fuSentIds = [...new Set((fuSentRows ?? []).map((r: any) => r.entity_id).filter(Boolean))];
+  const fuSentIds = [...new Set(
+    (fuSentRows ?? [])
+      .map((r: any) => r.entity_id)
+      .filter((id: unknown): id is string => typeof id === "string" && UUID_RE.test(id)),
+  )];
 
   let fuQuery = schedDb()
     .from("follow_ups")
