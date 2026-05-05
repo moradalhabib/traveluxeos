@@ -1,6 +1,6 @@
 {
-  "buildCommand": "pnpm --filter @workspace/traveluxe-os run build && mkdir -p vercel-output && (cp -r artifacts/traveluxe-os/dist/public/. vercel-output/ 2>/dev/null || cp -r dist/public/. vercel-output/ 2>/dev/null) && echo 'Output ready:' && ls vercel-output/",
-  "outputDirectory": "vercel-output",
-  "installCommand": "pnpm install",
+  "buildCommand": "pnpm --filter @workspace/traveluxe-os run build",
+  "outputDirectory": "dist/public",
+  "installCommand": "pnpm install --frozen-lockfile",
   "framework": null
 }
