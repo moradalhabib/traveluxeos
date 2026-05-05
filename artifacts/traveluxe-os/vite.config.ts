@@ -13,6 +13,11 @@ import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
 // and re-open the tab manually.
 const BUILD_VERSION = String(Date.now());
 
+// process.cwd() is always the package directory (artifacts/traveluxe-os)
+// when pnpm executes this build script — it is NOT affected by Vite bundling
+// the config to a temp file the way import.meta.dirname is.
+const pkgDir = process.cwd();
+
 function buildVersionPlugin(): Plugin {
   return {
     name: "traveluxe-build-version",
@@ -72,7 +77,7 @@ export default defineConfig({
       ? [
           await import("@replit/vite-plugin-cartographer").then((m) =>
             m.cartographer({
-              root: path.resolve(import.meta.dirname, ".."),
+              root: path.resolve(pkgDir, ".."),
             }),
           ),
           await import("@replit/vite-plugin-dev-banner").then((m) =>
@@ -83,14 +88,14 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      "@": path.resolve(import.meta.dirname, "src"),
-      "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
+      "@": path.resolve(pkgDir, "src"),
+      "@assets": path.resolve(pkgDir, "..", "..", "attached_assets"),
     },
     dedupe: ["react", "react-dom"],
   },
-  root: path.resolve(import.meta.dirname),
+  root: pkgDir,
   build: {
-    outDir: path.resolve(import.meta.dirname, "dist/public"),
+    outDir: path.resolve(pkgDir, "dist/public"),
     emptyOutDir: true,
   },
   server: {
