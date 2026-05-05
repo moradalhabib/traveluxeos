@@ -1,6 +1,6 @@
 {
   "buildCommand": "pnpm --filter @workspace/traveluxe-os run build",
-  "outputDirectory": "public",
+  "outputDirectory": "dist/public",
   "installCommand": "pnpm install",
   "framework": null
 }

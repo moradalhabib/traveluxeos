@@ -95,13 +95,7 @@ export default defineConfig({
   },
   root: pkgDir,
   build: {
-    // On Vercel (VERCEL=1) write directly to the repo-root public/ so
-    // outputDirectory:"public" in vercel.json finds it without any mv step.
-    // pkgDir = artifacts/traveluxe-os  →  ../../public = repo-root/public
-    // Everywhere else (Replit, local) keep the normal dist/public path.
-    outDir: process.env.VERCEL
-      ? path.resolve(pkgDir, "../../public")
-      : path.resolve(pkgDir, "dist/public"),
+    outDir: path.resolve(pkgDir, "dist/public"),
     emptyOutDir: true,
   },
   server: {
