@@ -1,6 +1,6 @@
 {
-  "buildCommand": "pnpm --filter @workspace/traveluxe-os run build",
-  "outputDirectory": "artifacts/traveluxe-os/dist/public",
+  "buildCommand": "pnpm --filter @workspace/traveluxe-os run build && mv artifacts/traveluxe-os/dist/public ./public",
+  "outputDirectory": "public",
   "installCommand": "pnpm install",
   "framework": null
 }
